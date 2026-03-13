@@ -1,4 +1,6 @@
-openai>=1.14.0
+sentence-transformers
+transformers
+torch
 pinecone>=3.0.0
 pandas>=2.1.0
 python-dotenv>=1.0.0

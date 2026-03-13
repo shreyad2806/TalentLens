@@ -1,20 +1,11 @@
-from typing import Iterable, List
-from openai import OpenAI
-from .config import EMBEDDING_MODEL
+from sentence_transformers import SentenceTransformer
 
+model = SentenceTransformer("all-MiniLM-L6-v2")
 
-_client = OpenAI()
+def embed_texts(texts: list[str]):
+    return [model.encode(t).tolist() for t in texts]
 
-
-def embed_texts(texts: Iterable[str]) -> List[List[float]]:
-    batch = list(texts)
-    if not batch:
-        return []
-    response = _client.embeddings.create(model=EMBEDDING_MODEL, input=batch)
-    return [item.embedding for item in response.data]
-
-
-def embed_text(text: str) -> List[float]:
-    return embed_texts([text])[0]
+def embed_text(text: str):
+    return model.encode(text).tolist()
 
 

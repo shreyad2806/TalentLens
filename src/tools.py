@@ -1,11 +1,7 @@
 from enum import Enum
 from typing import Literal
 
-from openai import OpenAI
-from pydantic import BaseModel
-
 from .config import CATEGORIES
-
 
 class CategoryEnum(str, Enum):
     HR = "HR"
@@ -34,37 +30,32 @@ class CategoryEnum(str, Enum):
     AVIATION = "AVIATION"
 
 
-class SelectCategory(BaseModel):
-    category: CategoryEnum
-
-
-_client = OpenAI()
-
-
 def classify_category(user_query: str) -> str:
-    messages = [
-        {
-            "role": "system",
-            "content": (
-                "You are a classifier. Respond ONLY with a JSON object of the form {\"category\": \"...\"}. "
-                "Return exactly one category that best matches the user's query. "
-                "Choose only from the allowed enum categories. No extra text."
-            ),
-        },
-        {
-            "role": "user",
-            "content": (
-                "Allowed categories: " + ", ".join(CATEGORIES) + "\n\n" + user_query
-            ),
-        },
-    ]
-    response = _client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=messages,
-        response_format={"type": "json_object"},
-        temperature=0,
-    )
-    content = response.choices[0].message.content
-    # pydantic parsing for safety
-    obj = SelectCategory.model_validate_json(content)
-    return obj.category.value
+    # Simple keyword-based classification as fallback
+    query_lower = user_query.lower()
+    
+    # Simple keyword matching for categories
+    category_keywords = {
+        "INFORMATION-TECHNOLOGY": ["software", "developer", "programmer", "java", "python", "javascript", "web", "api", "database", "it", "tech", "engineering"],
+        "HR": ["hr", "human resources", "recruiter", "staffing", "personnel"],
+        "DESIGNER": ["design", "ui", "ux", "graphic", "creative", "artist"],
+        "TEACHER": ["teacher", "education", "professor", "academic", "school"],
+        "ADVOCATE": ["lawyer", "legal", "advocate", "attorney"],
+        "BUSINESS-DEVELOPMENT": ["business", "sales", "marketing", "revenue"],
+        "HEALTHCARE": ["doctor", "medical", "nurse", "health", "hospital"],
+        "FINANCE": ["finance", "accounting", "bank", "financial"],
+        "SALES": ["sales", "selling", "revenue", "customer"],
+        "ENGINEERING": ["engineer", "mechanical", "civil", "electrical"],
+    }
+    
+    # Count keyword matches for each category
+    category_scores = {}
+    for category, keywords in category_keywords.items():
+        score = sum(1 for keyword in keywords if keyword in query_lower)
+        category_scores[category] = score
+    
+    # Return category with highest score, default to first category
+    if max(category_scores.values()) > 0:
+        return max(category_scores, key=category_scores.get)
+    else:
+        return CATEGORIES[0]  # Default to HR if no matches

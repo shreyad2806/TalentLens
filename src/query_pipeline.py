@@ -17,8 +17,8 @@ def retrieve(user_query: str, top_k: int = 5) -> Dict:
     trace.append(
         {
             "step": "Category classification",
-            "tool": "OpenAI Chat Completions",
-            "model": "gpt-4o-mini",
+            "tool": "Keyword-based Classifier",
+            "model": "Rule-based",
             "chosen_category": category,
             "duration_ms": int((t1 - t0) * 1000),
         }
@@ -30,7 +30,7 @@ def retrieve(user_query: str, top_k: int = 5) -> Dict:
     trace.append(
         {
             "step": "Query embedding",
-            "tool": "OpenAI Embeddings",
+            "tool": "SentenceTransformers",
             "model": EMBEDDING_MODEL,
             "dimension": EMBEDDING_DIM,
             "duration_ms": int((t3 - t2) * 1000),

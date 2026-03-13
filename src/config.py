@@ -5,8 +5,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-EMBEDDING_MODEL = "text-embedding-3-small"
-EMBEDDING_DIM = 1536
+EMBEDDING_MODEL = "all-MiniLM-L6-v2"
+EMBEDDING_DIM = 384
 
 
 CATEGORIES = [
@@ -44,7 +44,6 @@ def get_env(key: str, default: str = None, required: bool = False) -> str:
     return value
 
 
-OPENAI_API_KEY = get_env("OPENAI_API_KEY", required=True)
 PINECONE_API_KEY = get_env("PINECONE_API_KEY", required=True)
 PINECONE_INDEX = get_env("PINECONE_INDEX", default="resumes-index")
 PINECONE_CLOUD = get_env("PINECONE_CLOUD", default="aws")
