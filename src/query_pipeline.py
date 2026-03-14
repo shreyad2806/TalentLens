@@ -6,6 +6,7 @@ from .llm import generate_answer_with_trace
 from .pinecone_client import get_index
 from .tools import classify_category
 from .config import EMBEDDING_MODEL, EMBEDDING_DIM, PINECONE_INDEX
+from .llm import get_generator
 
 
 def retrieve(user_query: str, top_k: int = 5) -> Dict:
@@ -60,12 +61,60 @@ def retrieve(user_query: str, top_k: int = 5) -> Dict:
 
     matches = result.get("matches", [])
     docs = []
+    # Helper: generate explanation for a match
+    def explain_match(query: str, resume_text: str, score: float) -> Dict:
+        """
+        Generate explanation for why this resume matches the query.
+        """
+        prompt = f"""
+You are a recruiter assistant.
+
+Explain why the following candidate resume matches the query.
+
+Query:
+{query}
+
+Resume:
+{resume_text}
+
+Match score: {score}%
+
+Return:
+- Match Score
+- Key reasons (skills, experience, location if present)
+- Short bullet explanation
+"""
+
+        try:
+            generator = get_generator()
+            # Use the generator directly to produce a short explanation
+            resp = generator(prompt, max_new_tokens=120, do_sample=False, temperature=0.0)
+            explanation = resp[0].get("generated_text", "")
+        except Exception as e:
+            explanation = f"Error generating explanation: {str(e)}"
+
+        return {"score": score, "explanation": explanation}
+
     for m in matches:
         doc_id = m.get("id")
         meta = m.get("metadata", {}) or {}
         text = meta.get("text", "")
-        score = m.get("score")
-        docs.append({"id": doc_id, "text": text, "score": score, "category": meta.get("category")})
+        raw_score = m.get("score") or 0.0
+        try:
+            score = round(float(raw_score) * 100, 2)
+        except Exception:
+            score = 0.0
+
+        explain = explain_match(user_query, text, score)
+
+        docs.append({
+            "id": doc_id,
+            "text": text,
+            "resume": text,
+            "score": score,
+            "explain": explain,
+            "category": meta.get("category"),
+        })
 
     trace.append(
         {

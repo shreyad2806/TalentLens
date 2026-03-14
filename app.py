@@ -55,8 +55,20 @@ if submitted and user_query.strip():
                 else:
                     for i, d in enumerate(docs[:5], start=1):
                         score = d.get("score")
-                        score_str = f"{score:.4f}" if isinstance(score, (int, float)) else str(score)
+                        score_str = f"{score}%" if isinstance(score, (int, float)) else str(score)
                         with st.expander(f"{i}. ID: {d['id']}  |  Score: {score_str}"):
+                            st.subheader("Candidate Match")
+                            try:
+                                st.metric("Match Score", f"{d.get('score')}%")
+                            except Exception:
+                                st.write(f"Match Score: {score_str}")
+
+                            st.markdown("### Why selected")
+                            explain = d.get("explain", {}) or {}
+                            st.write(explain.get("explanation", ""))
+
+                            st.markdown("---")
+                            st.subheader("Resume (raw)")
                             st.write(d.get("text", ""))
 
             # Processing trace - expanded by default
