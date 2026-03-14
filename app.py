@@ -3,7 +3,6 @@ import warnings
 from dotenv import load_dotenv
 import streamlit as st
 
-from src.query_pipeline import retrieve, answer
 
 # Suppress warnings to avoid threading issues
 warnings.filterwarnings("ignore")
@@ -26,6 +25,9 @@ with st.form("query_form"):
     submitted = st.form_submit_button("Search 🚀")
 
 if submitted and user_query.strip():
+    # Import here to avoid heavy model loading at Streamlit startup.
+    from src.query_pipeline import retrieve, answer
+
     with st.spinner("Classifying, searching, and generating answer..."):
         try:
             retrieved = retrieve(user_query)
