@@ -3,10 +3,9 @@ from typing import Dict, List, Tuple
 
 from .embed import embed_text
 from .llm import generate_answer_with_trace
-from .pinecone_client import get_index
+from .pinecone_client import get_cached_index
 from .tools import classify_category
 from .config import EMBEDDING_MODEL, EMBEDDING_DIM, PINECONE_INDEX
-from .llm import get_generator
 
 
 def retrieve(user_query: str, top_k: int = 5) -> Dict:
@@ -37,7 +36,9 @@ def retrieve(user_query: str, top_k: int = 5) -> Dict:
             "duration_ms": int((t3 - t2) * 1000),
         }
     )
-    index = get_index()
+
+    # Use cached Pinecone index connection
+    index = get_cached_index()
     pinecone_filter = {"category": category}
     t4 = time.time()
     result = index.query(
@@ -61,39 +62,47 @@ def retrieve(user_query: str, top_k: int = 5) -> Dict:
 
     matches = result.get("matches", [])
     docs = []
-    # Helper: generate explanation for a match
-    def explain_match(query: str, resume_text: str, score: float) -> Dict:
-        """
-        Generate explanation for why this resume matches the query.
-        """
-        prompt = f"""
-You are a recruiter assistant.
 
-Explain why the following candidate resume matches the query.
+    # Fast heuristic explanation generator to avoid expensive LLM calls per match.
+    def explain_match_fast(query: str, resume_text: str, score: float) -> Dict:
+        q = query.lower()
+        r = resume_text.lower()
 
-Query:
-{query}
+        reasons = []
+        # Skills / keywords from query
+        for token in q.split():
+            token = token.strip(".,()[]")
+            if len(token) < 3:
+                continue
+            if token in r and token not in reasons:
+                reasons.append(token)
 
-Resume:
-{resume_text}
+        # Years of experience (simple patterns)
+        import re
 
-Match score: {score}%
+        yrs = []
+        for mm in re.finditer(r"(\d+)\+?\s*(?:years|yrs)\b", resume_text, flags=re.I):
+            yrs.append(mm.group(0))
+        if yrs:
+            reasons.append(f"Experience: {yrs[0]}")
 
-Return:
-- Match Score
-- Key reasons (skills, experience, location if present)
-- Short bullet explanation
-"""
+        # Location - look for capitalized tokens from query
+        locs = []
+        for w in query.split():
+            if w and w[0].isupper() and w.lower() in r:
+                locs.append(w)
+        if locs:
+            reasons.append(f"Location: {', '.join(locs)}")
 
-        try:
-            generator = get_generator()
-            # Use the generator directly to produce a short explanation
-            resp = generator(prompt, max_new_tokens=120, do_sample=False, temperature=0.0)
-            explanation = resp[0].get("generated_text", "")
-        except Exception as e:
-            explanation = f"Error generating explanation: {str(e)}"
+        # Assemble short explanation
+        if reasons:
+            bullets = [f"✔ {r_item}" for r_item in reasons]
+            explanation = "\n".join(bullets)
+        else:
+            snippet = (resume_text[:200] + "...") if len(resume_text) > 200 else resume_text
+            explanation = f"No direct keyword matches found. Snippet: {snippet}"
 
-        return {"score": score, "explanation": explanation}
+        return {"score": score, "explanation": explanation, "reasons": reasons}
 
     for m in matches:
         doc_id = m.get("id")
@@ -105,7 +114,7 @@ Return:
         except Exception:
             score = 0.0
 
-        explain = explain_match(user_query, text, score)
+        explain = explain_match_fast(user_query, text, score)
 
         docs.append({
             "id": doc_id,
