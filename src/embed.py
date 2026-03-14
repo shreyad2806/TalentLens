@@ -1,21 +1,19 @@
+import streamlit as st
 from sentence_transformers import SentenceTransformer
-import numpy as np
 
-# Load model lazily to avoid threading issues
-_model = None
 
-def get_model():
-    global _model
-    if _model is None:
-        _model = SentenceTransformer("all-MiniLM-L6-v2")
-    return _model
+@st.cache_resource
+def load_embedding_model():
+    return SentenceTransformer("all-MiniLM-L6-v2")
+
 
 def embed_texts(texts: list[str]):
-    model = get_model()
+    model = load_embedding_model()
     return [model.encode(t).tolist() for t in texts]
 
+
 def embed_text(text: str):
-    model = get_model()
+    model = load_embedding_model()
     return model.encode(text).tolist()
 
 
