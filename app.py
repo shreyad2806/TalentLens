@@ -155,6 +155,39 @@ if submitted and user_query.strip():
                 except Exception:
                     st.write(docs)
                 
+            # Analytics tab (separate): load resume data and render charts
+            try:
+                tab1, tab2 = st.tabs(["Resume Search", "Analytics Dashboard"])
+                with tab2:
+                    import plotly.express as px
+                    from src.analytics import load_data, extract_skills, extract_locations, category_distribution
+
+                    st.subheader("Analytics Dashboard")
+                    df = load_data()
+
+                    if df is None or df.empty:
+                        st.info("No resume dataset found at Resume/Resume.csv")
+                    else:
+                        # pick a text column for analysis
+                        text_col = "Resume" if "Resume" in df.columns else df.columns[0]
+                        skills = extract_skills(df[text_col])
+                        locations = extract_locations(df[text_col])
+                        categories = category_distribution(df)
+
+                        if skills:
+                            fig = px.bar(x=list(dict(skills).keys()), y=list(dict(skills).values()), title="Top Skills in Resume Database")
+                            st.plotly_chart(fig, use_container_width=True)
+
+                        if locations:
+                            fig = px.bar(x=list(dict(locations).keys()), y=list(dict(locations).values()), title="Candidate Locations")
+                            st.plotly_chart(fig, use_container_width=True)
+
+                        if not categories.empty:
+                            fig = px.pie(values=categories.values, names=categories.index, title="Candidate Category Distribution")
+                            st.plotly_chart(fig, use_container_width=True)
+            except Exception as e:
+                st.error(f"Failed to render analytics: {e}")
+                
         except Exception as e:
             st.error(f"An error occurred: {str(e)}")
             st.write("Please try again or check your configuration.")
