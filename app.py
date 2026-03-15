@@ -168,7 +168,7 @@ with tab_search:
 # Analytics tab (outside of submit flow)
 with tab_analytics:
     try:
-        import plotly.express as px
+        import plotly.express as px  # type: ignore[reportMissingImports]
     except Exception:
         st.warning("Plotly is not installed — install with `pip install plotly` to enable Analytics charts.")
     else:
