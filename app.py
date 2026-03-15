@@ -41,11 +41,46 @@ if submitted and user_query.strip():
             # Answer and Top Candidates side-by-side (clean recruiter layout)
             col_left, col_right = st.columns([2, 1])
 
-            # Left: AI Answer
+            # Left: AI Recommendation (clean recruiter view)
             with col_left:
-                st.subheader("🧠 AI Answer")
+                st.subheader("🧠 AI Recommendation")
                 ans = answer(user_query, retrieved)
-                st.write(ans.get("answer", ""))
+
+                # Use the LLM's final answer as an intro, but limit length
+                answer_text = ans.get("answer", "") or ""
+                clean_intro = answer_text[:1200] + ("..." if len(answer_text) > 1200 else "")
+                st.markdown(clean_intro)
+                st.markdown("---")
+
+                # Build a clean numbered list of recommended candidates from retrieved docs
+                if docs:
+                    st.markdown("Based on the provided resumes, the following candidates match your criteria:")
+                    for i, d in enumerate(docs[:5], start=1):
+                        candidate_name = d.get("meta", {}).get("name") or d.get("name") or f"Candidate {i}"
+                        candidate_id = d.get("id") or d.get("meta", {}).get("id") or "-"
+
+                        # derive short bullets from explanation or meta
+                        explain = d.get("explain", {}) or {}
+                        explanation_text = explain.get("explanation") or explain.get("summary") or ""
+                        # create 2 short bullets if possible
+                        bullets = []
+                        if explanation_text:
+                            parts = [p.strip() for p in explanation_text.split(".") if p.strip()]
+                            for part in parts[:2]:
+                                bullets.append(part)
+                        else:
+                            # fallback: attempt to extract from meta
+                            meta_skills = d.get("meta", {}).get("skills") or d.get("meta", {}).get("keywords") or ""
+                            if meta_skills:
+                                bullets = [s.strip() for s in str(meta_skills).split(",")][:2]
+
+                        # render numbered candidate entry
+                        st.markdown(f"**{i}. {candidate_name} (ID: {candidate_id})**")
+                        for b in bullets:
+                            st.markdown(f"- {b}")
+                        st.markdown("\n")
+                else:
+                    st.info("No candidate recommendations available for this query.")
 
             # Right: Top candidates as cards
             with col_right:
@@ -82,15 +117,29 @@ if submitted and user_query.strip():
                             st.write(preview)
                             st.markdown("---")
 
-            # Processing details in an expander
-            st.subheader("🛠️ Processing Details")
-            with st.expander("See processing details (tools, filters, models)"):
+            # Developer debug / processing trace (collapsed)
+            with st.expander("🐛 Debug / Processing Trace"):
                 trace = retrieved.get("trace", {})
-                # Show trace as JSON inside the expander
+                st.markdown("**Trace / steps**")
                 try:
                     st.json(trace)
                 except Exception:
                     st.write(trace)
+
+                st.markdown("---")
+                st.markdown("**Retrieved documents (developer view)**")
+                try:
+                    # Show docs with full text for debugging
+                    for i, d in enumerate(docs, start=1):
+                        st.markdown(f"**{i}. ID: {d.get('id')}  |  Score: {d.get('score')}**")
+                        meta = d.get('meta', {}) or {}
+                        if meta:
+                            st.json(meta)
+                        # Full resume text (developer only)
+                        st.text_area(f"Resume text ({d.get('id')})", value=d.get('text', '') or "", height=250)
+                        st.markdown("---")
+                except Exception:
+                    st.write(docs)
                 
         except Exception as e:
             st.error(f"An error occurred: {str(e)}")
