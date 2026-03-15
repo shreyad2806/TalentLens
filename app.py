@@ -46,39 +46,53 @@ if submitted and user_query.strip():
                 st.subheader("🧠 AI Recommendation")
                 ans = answer(user_query, retrieved)
 
-                # Use the LLM's final answer as an intro, but limit length
+                # Present a concise AI summary (limit length)
                 answer_text = ans.get("answer", "") or ""
-                clean_intro = answer_text[:1200] + ("..." if len(answer_text) > 1200 else "")
-                st.markdown(clean_intro)
-                st.markdown("---")
+                summary = answer_text[:800] + ("..." if len(answer_text) > 800 else "")
 
-                # Build a clean numbered list of recommended candidates from retrieved docs
+                with st.container():
+                    st.markdown(summary)
+                    st.markdown("---")
+
+                # Structured recommended candidates list
+                st.markdown("**Recommended Candidates**")
                 if docs:
-                    st.markdown("Based on the provided resumes, the following candidates match your criteria:")
                     for i, d in enumerate(docs[:5], start=1):
                         candidate_name = d.get("meta", {}).get("name") or d.get("name") or f"Candidate {i}"
                         candidate_id = d.get("id") or d.get("meta", {}).get("id") or "-"
 
-                        # derive short bullets from explanation or meta
-                        explain = d.get("explain", {}) or {}
-                        explanation_text = explain.get("explanation") or explain.get("summary") or ""
-                        # create 2 short bullets if possible
-                        bullets = []
-                        if explanation_text:
-                            parts = [p.strip() for p in explanation_text.split(".") if p.strip()]
-                            for part in parts[:2]:
-                                bullets.append(part)
+                        # Extract structured fields if available
+                        meta = d.get("meta", {}) or {}
+                        # Skills may be a list or comma-separated string
+                        raw_skills = meta.get("skills") or meta.get("keywords") or d.get("skills") or ""
+                        if isinstance(raw_skills, (list, tuple)):
+                            skills = [s.strip() for s in raw_skills]
                         else:
-                            # fallback: attempt to extract from meta
-                            meta_skills = d.get("meta", {}).get("skills") or d.get("meta", {}).get("keywords") or ""
-                            if meta_skills:
-                                bullets = [s.strip() for s in str(meta_skills).split(",")][:2]
+                            skills = [s.strip() for s in str(raw_skills).split(",") if s.strip()]
 
-                        # render numbered candidate entry
-                        st.markdown(f"**{i}. {candidate_name} (ID: {candidate_id})**")
-                        for b in bullets:
-                            st.markdown(f"- {b}")
-                        st.markdown("\n")
+                        experience = meta.get("experience") or meta.get("years") or meta.get("seniority") or "-"
+                        role = meta.get("role") or meta.get("title") or category or "-"
+
+                        with st.container():
+                            st.markdown(f"### {i}. {candidate_name}  —  ID: {candidate_id}")
+
+                            st.markdown("**Key Match Factors**")
+                            st.markdown(f"• Experience: {experience}")
+                            st.markdown(f"• Role Match: {role}")
+
+                            # Skills badges
+                            if skills:
+                                badges = " ".join([f"`{s}`" for s in skills[:6]])
+                                st.markdown(f"**Skills:** {badges}")
+
+                            # Short explanation (if available)
+                            explain = d.get("explain", {}) or {}
+                            explanation_text = explain.get("explanation") or explain.get("summary") or ""
+                            if explanation_text:
+                                short_ex = explanation_text[:300] + ("..." if len(explanation_text) > 300 else "")
+                                st.caption(short_ex)
+
+                            st.markdown("---")
                 else:
                     st.info("No candidate recommendations available for this query.")
 
