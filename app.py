@@ -10,15 +10,14 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"  # Fix tokenizer threading issues
 
 load_dotenv()
 
-st.set_page_config(page_title="Resume QA", page_icon="📄", layout="wide")
-st.title("📄 Resume QA powered by Local RAG")
+st.set_page_config(page_title="Resume Intelligence Platform", page_icon="🎯", layout="wide")
 
-st.markdown(
-    """
-    - This system is powered by local RAG, which uses open-source models and tools to answer questions.
-    - Enter a question; the system will classify it into a category, filter resumes by that category, search semantically, and return both the raw docs and a readable answer.
-    """
-)
+st.markdown("""
+# Resume Intelligence Platform
+AI-powered candidate discovery using Retrieval Augmented Generation.
+
+This dashboard helps recruiters ask role-based questions and quickly surface matched candidates with explainability.
+""")
 
 with st.form("query_form"):
     user_query = st.text_area("Your question", height=120, placeholder="e.g., Find senior Java developers with Spring experience in Bangalore")
@@ -28,59 +27,70 @@ if submitted and user_query.strip():
     # Import here to avoid heavy model loading at Streamlit startup.
     from src.query_pipeline import retrieve, answer
 
-    with st.spinner("Classifying, searching, and generating answer..."):
+    with st.spinner("Searching candidates and generating answer..."):
         try:
             retrieved = retrieve(user_query)
             category = retrieved.get("category")
             docs = retrieved.get("docs", [])
-
             # Category badge
             st.markdown(
-                f"<div style='display:inline-block;padding:6px 12px;border-radius:16px;background:#EEF6FF;color:#1D4ED8;font-weight:600;'>Category: {category}</div>",
+                f"<div style='display:inline-block;padding:6px 12px;border-radius:12px;background:#EEF6FF;color:#1D4ED8;font-weight:600;'>Category: {category}</div>",
                 unsafe_allow_html=True,
             )
 
-            # Answer and Docs side-by-side
-            col_left, col_right = st.columns([1.1, 0.9])
+            # Answer and Top Candidates side-by-side (clean recruiter layout)
+            col_left, col_right = st.columns([2, 1])
 
+            # Left: AI Answer
             with col_left:
-                st.subheader("Answer")
+                st.subheader("🧠 AI Answer")
                 ans = answer(user_query, retrieved)
                 st.write(ans.get("answer", ""))
 
+            # Right: Top candidates as cards
             with col_right:
-                st.subheader("Top 5 Candidates (documents as-it-is)")
+                st.subheader("📋 Top Candidates")
                 if not docs:
                     st.info("No documents found. Try another query.")
                 else:
                     for i, d in enumerate(docs[:5], start=1):
                         score = d.get("score")
-                        score_str = f"{score}%" if isinstance(score, (int, float)) else str(score)
-                        with st.expander(f"{i}. ID: {d['id']}  |  Score: {score_str}"):
-                            st.subheader("Candidate Match")
+                        try:
+                            score_pct = f"{int(round(float(score)))}%"
+                        except Exception:
+                            score_pct = str(score)
+
+                        candidate_name = d.get("meta", {}).get("name") or d.get("name") or f"Candidate {i}"
+                        category_label = d.get("meta", {}).get("category") or category or "-"
+
+                        with st.container():
+                            st.subheader(f"{candidate_name}")
+                            st.write(f"Category: {category_label}")
                             try:
-                                st.metric("Match Score", f"{d.get('score')}%")
+                                st.metric("Match Score", score_pct)
                             except Exception:
-                                st.write(f"Match Score: {score_str}")
+                                st.write(f"Match Score: {score_pct}")
 
-                            st.markdown("### Why selected")
+                            # Brief explanation
                             explain = d.get("explain", {}) or {}
-                            st.write(explain.get("explanation", ""))
+                            if explain.get("explanation"):
+                                st.caption(explain.get("explanation"))
 
+                            # Resume preview (limit length)
+                            resume_text = d.get("text", "") or ""
+                            preview = resume_text[:400] + ("..." if len(resume_text) > 400 else "")
+                            st.write(preview)
                             st.markdown("---")
-                            st.subheader("Resume (raw)")
-                            st.write(d.get("text", ""))
 
-            # Processing trace - expanded by default
-            st.subheader("Processing Trace")
-            with st.expander("See detailed steps (tools, filters, models)", expanded=True):
-                for step in retrieved.get("trace", []):
-                    st.markdown(f"**{step.get('step')}**")
-                    st.json(step)
-                if 'ans' not in locals():
-                    ans = answer(user_query, retrieved)
-                st.markdown("**LLM answer generation**")
-                st.json(ans.get("trace", {}))
+            # Processing details in an expander
+            st.subheader("🛠️ Processing Details")
+            with st.expander("See processing details (tools, filters, models)"):
+                trace = retrieved.get("trace", {})
+                # Show trace as JSON inside the expander
+                try:
+                    st.json(trace)
+                except Exception:
+                    st.write(trace)
                 
         except Exception as e:
             st.error(f"An error occurred: {str(e)}")
