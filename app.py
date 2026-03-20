@@ -48,19 +48,44 @@ This dashboard helps recruiters ask role-based questions and quickly surface mat
 """)
 # Tabs: Resume Search and Analytics Dashboard
 tab_search, tab_analytics = st.tabs(["Resume Search", "Analytics Dashboard"]) 
+if "shortlist" not in st.session_state:
+    st.session_state.shortlist = []
+    st.session_state.shortlist_map = {}
+
+
+def add_to_shortlist(candidate: dict) -> None:
+    ss = st.session_state.get("shortlist", [])
+    smap = st.session_state.get("shortlist_map", {})
+    cid = candidate.get("id")
+    if cid not in ss:
+        ss.append(cid)
+        smap[cid] = {"name": candidate.get("name"), "role": candidate.get("role"), "experience": candidate.get("experience")}
+        st.session_state["shortlist"] = ss
+        st.session_state["shortlist_map"] = smap
+
+
+def remove_from_shortlist(candidate_id: str) -> None:
+    ss = st.session_state.get("shortlist", [])
+    smap = st.session_state.get("shortlist_map", {})
+    ss = [c for c in ss if c != candidate_id]
+    smap.pop(candidate_id, None)
+    st.session_state["shortlist"] = ss
+    st.session_state["shortlist_map"] = smap
+
 
 with tab_search:
-    # Shortlist sidebar (simple, display-only)
+    # Shortlist sidebar (interactive)
     with st.sidebar:
         st.title("⭐ Shortlist")
-        ss = st.session_state.get("shortlist", [])
-        smap = st.session_state.get("shortlist_map", {})
-        if not ss:
-            st.write("No shortlisted candidates yet.")
+        if not st.session_state.shortlist:
+            st.write("No shortlisted candidates.")
         else:
-            for sid in ss:
-                item = smap.get(sid, {})
-                st.markdown(f"- {item.get('name', sid)} — {item.get('role', '')}")
+            for cid in list(st.session_state.shortlist):
+                item = st.session_state.shortlist_map.get(cid, {})
+                st.markdown(f"**{item.get('name', cid)}**")
+                st.caption(f"{item.get('role','')} | {item.get('experience','')}")
+                if st.button("Remove", key=f"remove_{cid}"):
+                    remove_from_shortlist(cid)
 
     with st.form("query_form"):
         user_query = st.text_area("Your question", height=120, placeholder="e.g., Find senior Java developers with Spring experience in Bangalore")
@@ -107,53 +132,57 @@ with tab_search:
                         return loc.title()
                     return None
 
-                def _extract_experience_from_text(text):
-                    if not text:
-                        return "Not specified"
-                    # look for patterns like '5 years', '3+ years', '10 yrs'
-                    m = re.search(r"(\d{1,2})\s*(?:\+)?\s*(?:years|yrs|year)", str(text).lower())
-                    if m:
-                        return f"{m.group(1)}+ years"
-                    return "Not specified"
-
-                def build_candidate_object(doc, idx=0):
+                def build_candidate(doc, score, idx=0):
+                    # doc is a dict with text and metadata
                     meta = (doc.get("meta") or {})
                     text = doc.get("text") or ""
 
                     name = meta.get("name") or doc.get("name") or f"Candidate {idx+1}"
-                    # role: meta -> title -> first line of resume -> fallback
-                    role = meta.get("role") or meta.get("title")
-                    if not role and text:
-                        first_line = str(text).strip().splitlines()
-                        role = first_line[0] if first_line else None
-                    role = role or "Software Developer"
 
-                    location = meta.get("location") or meta.get("city") or _extract_location_from_text(text) or "Not specified"
+                    # Use parser for robust extraction
+                    try:
+                        from src.parser import extract_skills, extract_experience, extract_location, extract_role
+                    except Exception:
+                        # fallbacks
+                        def extract_skills(t):
+                            return []
 
-                    raw_skills = meta.get("skills") or meta.get("keywords") or doc.get("skills") or ""
-                    skills = _safe_list(raw_skills)
-                    # if no explicit skills, try lightweight extraction from text
-                    if not skills and text:
-                        from src.analytics import extract_skills as _ext_skills
+                        def extract_experience(t):
+                            return "Not specified"
 
-                        c = _ext_skills([text])
-                        skills = list(c.keys())
+                        def extract_location(t):
+                            return "Not specified"
 
-                    experience = meta.get("experience") or meta.get("years") or _extract_experience_from_text(text)
+                        def extract_role(t):
+                            return "Software Developer"
+
+                    role = meta.get("role") or meta.get("title") or extract_role(text)
+                    location = meta.get("location") or meta.get("city") or extract_location(text)
+                    skills = meta.get("skills") or meta.get("keywords") or []
+                    if isinstance(skills, (str,)):
+                        skills = [s.strip() for s in skills.split(",") if s.strip()]
+                    if not skills:
+                        skills = extract_skills(text)
+
+                    experience = meta.get("experience") or meta.get("years") or extract_experience(text)
 
                     summary = (meta.get("summary") or meta.get("short") or str(text)[:250]).strip()
 
-                    score = _normalize_score(doc.get("score") or meta.get("score") or 0)
+                    # score expected 0-1 float
+                    try:
+                        score_val = float(score)
+                    except Exception:
+                        score_val = 0.0
 
                     return {
                         "id": doc.get("id") or meta.get("id") or f"doc_{idx}",
                         "name": name,
                         "role": role,
                         "location": location,
-                        "skills": skills,
+                        "skills": list(skills),
                         "experience": experience,
                         "summary": summary,
-                        "score": score,
+                        "score": score_val,
                         "raw_text": text,
                     }
 
@@ -288,7 +317,8 @@ with tab_search:
                     if not docs:
                         st.warning("No matching candidates found")
                     else:
-                        candidates = [build_candidate_object(d, idx=i) for i, d in enumerate(docs[:8])]
+                        # Build structured candidates using parser-based extraction
+                        candidates = [build_candidate(d, (d.get("score") or 0) / 100.0, i) for i, d in enumerate(docs[:8])]
                         for i, cand in enumerate(candidates):
                             render_candidate_card(cand, i)
 
