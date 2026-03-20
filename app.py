@@ -59,7 +59,12 @@ def add_to_shortlist(candidate: dict) -> None:
     cid = candidate.get("id")
     if cid not in ss:
         ss.append(cid)
-        smap[cid] = {"name": candidate.get("name"), "role": candidate.get("role"), "experience": candidate.get("experience")}
+        smap[cid] = {
+            "name": candidate.get("name"),
+            "role": candidate.get("role"),
+            "experience": candidate.get("experience"),
+            "score": float(candidate.get("score") or 0),
+        }
         st.session_state["shortlist"] = ss
         st.session_state["shortlist_map"] = smap
 
@@ -73,19 +78,38 @@ def remove_from_shortlist(candidate_id: str) -> None:
     st.session_state["shortlist_map"] = smap
 
 
+# Fallback extractor helpers (module-level, with type hints) to satisfy static analysis
+def fallback_extract_skills(text: str) -> list:
+    return []
+
+
+def fallback_extract_experience(text: str) -> str:
+    return "Not specified"
+
+
+def fallback_extract_location(text: str) -> str:
+    return "Not specified"
+
+
+def fallback_extract_role(text: str) -> str:
+    return "Software Developer"
+
+
 with tab_search:
     # Shortlist sidebar (interactive)
     with st.sidebar:
-        st.title("⭐ Shortlist")
-        if not st.session_state.shortlist:
-            st.write("No shortlisted candidates.")
-        else:
-            for cid in list(st.session_state.shortlist):
-                item = st.session_state.shortlist_map.get(cid, {})
-                st.markdown(f"**{item.get('name', cid)}**")
-                st.caption(f"{item.get('role','')} | {item.get('experience','')}")
+        st.subheader("⭐ Shortlist")
+        ss = st.session_state.get("shortlist", [])
+        smap = st.session_state.get("shortlist_map", {})
+        if ss:
+            for cid in ss:
+                item = smap.get(cid, {})
+                score_pct = int((item.get("score") or 0) * 100)
+                st.write(f"{item.get('name','Unknown')} ({score_pct}%)")
                 if st.button("Remove", key=f"remove_{cid}"):
                     remove_from_shortlist(cid)
+        else:
+            st.caption("No shortlisted candidates")
 
     with st.form("query_form"):
         user_query = st.text_area("Your question", height=120, placeholder="e.g., Find senior Java developers with Spring experience in Bangalore")
@@ -143,18 +167,11 @@ with tab_search:
                     try:
                         from src.parser import extract_skills, extract_experience, extract_location, extract_role
                     except Exception:
-                        # fallbacks
-                        def extract_skills(t):
-                            return []
-
-                        def extract_experience(t):
-                            return "Not specified"
-
-                        def extract_location(t):
-                            return "Not specified"
-
-                        def extract_role(t):
-                            return "Software Developer"
+                        # fallbacks: map to module-level helpers with explicit type signatures
+                        extract_skills = fallback_extract_skills
+                        extract_experience = fallback_extract_experience
+                        extract_location = fallback_extract_location
+                        extract_role = fallback_extract_role
 
                     role = meta.get("role") or meta.get("title") or extract_role(text)
                     location = meta.get("location") or meta.get("city") or extract_location(text)
@@ -253,87 +270,84 @@ with tab_search:
                     unsafe_allow_html=True,
                 )
 
-                # Answer and Top Candidates side-by-side (clean recruiter layout)
-                col_left, col_right = st.columns([2, 1])
+                # Answer and Top Candidates side-by-side (minimal recruiter UI)
+                left_col, right_col = st.columns([1, 3])
 
-                # Left: AI Recommendation (clean recruiter view)
-                with col_left:
-                    st.subheader("🧠 AI Recommendation")
-                    ans = answer(user_query, retrieved)
+                # Build structured candidates once and enforce limits
+                candidates = [build_candidate(d, (d.get("score") or 0) / 100.0, i) for i, d in enumerate(docs[:10])]
+                # truncate summaries and skills per rules
+                for c in candidates:
+                    if c.get("summary"):
+                        c["summary"] = (c["summary"][:80] + "...") if len(c["summary"]) > 80 else c["summary"]
+                    if c.get("skills") and isinstance(c.get("skills"), list):
+                        c["skills"] = c["skills"][:5]
 
-                    # Present a concise AI summary (limit length)
-                    answer_text = ans.get("answer", "") or ""
-                    summary = answer_text[:800] + ("..." if len(answer_text) > 800 else "")
+                top_candidates = candidates[:10]
 
-                    with st.container():
-                        st.markdown(summary)
-                        st.markdown("---")
+                # compute global top skills (simple frequency)
+                from collections import Counter
 
-                    # Structured recommended candidates list
-                    st.markdown("**Recommended Candidates**")
-                    if docs:
-                        for i, d in enumerate(docs[:5], start=1):
-                            candidate_name = d.get("meta", {}).get("name") or d.get("name") or f"Candidate {i}"
-                            candidate_id = d.get("id") or d.get("meta", {}).get("id") or "-"
+                skill_counter = Counter()
+                for c in candidates:
+                    for s in (c.get("skills") or []):
+                        if s:
+                            skill_counter[s] += 1
+                global_top_skills = [s for s, _ in skill_counter.most_common(6)]
 
-                            # Extract structured fields if available
-                            meta = d.get("meta", {}) or {}
-                            # Skills may be a list or comma-separated string
-                            raw_skills = meta.get("skills") or meta.get("keywords") or d.get("skills") or ""
-                            if isinstance(raw_skills, (list, tuple)):
-                                skills = [s.strip() for s in raw_skills]
-                            else:
-                                skills = [s.strip() for s in str(raw_skills).split(",") if s.strip()]
+                # LEFT: Search summary (compact, metrics only)
+                with left_col:
+                    st.subheader("🔍 Search Summary")
+                    st.write(f"**Query:** {user_query}")
+                    st.metric("Candidates Found", len(top_candidates))
+                    avg_score = 0
+                    if top_candidates:
+                        try:
+                            avg_score = int(sum([c.get("score", 0) for c in top_candidates]) / len(top_candidates) * 100)
+                        except Exception:
+                            avg_score = 0
+                    st.metric("Avg Match", f"{avg_score}%")
 
-                            experience = meta.get("experience") or meta.get("years") or meta.get("seniority") or "-"
-                            role = meta.get("role") or meta.get("title") or category or "-"
+                    st.markdown("### Top Skills")
+                    st.caption(", ".join(global_top_skills))
 
-                            with st.container():
-                                st.markdown(f"### {i}. {candidate_name}  —  ID: {candidate_id}")
+                    # minimal success note replacing verbose AI-recommendation
+                    st.success("Top candidates ranked based on skills and relevance")
 
-                                st.markdown("**Key Match Factors**")
-                                st.markdown(f"• Experience: {experience}")
-                                st.markdown(f"• Role Match: {role}")
-
-                                # Skills badges
-                                if skills:
-                                    badges = " ".join([f"`{s}`" for s in skills[:6]])
-                                    st.markdown(f"**Skills:** {badges}")
-
-                                # Short explanation (if available)
-                                explain = d.get("explain", {}) or {}
-                                explanation_text = explain.get("explanation") or explain.get("summary") or ""
-                                if explanation_text:
-                                    short_ex = explanation_text[:300] + ("..." if len(explanation_text) > 300 else "")
-                                    st.caption(short_ex)
-
-                                st.markdown("---")
-                    else:
-                        st.info("No candidate recommendations available for this query.")
-
-                # Right: Top candidates as cards
-                with col_right:
-                    st.subheader("📋 Top Candidates")
-                    if not docs:
+                # RIGHT: Clean candidate cards
+                with right_col:
+                    st.subheader("Top Candidates")
+                    if not top_candidates:
                         st.warning("No matching candidates found")
                     else:
-                        # Build structured candidates using parser-based extraction
-                        candidates = [build_candidate(d, (d.get("score") or 0) / 100.0, i) for i, d in enumerate(docs[:8])]
-                        for i, cand in enumerate(candidates):
-                            render_candidate_card(cand, i)
+                        for i, c in enumerate(top_candidates):
+                            with st.container():
+                                col1, col2 = st.columns([4, 1])
+                                with col1:
+                                    st.markdown(f"### {c.get('name','Candidate')}")
+                                    st.caption(f"{c.get('role','')} • {c.get('location','Not specified')}")
+                                with col2:
+                                    st.metric("Match", f"{int((c.get('score') or 0)*100)}%")
 
-                        # Resume viewer using Streamlit native components
-                        view_id = st.session_state.get("view_resume_id")
-                        if view_id:
-                            view_text = st.session_state.get("view_resume_text", "")
-                            with st.expander(f"📄 Resume: {view_id}", expanded=True):
-                                st.text_area("Full Resume", value=view_text, height=400, key=f"resume_area_{view_id}")
+                                # Skills (only top 5)
+                                if c.get("skills"):
+                                    skills_line = " ".join([f"`{s}`" for s in (c.get("skills") or [])])
+                                    st.markdown(skills_line)
 
-                            if st.button("Close", key=f"close_view_{view_id}"):
-                                st.session_state["view_resume_id"] = None
-                                st.session_state["view_resume_text"] = ""
+                                # Experience and one-line summary
+                                st.caption(f"📅 {c.get('experience','Not specified')}")
+                                st.caption(c.get('summary',''))
 
-                # Developer debug / processing trace (collapsed)
+                                # Actions
+                                b1, b2 = st.columns(2)
+                                with b1:
+                                    st.button("View Profile", key=f"view_{i}")
+                                with b2:
+                                    if st.button("⭐ Shortlist", key=f"short_{i}"):
+                                        add_to_shortlist(c)
+
+                                st.markdown("---")
+
+                # Developer debug / processing trace (collapsed) - no raw texts
                 with st.expander("🐛 Debug / Processing Trace"):
                     trace = retrieved.get("trace", {})
                     st.markdown("**Trace / steps**")
@@ -345,17 +359,16 @@ with tab_search:
                     st.markdown("---")
                     st.markdown("**Retrieved documents (developer view)**")
                     try:
-                        # Show docs with full text for debugging
-                        for i, d in enumerate(docs, start=1):
+                        for i, d in enumerate(docs[:10], start=1):
                             st.markdown(f"**{i}. ID: {d.get('id')}  |  Score: {d.get('score')}**")
                             meta = d.get('meta', {}) or {}
                             if meta:
                                 st.json(meta)
-                            # Full resume text (developer only)
-                            st.text_area(f"Resume text ({d.get('id')})", value=d.get('text', '') or "", height=250)
+                            # do NOT display full resume text or raw document content here
+                            st.caption("Full document text hidden in developer view")
                             st.markdown("---")
                     except Exception:
-                        st.write(docs)
+                        st.write([{"id": d.get('id'), "score": d.get('score')} for d in docs])
                 
             # Analytics rendering will be available in the Analytics tab (below)
                 
