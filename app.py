@@ -4,6 +4,17 @@ from dotenv import load_dotenv
 import streamlit as st
 import re
 import html
+import time
+
+# Warm embedding model on startup to avoid loading during first query
+try:
+    from src.embed import load_embedding_model
+
+    # call to ensure model resource is initialized (cached_resource)
+    _ = load_embedding_model()
+except Exception:
+    # don't block startup if model cannot be loaded here
+    pass
 
 
 # Suppress warnings to avoid threading issues
@@ -46,7 +57,11 @@ with tab_search:
 
         with st.spinner("Searching candidates and generating answer..."):
             try:
+                t_start = time.time()
                 retrieved = retrieve(user_query)
+                t_end = time.time()
+                elapsed = round(t_end - t_start, 2)
+                st.sidebar.write(f"⏱ Query time: {elapsed} sec")
                 category = retrieved.get("category")
                 docs = retrieved.get("docs", [])
 

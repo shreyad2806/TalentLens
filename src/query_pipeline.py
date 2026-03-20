@@ -25,6 +25,7 @@ def retrieve(user_query: str, top_k: int = 5) -> Dict:
     )
 
     t2 = time.time()
+    # embed the query (cached)
     query_vec = embed_text(user_query)
     t3 = time.time()
     trace.append(
