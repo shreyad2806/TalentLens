@@ -16,6 +16,21 @@ except Exception:
     # don't block startup if model cannot be loaded here
     pass
 
+# Precompute resume embeddings if not present (will be cached on disk)
+try:
+    from src.analytics import load_data
+    from src.embed import get_or_create_resume_embeddings
+
+    df_res = load_data()
+    if df_res is not None and not df_res.empty:
+        # this will load persisted embeddings or compute+persist if missing
+        embs, emb_ids = get_or_create_resume_embeddings(df_res)
+        # expose counts in sidebar for visibility
+        st.sidebar.write(f"🗂 Resumes indexed: {len(embs)}")
+except Exception:
+    # non-fatal; if persistence unavailable, the app still runs
+    pass
+
 
 # Suppress warnings to avoid threading issues
 warnings.filterwarnings("ignore")
@@ -57,11 +72,7 @@ with tab_search:
 
         with st.spinner("Searching candidates and generating answer..."):
             try:
-                t_start = time.time()
                 retrieved = retrieve(user_query)
-                t_end = time.time()
-                elapsed = round(t_end - t_start, 2)
-                st.sidebar.write(f"⏱ Query time: {elapsed} sec")
                 category = retrieved.get("category")
                 docs = retrieved.get("docs", [])
 
