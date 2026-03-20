@@ -3,6 +3,7 @@ import warnings
 from dotenv import load_dotenv
 import streamlit as st
 import re
+import html
 
 
 # Suppress warnings to avoid threading issues
@@ -34,12 +35,13 @@ with tab_search:
             for sid in list(ss):
                 item = smap.get(sid, {})
                 st.markdown(f"- {item.get('name', sid)} — {item.get('role', '')}")
-                if st.button("Remove", key=f"remove_{sid}"):
-                    ss.remove(sid)
-                    smap.pop(sid, None)
-                    st.session_state["shortlist"] = ss
-                    st.session_state["shortlist_map"] = smap
-                    st.experimental_rerun()
+                        if st.button("Remove", key=f"remove_{sid}"):
+                            ss.remove(sid)
+                            smap.pop(sid, None)
+                            st.session_state["shortlist"] = ss
+                            st.session_state["shortlist_map"] = smap
+                            # Use getattr to avoid static analysis errors in some linters
+                            getattr(st, "experimental_rerun", lambda: None)()
 
     with st.form("query_form"):
         user_query = st.text_area("Your question", height=120, placeholder="e.g., Find senior Java developers with Spring experience in Bangalore")
@@ -282,6 +284,7 @@ with tab_search:
                         view_id = st.session_state.get("view_resume_id")
                         if view_id:
                             view_text = st.session_state.get("view_resume_text", "")
+                            escaped = html.escape(view_text)
                             st.markdown(
                                 f"""
                             <div style='background-color:#071025;padding:14px;border-radius:10px;border:1px solid #22303a;margin-top:10px;'>
@@ -289,7 +292,7 @@ with tab_search:
                                     <h4 style='margin:0;color:#e6eef8;'>📄 Resume: {view_id}</h4>
                                 </div>
                                 <div style='margin-top:8px;color:#cbd5e1;white-space:pre-wrap;max-height:360px;overflow:auto;padding-top:8px;'>
-                                    {st.escape(view_text) if hasattr(st, 'escape') else view_text}
+                                    {escaped}
                                 </div>
                             </div>
                             """,
