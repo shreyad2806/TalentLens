@@ -24,24 +24,17 @@ This dashboard helps recruiters ask role-based questions and quickly surface mat
 tab_search, tab_analytics = st.tabs(["Resume Search", "Analytics Dashboard"]) 
 
 with tab_search:
-    # Shortlist sidebar (persistent within session)
+    # Shortlist sidebar (simple, display-only)
     with st.sidebar:
-        st.header("⭐ Shortlist")
+        st.title("⭐ Shortlist")
         ss = st.session_state.get("shortlist", [])
         smap = st.session_state.get("shortlist_map", {})
         if not ss:
-            st.write("No shortlisted candidates.")
+            st.write("No shortlisted candidates yet.")
         else:
-            for sid in list(ss):
+            for sid in ss:
                 item = smap.get(sid, {})
                 st.markdown(f"- {item.get('name', sid)} — {item.get('role', '')}")
-                        if st.button("Remove", key=f"remove_{sid}"):
-                            ss.remove(sid)
-                            smap.pop(sid, None)
-                            st.session_state["shortlist"] = ss
-                            st.session_state["shortlist_map"] = smap
-                            # Use getattr to avoid static analysis errors in some linters
-                            getattr(st, "experimental_rerun", lambda: None)()
 
     with st.form("query_form"):
         user_query = st.text_area("Your question", height=120, placeholder="e.g., Find senior Java developers with Spring experience in Bangalore")
@@ -139,71 +132,64 @@ with tab_search:
                     }
 
                 def render_candidate_card(candidate, idx):
-                    # Build safe display values
-                    name = candidate.get("name") or f"Candidate {idx+1}"
-                    role = candidate.get("role") or "Software Developer"
-                    location = candidate.get("location") or "Not specified"
-                    score = int(round(float(candidate.get("score", 0)) * 100))
-                    skills = candidate.get("skills") or []
-                    experience = candidate.get("experience") or "Not specified"
-                    summary = str(candidate.get("summary") or "")
-                    if len(summary) > 220:
-                        summary = summary[:220].rsplit(" ", 1)[0] + "..."
+                                    # Build safe display values
+                                    name = candidate.get("name") or f"Candidate {idx+1}"
+                                    role = candidate.get("role") or "Software Developer"
+                                    location = candidate.get("location") or "Not specified"
+                                    experience = candidate.get("experience") or "Not specified"
+                                    score_val = float(candidate.get("score", 0) or 0)
+                                    score_percent = int(round(score_val * 100))
 
-                    # Score color logic
-                    if score >= 80:
-                        color = "#10b981"  # green-500
-                    elif score >= 60:
-                        color = "#f59e0b"  # amber-500
-                    else:
-                        color = "#ef4444"  # red-500
+                                    # Summary (truncate)
+                                    text_src = candidate.get("summary") or candidate.get("raw_text") or ""
+                                    summary = text_src if len(text_src) <= 250 else text_src[:250].rsplit(" ", 1)[0] + "..."
 
-                    candidate_id = str(candidate.get("id") or idx)
+                                    # Color emoji logic
+                                    if score_percent >= 80:
+                                        color_emoji = "🟢"
+                                    elif score_percent >= 60:
+                                        color_emoji = "🟡"
+                                    else:
+                                        color_emoji = "🔴"
 
-                    st.markdown(
-                        f"""
-                    <div style="background-color:#0b1220;padding:16px;border-radius:12px;margin-bottom:14px;border:1px solid #1f2937;">
-                        <div style="display:flex;align-items:center;justify-content:space-between;">
-                            <div style="flex:1">
-                                <h4 style="margin:0;color:#f3f4f6;">👤 {name}</h4>
-                                <div style="color:#cbd5e1;margin-top:6px;">💼 {role} • 📍 {location}</div>
-                            </div>
-                            <div style="text-align:right;min-width:110px;margin-left:12px;">
-                                <div style="font-size:20px;color:{color};font-weight:700;">⭐ {score}%</div>
-                                <div style="color:#94a3b8;font-size:12px;">Match Score</div>
-                            </div>
-                        </div>
+                                    candidate_id = str(candidate.get("id") or idx)
 
-                        <div style="margin-top:10px;color:#e6eef8;">
-                            <b>Skills:</b> {(' | '.join(skills)) if skills else 'N/A'}
-                        </div>
-                        <div style="margin-top:6px;color:#cbd5e1;"> <b>Experience:</b> {experience} </div>
-                        <div style="margin-top:8px;color:#9ca3af;">{summary}</div>
+                                    # CARD LAYOUT (NO HTML)
+                                    with st.container():
+                                        st.markdown("---")
 
-                        <div style="margin-top:12px;display:flex;gap:8px;">
-                        </div>
-                    </div>
-                    """,
-                        unsafe_allow_html=True,
-                    )
+                                        col1, col2 = st.columns([3, 1])
 
-                    c1, c2 = st.columns([1, 1])
-                    with c1:
-                        if st.button("📄 View Resume", key=f"view_{candidate_id}_{idx}"):
-                            st.session_state["view_resume_id"] = candidate_id
-                            st.session_state["view_resume_text"] = candidate.get("raw_text", "")
-                    with c2:
-                        if st.button("⭐ Shortlist", key=f"shortlist_{candidate_id}_{idx}"):
-                            ss = st.session_state.get("shortlist", [])
-                            smap = st.session_state.get("shortlist_map", {})
-                            if candidate_id not in ss:
-                                ss.append(candidate_id)
-                                smap[candidate_id] = {"name": name, "role": role}
-                                st.session_state["shortlist"] = ss
-                                st.session_state["shortlist_map"] = smap
-                                st.success("Added to shortlist")
-                            else:
-                                st.info("Already shortlisted")
+                                        with col1:
+                                            st.subheader(f"👤 {name}")
+                                            st.write(f"💼 {role}")
+                                            st.write(f"📍 {location}")
+
+                                        with col2:
+                                            st.metric(label="Match", value=f"{score_percent}%", delta=color_emoji)
+
+                                        st.write(f"📅 Experience: {experience}")
+                                        st.write("🧠 Summary:")
+                                        st.caption(summary)
+
+                                        # Buttons (unique keys using candidate id)
+                                        b1, b2 = st.columns(2)
+                                        with b1:
+                                            if st.button("📄 View Resume", key=f"view_{candidate_id}_{idx}"):
+                                                st.session_state["view_resume_id"] = candidate_id
+                                                st.session_state["view_resume_text"] = candidate.get("raw_text", "")
+                                        with b2:
+                                            if st.button("⭐ Shortlist", key=f"short_{candidate_id}_{idx}"):
+                                                ss = st.session_state.get("shortlist", [])
+                                                smap = st.session_state.get("shortlist_map", {})
+                                                if candidate_id not in ss:
+                                                    ss.append(candidate_id)
+                                                    smap[candidate_id] = {"name": name, "role": role}
+                                                    st.session_state["shortlist"] = ss
+                                                    st.session_state["shortlist_map"] = smap
+                                                    st.success("Added to shortlist")
+                                                else:
+                                                    st.info("Already shortlisted")
 
 
                 # Category badge
@@ -280,24 +266,12 @@ with tab_search:
                         for i, cand in enumerate(candidates):
                             render_candidate_card(cand, i)
 
-                        # Resume viewer modal-like area
+                        # Resume viewer using Streamlit native components
                         view_id = st.session_state.get("view_resume_id")
                         if view_id:
                             view_text = st.session_state.get("view_resume_text", "")
-                            escaped = html.escape(view_text)
-                            st.markdown(
-                                f"""
-                            <div style='background-color:#071025;padding:14px;border-radius:10px;border:1px solid #22303a;margin-top:10px;'>
-                                <div style='display:flex;justify-content:space-between;align-items:center;'>
-                                    <h4 style='margin:0;color:#e6eef8;'>📄 Resume: {view_id}</h4>
-                                </div>
-                                <div style='margin-top:8px;color:#cbd5e1;white-space:pre-wrap;max-height:360px;overflow:auto;padding-top:8px;'>
-                                    {escaped}
-                                </div>
-                            </div>
-                            """,
-                                unsafe_allow_html=True,
-                            )
+                            with st.expander(f"📄 Resume: {view_id}", expanded=True):
+                                st.text_area("Full Resume", value=view_text, height=400, key=f"resume_area_{view_id}")
 
                             if st.button("Close", key=f"close_view_{view_id}"):
                                 st.session_state["view_resume_id"] = None
