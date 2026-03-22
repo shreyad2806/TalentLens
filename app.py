@@ -443,43 +443,75 @@ with tab_search:
                 # build refined query using selected skills
                 refined_query = user_query + " " + " ".join(st.session_state.selected_skills or [])
 
-                try:
-                    from src.parser import extract_candidate_info
-                except Exception:
-                    extract_candidate_info = None
+                # Scoring-based ranking (avoid hard AND filters)
+                def compute_candidate_score(candidate: dict, q: dict) -> tuple:
+                    text = (candidate.get("raw_text") or "").lower()
+                    score = 0.0
+                    matched = []
 
-                filtered_candidates = []
+                    # Skill score (HIGH weight)
+                    for sk in (q.get("skills") or []):
+                        if sk and sk.lower() in text:
+                            score += 10
+                            matched.append(sk)
+
+                    # Experience score
+                    yrs = get_experience_years(candidate.get("raw_text", "") or candidate.get("summary", ""))
+                    exp_min = q.get("experience_min", 0)
+                    exp_max = q.get("experience_max", 100)
+                    try:
+                        if exp_min <= yrs <= exp_max:
+                            score += 15
+                        else:
+                            score += max(0, 10 - abs(yrs - exp_min))
+                    except Exception:
+                        pass
+
+                    # Location score (LOW weight)
+                    loc = (q.get("location") or "").lower()
+                    if loc and loc in text:
+                        score += 5
+
+                    # Query relevance (keyword match)
+                    qtext = (q.get("text") or "").lower()
+                    if qtext and qtext in text:
+                        score += 20
+
+                    # include original vector score as small boost
+                    try:
+                        orig = float(candidate.get("score", 0) or 0) * 100
+                        score += orig * 0.05
+                    except Exception:
+                        pass
+
+                    return score, matched
+
+                scored = []
                 for c in top_candidates:
-                    info = None
-                    if extract_candidate_info:
-                        try:
-                            info = extract_candidate_info(c.get("raw_text", ""), refined_query)
-                        except Exception:
-                            info = None
+                    s, matched = compute_candidate_score(c, {
+                        "skills": st.session_state.selected_skills or [],
+                        "experience_min": min_exp,
+                        "experience_max": max_exp,
+                        "location": location or "",
+                        "text": refined_query,
+                    })
+                    c["_raw_score"] = s
+                    c["_matched_skills"] = list(dict.fromkeys(matched))
+                    scored.append(c)
 
-                    if info is None:
-                        info = {
-                            "role": c.get("role", "Software Engineer"),
-                            "experience": c.get("experience", "Not specified"),
-                            "skills": c.get("skills", []),
-                            "matched_skills": [],
-                            "location": c.get("location", "Not specified"),
-                        }
+                # sort by score desc
+                scored_sorted = sorted(scored, key=lambda x: x.get("_raw_score", 0), reverse=True)
 
-                    # experience numeric
-                    years = get_experience_years(info.get("experience") or c.get("summary") or c.get("raw_text", ""))
+                # safety: if fewer candidates than requested, return what we have
+                display_candidates = scored_sorted[:int(num_candidates)] if scored_sorted else top_candidates[:int(num_candidates)]
 
-                    # skill filter
-                    skill_ok = True
-                    if st.session_state.selected_skills:
-                        txt = (c.get("raw_text", "") or "").lower()
-                        skill_ok = any(sk.lower() in txt or sk.lower() in ",".join([s.lower() for s in (info.get("skills") or [])]) for sk in st.session_state.selected_skills)
+                # normalize to percent based on max observed
+                max_raw = max([c.get("_raw_score", 0) for c in display_candidates]) if display_candidates else 0
+                for c in display_candidates:
+                    raw = c.get("_raw_score", 0)
+                    pct = int(round((raw / max_raw) * 100)) if max_raw > 0 else 0
+                    c["_match_pct"] = pct
 
-                    if min_exp <= years <= max_exp and skill_ok:
-                        c["_info"] = info
-                        filtered_candidates.append(c)
-
-                display_candidates = filtered_candidates if filtered_candidates else top_candidates
                 # show active filters
                 with left_col:
                     st.markdown("### 🎯 Active Filters")
@@ -487,9 +519,6 @@ with tab_search:
                         st.write("Skills:", ", ".join(st.session_state.selected_skills or []))
                     st.write(f"Experience: {min_exp} - {max_exp} years")
                     st.write(f"Showing top {num_candidates} candidates")
-
-                # limit number of candidates
-                display_candidates = display_candidates[:int(num_candidates)]
 
                 # RIGHT: Clean candidate cards (structured view)
                 with right_col:
@@ -524,7 +553,8 @@ with tab_search:
                             role = info.get("role") or c.get("role") or "Software Engineer"
                             location = info.get("location") or c.get("location") or "Not specified"
                             experience = info.get("experience") or c.get("experience") or "Not specified"
-                            score_pct = int(round(float(c.get("score", 0) or 0) * 100))
+                            # prefer calculated match percent if available
+                            score_pct = int(c.get("_match_pct", int(round(float(c.get("score", 0) or 0) * 100))))
 
                             with st.container():
                                 col1, col2 = st.columns([4, 1])
@@ -543,8 +573,9 @@ with tab_search:
                                     st.write(", ".join(skills_display) if skills_display else "—")
                                 with g3:
                                     st.markdown("**🎯 Match Skills**")
-                                    if info.get("matched_skills"):
-                                        st.success(", ".join(info.get("matched_skills") or []))
+                                    matched_sk = c.get("_matched_skills") or info.get("matched_skills") or []
+                                    if matched_sk:
+                                        st.success(", ".join(matched_sk))
                                     else:
                                         st.caption("No strong match")
 
