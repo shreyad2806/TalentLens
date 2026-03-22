@@ -52,6 +52,9 @@ if "shortlist" not in st.session_state:
     st.session_state.shortlist = []
     st.session_state.shortlist_map = {}
 
+if "selected_skills" not in st.session_state:
+    st.session_state.selected_skills = []
+
 
 def add_to_shortlist(candidate: dict) -> None:
     ss = st.session_state.get("shortlist", [])
@@ -95,6 +98,45 @@ def fallback_extract_role(text: str) -> str:
     return "Software Developer"
 
 
+def get_skill_suggestions(query: str):
+    base_skills = [
+        "python",
+        "java",
+        "sql",
+        "aws",
+        "docker",
+        "kubernetes",
+        "react",
+        "node",
+        "ml",
+        "ai",
+        "ci/cd",
+        "postgresql",
+        "mongodb",
+        "spark",
+        "rag",
+    ]
+    q = (query or "").lower()
+    suggestions = [s for s in base_skills if s in q]
+    # append a few defaults
+    for s in base_skills[:5]:
+        if s not in suggestions:
+            suggestions.append(s)
+    return suggestions
+
+
+def get_experience_years(text: str) -> int:
+    if not text:
+        return 0
+    m = re.search(r"(\d{1,2})", str(text))
+    if m:
+        try:
+            return int(m.group(1))
+        except Exception:
+            return 0
+    return 0
+
+
 with tab_search:
     # Shortlist sidebar (interactive)
     with st.sidebar:
@@ -113,15 +155,57 @@ with tab_search:
 
     with st.form("query_form"):
         user_query = st.text_area("Your question", height=120, placeholder="e.g., Find senior Java developers with Spring experience in Bangalore")
+
+        st.markdown("### 🎯 Refine Your Search")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            num_candidates = st.selectbox("Number of Candidates", [5, 10, 15, 20], index=1)
+        with col2:
+            exp_range = st.slider("Experience (Years)", 0, 20, (2, 6))
+        with col3:
+            location = st.text_input("Preferred Location", "India")
+
+        st.markdown("### ⚡ Suggested Skills")
+        default_skills = ["SQL", "Python", "AWS", "RAG", "Docker", "Spark"]
+
+        # multi-select for skills (works inside form)
+        selected = st.multiselect("Select Skills (suggested)", default_skills, default=st.session_state.get("selected_skills", []))
+        st.session_state.selected_skills = selected or []
+
+        custom_skill = st.text_input("Add custom skill")
+
+        st.write("Selected Skills:", ", ".join(st.session_state.selected_skills or []))
+
         submitted = st.form_submit_button("Search 🚀")
 
     if submitted and user_query.strip():
+        # if custom skill provided inside form, add it to selected skills
+        try:
+            if custom_skill:
+                if custom_skill not in st.session_state.selected_skills:
+                    st.session_state.selected_skills.append(custom_skill)
+        except Exception:
+            pass
+        # Build structured query from pre-search controls
+        structured_query = {
+            "text": user_query,
+            "skills": st.session_state.selected_skills or [],
+            "experience_min": int(exp_range[0]) if isinstance(exp_range, (list, tuple)) else int(exp_range),
+            "experience_max": int(exp_range[1]) if isinstance(exp_range, (list, tuple)) else int(exp_range),
+            "location": location,
+            "num_candidates": int(num_candidates),
+        }
+
+        # Compose a refined textual query for retrieval/reranking
+        refined_query = f"{user_query} " + " ".join(structured_query["skills"]) + f" location:{structured_query['location']} exp:{structured_query['experience_min']}-{structured_query['experience_max']}"
+
         # Import here to avoid heavy model loading at Streamlit startup.
         from src.query_pipeline import retrieve, answer
 
         with st.spinner("Searching candidates and generating answer..."):
             try:
-                retrieved = retrieve(user_query)
+                # pass refined_query and set top_k=num_candidates to retrieval
+                retrieved = retrieve(refined_query, top_k=structured_query.get("num_candidates", 10))
                 category = retrieved.get("category")
                 docs = retrieved.get("docs", [])
 
@@ -294,7 +378,7 @@ with tab_search:
                             skill_counter[s] += 1
                 global_top_skills = [s for s, _ in skill_counter.most_common(6)]
 
-                # LEFT: Search summary (compact, metrics only)
+                # LEFT: Search summary (compact, metrics only) + recruiter controls
                 with left_col:
                     st.subheader("🔍 Search Summary")
                     st.write(f"**Query:** {user_query}")
@@ -308,44 +392,183 @@ with tab_search:
                     st.metric("Avg Match", f"{avg_score}%")
 
                     st.markdown("### Top Skills")
-                    st.caption(", ".join(global_top_skills))
+                    st.caption(", ".join(global_top_skills or []))
 
-                    # minimal success note replacing verbose AI-recommendation
+                    st.markdown("---")
+                    st.markdown("### Recruiter Controls")
+
+                    num_candidates = st.selectbox(
+                        "Number of Candidates",
+                        [5, 10, 15, 20],
+                        index=1,
+                    )
+
+                    st.markdown("### 📅 Experience Range")
+                    min_exp, max_exp = st.slider(
+                        "Years of Experience",
+                        0,
+                        20,
+                        (0, 5),
+                    )
+
+                    # AI skill suggestions and selected skills
+                    st.markdown("### 💡 Suggested Skills")
+                    suggestions = get_skill_suggestions(user_query)
+                    cols = st.columns(5)
+                    for i, skill in enumerate(suggestions):
+                        col = cols[i % 5]
+                        if col.button(f"+ {skill}", key=f"skill_add_{skill}"):
+                            if skill not in st.session_state.selected_skills:
+                                st.session_state.selected_skills.append(skill)
+
+                    # Show selected skills with remove buttons
+                    if st.session_state.selected_skills:
+                        st.markdown("**Selected Skills:**")
+                        rem_cols = st.columns(5)
+                        for i, sk in enumerate(list(st.session_state.selected_skills)):
+                            with rem_cols[i % 5]:
+                                st.write(sk)
+                                if st.button("Remove", key=f"skill_remove_{sk}"):
+                                    st.session_state.selected_skills = [s for s in st.session_state.selected_skills if s != sk]
+
+                    # Reset filters
+                    if st.button("Reset Filters"):
+                        st.session_state.selected_skills = []
+                        # reset sliders by rerunning with defaults
+                        min_exp, max_exp = 0, 5
+
+                    st.markdown("---")
                     st.success("Top candidates ranked based on skills and relevance")
 
-                # RIGHT: Clean candidate cards
+                # build refined query using selected skills
+                refined_query = user_query + " " + " ".join(st.session_state.selected_skills or [])
+
+                try:
+                    from src.parser import extract_candidate_info
+                except Exception:
+                    extract_candidate_info = None
+
+                filtered_candidates = []
+                for c in top_candidates:
+                    info = None
+                    if extract_candidate_info:
+                        try:
+                            info = extract_candidate_info(c.get("raw_text", ""), refined_query)
+                        except Exception:
+                            info = None
+
+                    if info is None:
+                        info = {
+                            "role": c.get("role", "Software Engineer"),
+                            "experience": c.get("experience", "Not specified"),
+                            "skills": c.get("skills", []),
+                            "matched_skills": [],
+                            "location": c.get("location", "Not specified"),
+                        }
+
+                    # experience numeric
+                    years = get_experience_years(info.get("experience") or c.get("summary") or c.get("raw_text", ""))
+
+                    # skill filter
+                    skill_ok = True
+                    if st.session_state.selected_skills:
+                        txt = (c.get("raw_text", "") or "").lower()
+                        skill_ok = any(sk.lower() in txt or sk.lower() in ",".join([s.lower() for s in (info.get("skills") or [])]) for sk in st.session_state.selected_skills)
+
+                    if min_exp <= years <= max_exp and skill_ok:
+                        c["_info"] = info
+                        filtered_candidates.append(c)
+
+                display_candidates = filtered_candidates if filtered_candidates else top_candidates
+                # show active filters
+                with left_col:
+                    st.markdown("### 🎯 Active Filters")
+                    if st.session_state.selected_skills:
+                        st.write("Skills:", ", ".join(st.session_state.selected_skills or []))
+                    st.write(f"Experience: {min_exp} - {max_exp} years")
+                    st.write(f"Showing top {num_candidates} candidates")
+
+                # limit number of candidates
+                display_candidates = display_candidates[:int(num_candidates)]
+
+                # RIGHT: Clean candidate cards (structured view)
                 with right_col:
                     st.subheader("Top Candidates")
-                    if not top_candidates:
+                    if not display_candidates:
                         st.warning("No matching candidates found")
                     else:
-                        for i, c in enumerate(top_candidates):
+                        for i, c in enumerate(display_candidates[:20]):
+                            info = c.get("_info")
+                            if info is None:
+                                try:
+                                    from src.parser import extract_candidate_info as _eci
+
+                                    info = _eci(c.get("raw_text", ""), user_query)
+                                except Exception:
+                                    info = {
+                                        "role": c.get("role", "Software Engineer"),
+                                        "experience": c.get("experience", "Not specified"),
+                                        "skills": c.get("skills", []),
+                                        "matched_skills": [],
+                                        "location": c.get("location", "Not specified"),
+                                    }
+
+                            # enforce UX rules: max 6 skills, one-line summary
+                            skills_display = (info.get("skills") or [])[:6]
+                            summary_line = (c.get("summary") or "")
+                            summary_line = summary_line.replace("\n", " ")
+                            if len(summary_line) > 100:
+                                summary_line = summary_line[:100].rsplit(" ", 1)[0] + "..."
+
+                            name = c.get("name") or f"Candidate {i+1}"
+                            role = info.get("role") or c.get("role") or "Software Engineer"
+                            location = info.get("location") or c.get("location") or "Not specified"
+                            experience = info.get("experience") or c.get("experience") or "Not specified"
+                            score_pct = int(round(float(c.get("score", 0) or 0) * 100))
+
                             with st.container():
                                 col1, col2 = st.columns([4, 1])
                                 with col1:
-                                    st.markdown(f"### {c.get('name','Candidate')}")
-                                    st.caption(f"{c.get('role','')} • {c.get('location','Not specified')}")
+                                    st.markdown(f"### 👤 {name}")
+                                    st.caption(f"{role} • {location}")
                                 with col2:
-                                    st.metric("Match", f"{int((c.get('score') or 0)*100)}%")
+                                    st.metric("Match", f"{score_pct}%")
 
-                                # Skills (only top 5)
-                                if c.get("skills"):
-                                    skills_line = " ".join([f"`{s}`" for s in (c.get("skills") or [])])
-                                    st.markdown(skills_line)
+                                g1, g2, g3 = st.columns(3)
+                                with g1:
+                                    st.markdown("**💼 Experience**")
+                                    st.write(experience)
+                                with g2:
+                                    st.markdown("**🧠 Skills**")
+                                    st.write(", ".join(skills_display) if skills_display else "—")
+                                with g3:
+                                    st.markdown("**🎯 Match Skills**")
+                                    if info.get("matched_skills"):
+                                        st.success(", ".join(info.get("matched_skills") or []))
+                                    else:
+                                        st.caption("No strong match")
 
-                                # Experience and one-line summary
-                                st.caption(f"📅 {c.get('experience','Not specified')}")
-                                st.caption(c.get('summary',''))
+                                # one-line summary only
+                                if summary_line:
+                                    st.caption(summary_line)
 
-                                # Actions
+                                # Actions: View Details (shows full resume only on demand) + Shortlist
                                 b1, b2 = st.columns(2)
                                 with b1:
-                                    st.button("View Profile", key=f"view_{i}")
+                                    if st.button("View Details", key=f"view_details_{i}"):
+                                        st.session_state["view_resume_text"] = c.get("raw_text", "")
+                                        st.session_state["view_resume_name"] = name
                                 with b2:
                                     if st.button("⭐ Shortlist", key=f"short_{i}"):
                                         add_to_shortlist(c)
 
                                 st.markdown("---")
+
+                    # Show full resume only when requested
+                    if st.session_state.get("view_resume_text"):
+                        vname = st.session_state.get("view_resume_name", "Candidate")
+                        with st.expander(f"Full Resume — {vname}"):
+                            st.text(st.session_state.get("view_resume_text"))
 
                 # Developer debug / processing trace (collapsed) - no raw texts
                 with st.expander("🐛 Debug / Processing Trace"):
