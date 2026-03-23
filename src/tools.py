@@ -31,6 +31,33 @@ class CategoryEnum(str, Enum):
     AVIATION = "AVIATION"
 
 
+def extract_skills(text):
+    """Extract skills from resume text"""
+    skills_db = [
+        "python", "java", "sql", "aws", "docker",
+        "kubernetes", "react", "node", "ml", "ai",
+        "tensorflow", "pytorch", "excel", "tableau",
+        "power bi", "c++", "javascript", "spring",
+        "postgresql", "mongodb", "git", "ci/cd",
+        "html", "css", "angular", "vue", "django",
+        "flask", "rest api", "graphql", "microservices",
+        "linux", "ubuntu", "windows", "macos",
+        "azure", "gcp", "salesforce", "jira",
+        "confluence", "slack", "trello", "asana",
+        "figma", "sketch", "adobe", "photoshop",
+        "illustrator", "canva", "wordpress", "shopify"
+    ]
+    
+    found = []
+    text = text.lower()
+    
+    for skill in skills_db:
+        if skill in text:
+            found.append(skill)
+    
+    return list(set(found))
+
+
 def extract_location(text):
     """Extract location from resume text"""
     text = text.lower()

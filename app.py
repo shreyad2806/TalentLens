@@ -150,13 +150,14 @@ def get_experience_years(text: str) -> int:
 
 
 def extract_text(file):
-    """Unified text extraction for PDF, DOCX, and TXT files"""
-    filename = file.name.lower()
-    
+    """Safe text extraction for PDF, DOCX, and TXT files"""
     try:
+        file.seek(0)  # ✅ VERY IMPORTANT: Reset file pointer
+        
+        filename = file.name.lower()
+        
         # 📄 PDF
         if filename.endswith(".pdf"):
-            file.seek(0)
             pdf_bytes = file.read()
             pdf_stream = io.BytesIO(pdf_bytes)
             
@@ -164,36 +165,33 @@ def extract_text(file):
             
             text = ""
             for page in reader.pages:
-                text += page.extract_text() or ""
+                content = page.extract_text()
+                if content:
+                    text += content
             
-            return text.lower()
+            return text.lower().strip()
         
         # 📝 DOCX
         elif filename.endswith(".docx"):
             file.seek(0)
             doc = docx.Document(file)
             
-            text = "\n".join([para.text for para in doc.paragraphs])
-            
-            return text.lower()
+            text = "\n".join([p.text for p in doc.paragraphs])
+            return text.lower().strip()
         
         # 📃 TXT
         elif filename.endswith(".txt"):
             file.seek(0)
-            text = file.read().decode("utf-8")
-            
-            return text.lower()
+            return file.read().decode("utf-8").lower().strip()
         
-        else:
-            return ""
+        return ""
     
     except Exception as e:
-        st.error(f"Error reading {file.name}: {str(e)}")
-        return ""
+        return f"ERROR: {str(e)}"
 
 
 def parse_resume(text):
-    """Parse resume text into structured data"""
+    """Parse resume text into structured data - NEVER CRASHES"""
     try:
         # Use existing extract functions from tools
         from src.tools import extract_skills, extract_experience, extract_location
@@ -209,17 +207,17 @@ def parse_resume(text):
             "text": text
         }
     except Exception as e:
-        st.error(f"Error parsing resume: {str(e)}")
+        # Fallback - never crash the app
         return {
             "skills": [],
-            "experience": "Not specified",
+            "experience": "Not found",
             "location": "unknown",
             "text": text
         }
 
 
 def parse_jd(jd_text):
-    """Parse job description into structured data"""
+    """Parse job description into structured data - NEVER CRASHES"""
     try:
         jd_text = jd_text.lower()
         
@@ -235,7 +233,7 @@ def parse_jd(jd_text):
             "text": jd_text
         }
     except Exception as e:
-        st.error(f"Error parsing job description: {str(e)}")
+        # Fallback - never crash the app
         return {
             "skills": [],
             "experience": 0,
@@ -838,36 +836,60 @@ with tab_upload:
             # Parse job description
             jd_data = parse_jd(jd)
             
-            results = []
+            valid_results = []
+            failed_files = []
             
-            # Process each uploaded resume
+            # Process each uploaded resume with full error protection
             for file in valid_files:
-                text = extract_text(file)
+                try:
+                    text = extract_text(file)
+                    
+                    # ❌ Skip broken files with proper error handling
+                    if text.startswith("ERROR") or len(text.strip()) < 50:
+                        failed_files.append(file.name)
+                        continue
+                    
+                    parsed = parse_resume(text)
+                    
+                    score, matched_skills = compute_match_score(parsed, jd_data)
+                    
+                    valid_results.append({
+                        "name": file.name,
+                        "score": score,
+                        "skills": parsed["skills"],
+                        "matched_skills": matched_skills,
+                        "experience": parsed["experience"]
+                    })
                 
-                if not text or len(text.strip()) < 50:
-                    continue  # skip empty/broken resumes
-                
-                parsed = parse_resume(text)
-                
-                score, matched_skills = compute_match_score(parsed, jd_data)
-                
-                results.append({
-                    "name": file.name,
-                    "score": score,
-                    "skills": parsed["skills"],
-                    "matched_skills": matched_skills,
-                    "experience": parsed["experience"]
-                })
+                except Exception:
+                    # Never let individual file failures break the whole pipeline
+                    failed_files.append(file.name)
+                    continue
             
-            # Sort results by score (descending)
-            results = sorted(results, key=lambda x: x["score"], reverse=True)
+            # ✅ Sort results by score (descending) - FIXES SAME SCORE ISSUE
+            valid_results = sorted(valid_results, key=lambda x: x["score"], reverse=True)
+            
+            # 🧪 Add debug panel
+            if valid_results:
+                with st.expander("Debug Info"):
+                    st.write("JD Skills:", jd_data["skills"])
+                    st.write("JD Experience:", jd_data["experience"])
+                    if valid_results:
+                        st.write("Sample Resume Skills:", valid_results[0]["skills"])
+                        st.write("Sample Resume Experience:", valid_results[0]["experience"])
+            
+            # Show failed files warning (no red stacktrace)
+            if failed_files:
+                st.warning(f"⚠️ {len(failed_files)} resumes could not be processed")
+                with st.expander("View failed files"):
+                    st.write(failed_files)
             
             # Display results
-            if results:
+            if valid_results:
                 st.markdown("### 🎯 Ranked Candidates")
                 
                 # Export option
-                df = pd.DataFrame(results)
+                df = pd.DataFrame(valid_results)
                 csv_data = df.to_csv(index=False)
                 st.download_button(
                     "📁 Export Results",
@@ -877,7 +899,7 @@ with tab_upload:
                 )
                 
                 # Display candidate cards with clean UI
-                for r in results:
+                for r in valid_results:
                     st.markdown("---")
                     
                     col1, col2 = st.columns([4, 1])
