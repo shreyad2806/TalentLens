@@ -4,7 +4,7 @@ from typing import Dict, List, Tuple
 from .embed import embed_text
 from .llm import generate_answer_with_trace
 from .pinecone_client import get_cached_index
-from .tools import classify_category
+from .tools import classify_category, extract_location, compute_candidate_score
 from .config import EMBEDDING_MODEL, EMBEDDING_DIM, PINECONE_INDEX
 
 
@@ -44,7 +44,7 @@ def retrieve(user_query: str, top_k: int = 5) -> Dict:
     t4 = time.time()
     result = index.query(
         vector=query_vec,
-        top_k=top_k,
+        top_k=top_k * 2,  # Get more candidates to re-rank with location logic
         include_metadata=True,
         filter=pinecone_filter,
     )
@@ -55,7 +55,7 @@ def retrieve(user_query: str, top_k: int = 5) -> Dict:
             "tool": "Pinecone",
             "index": PINECONE_INDEX,
             "metric": "cosine",
-            "top_k": top_k,
+            "top_k": top_k * 2,
             "filter": pinecone_filter,
             "duration_ms": int((t5 - t4) * 1000),
         }
@@ -65,7 +65,7 @@ def retrieve(user_query: str, top_k: int = 5) -> Dict:
     docs = []
 
     # Fast heuristic explanation generator to avoid expensive LLM calls per match.
-    def explain_match_fast(query: str, resume_text: str, score: float) -> Dict:
+    def explain_match_fast(query: str, resume_text: str, score: float, candidate_location: str) -> Dict:
         q = query.lower()
         r = resume_text.lower()
 
@@ -87,13 +87,13 @@ def retrieve(user_query: str, top_k: int = 5) -> Dict:
         if yrs:
             reasons.append(f"Experience: {yrs[0]}")
 
-        # Location - look for capitalized tokens from query
-        locs = []
-        for w in query.split():
-            if w and w[0].isupper() and w.lower() in r:
-                locs.append(w)
-        if locs:
-            reasons.append(f"Location: {', '.join(locs)}")
+        # ✅ FIXED LOCATION LOGIC
+        query_location = extract_location(query)
+        if query_location != "unknown" and candidate_location != "unknown":
+            if query_location in candidate_location or candidate_location in query_location:
+                reasons.append(f"Location match: {candidate_location}")
+            else:
+                reasons.append(f"Location mismatch: {candidate_location} (looking for {query_location})")
 
         # Assemble short explanation
         if reasons:
@@ -105,6 +105,8 @@ def retrieve(user_query: str, top_k: int = 5) -> Dict:
 
         return {"score": score, "explanation": explanation, "reasons": reasons}
 
+    # Process candidates with location-aware scoring
+    scored_candidates = []
     for m in matches:
         doc_id = m.get("id")
         meta = m.get("metadata", {}) or {}
@@ -115,23 +117,34 @@ def retrieve(user_query: str, top_k: int = 5) -> Dict:
         except Exception:
             score = 0.0
 
-        explain = explain_match_fast(user_query, text, score)
+        # Extract location and compute enhanced score
+        candidate_location = extract_location(text)
+        enhanced_score = compute_candidate_score({"text": text, "location": candidate_location}, user_query)
+        
+        explain = explain_match_fast(user_query, text, score, candidate_location)
 
-        docs.append({
+        scored_candidates.append({
             "id": doc_id,
             "text": text,
             "resume": text,
-            "score": score,
+            "score": enhanced_score,  # Use enhanced score with location logic
+            "original_score": score,   # Keep original semantic score for reference
             "explain": explain,
             "category": meta.get("category"),
+            "location": candidate_location,
         })
+
+    # Sort by enhanced score (location-aware) and take top_k
+    scored_candidates.sort(key=lambda x: x["score"], reverse=True)
+    docs = scored_candidates[:top_k]
 
     trace.append(
         {
-            "step": "Fetch top 5",
-            "tool": "Pinecone",
-            "result_count": len(docs),
-            "ids": [d["id"] for d in docs[:5]],
+            "step": "Location-aware re-ranking",
+            "tool": "Custom Scoring",
+            "candidates_processed": len(scored_candidates),
+            "final_count": len(docs),
+            "location_query": extract_location(user_query),
         }
     )
 

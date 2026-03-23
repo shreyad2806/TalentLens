@@ -9,5 +9,7 @@ streamlit>=1.33.0
 tqdm>=4.66.0
 numpy<2.0.0
 tf-keras
+PyPDF2
+python-docx
 plotly
 

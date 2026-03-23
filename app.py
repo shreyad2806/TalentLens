@@ -5,6 +5,10 @@ import streamlit as st
 import re
 import html
 import time
+import pandas as pd
+from PyPDF2 import PdfReader
+import io
+import docx
 
 # Warm embedding model on startup to avoid loading during first query
 try:
@@ -46,14 +50,22 @@ AI-powered candidate discovery using Retrieval Augmented Generation.
 
 This dashboard helps recruiters ask role-based questions and quickly surface matched candidates with explainability.
 """)
-# Tabs: Resume Search and Analytics Dashboard
-tab_search, tab_analytics = st.tabs(["Resume Search", "Analytics Dashboard"]) 
+# Tabs: Resume Search and Upload & Rank
+tab_search, tab_upload = st.tabs(["Resume Search", "Upload & Rank"]) 
+
+# Initialize session state properly
 if "shortlist" not in st.session_state:
     st.session_state.shortlist = []
     st.session_state.shortlist_map = {}
 
 if "selected_skills" not in st.session_state:
     st.session_state.selected_skills = []
+
+# Reset any problematic session state values
+if st.session_state.selected_skills and isinstance(st.session_state.selected_skills, list):
+    # Filter out any invalid values
+    valid_skills = ["SQL", "Python", "AWS", "RAG", "Docker", "Spark", "java", "javascript", "react", "node.js", "ml", "ai", "ci/cd", "postgresql", "mongodb", "spark"]
+    st.session_state.selected_skills = [skill for skill in st.session_state.selected_skills if skill.lower() in [v.lower() for v in valid_skills]]
 
 
 def add_to_shortlist(candidate: dict) -> None:
@@ -137,6 +149,131 @@ def get_experience_years(text: str) -> int:
     return 0
 
 
+def extract_text(file):
+    """Unified text extraction for PDF, DOCX, and TXT files"""
+    filename = file.name.lower()
+    
+    try:
+        # 📄 PDF
+        if filename.endswith(".pdf"):
+            file.seek(0)
+            pdf_bytes = file.read()
+            pdf_stream = io.BytesIO(pdf_bytes)
+            
+            reader = PdfReader(pdf_stream)
+            
+            text = ""
+            for page in reader.pages:
+                text += page.extract_text() or ""
+            
+            return text.lower()
+        
+        # 📝 DOCX
+        elif filename.endswith(".docx"):
+            file.seek(0)
+            doc = docx.Document(file)
+            
+            text = "\n".join([para.text for para in doc.paragraphs])
+            
+            return text.lower()
+        
+        # 📃 TXT
+        elif filename.endswith(".txt"):
+            file.seek(0)
+            text = file.read().decode("utf-8")
+            
+            return text.lower()
+        
+        else:
+            return ""
+    
+    except Exception as e:
+        st.error(f"Error reading {file.name}: {str(e)}")
+        return ""
+
+
+def parse_resume(text):
+    """Parse resume text into structured data"""
+    try:
+        # Use existing extract functions from tools
+        from src.tools import extract_skills, extract_experience, extract_location
+        
+        skills = extract_skills(text)
+        experience = extract_experience(text)
+        location = extract_location(text)
+        
+        return {
+            "skills": skills,
+            "experience": experience,
+            "location": location,
+            "text": text
+        }
+    except Exception as e:
+        st.error(f"Error parsing resume: {str(e)}")
+        return {
+            "skills": [],
+            "experience": "Not specified",
+            "location": "unknown",
+            "text": text
+        }
+
+
+def parse_jd(jd_text):
+    """Parse job description into structured data"""
+    try:
+        jd_text = jd_text.lower()
+        
+        # Use existing extract functions from tools
+        from src.tools import extract_skills, extract_experience
+        
+        skills = extract_skills(jd_text)
+        experience = extract_experience(jd_text)
+        
+        return {
+            "skills": skills,
+            "experience": experience,
+            "text": jd_text
+        }
+    except Exception as e:
+        st.error(f"Error parsing job description: {str(e)}")
+        return {
+            "skills": [],
+            "experience": 0,
+            "text": jd_text.lower()
+        }
+
+
+def compute_match_score(resume, jd):
+    """Compute match score between resume and job description"""
+    score = 0
+    
+    # 🔹 Skill match (HIGH weight)
+    matched_skills = list(set(resume["skills"]) & set(jd["skills"]))
+    skill_score = len(matched_skills) * 15
+    
+    # 🔹 Experience match
+    exp_score = 0
+    try:
+        resume_exp = get_experience_years(resume.get("experience", "0"))
+        jd_exp = get_experience_years(str(jd.get("experience", "0")))
+        if resume_exp >= jd_exp:
+            exp_score = 25
+        else:
+            exp_score = max(0, 15 - abs(resume_exp - jd_exp))
+    except Exception:
+        pass
+    
+    # 🔹 Text relevance (keyword overlap)
+    keyword_score = sum(1 for word in jd["skills"] if word.lower() in resume.get("text", "").lower()) * 5
+    
+    total_score = skill_score + exp_score + keyword_score
+    
+    # Normalize to %
+    total_score = min(total_score, 100)
+    
+    return total_score, matched_skills
+
+
 with tab_search:
     # Shortlist sidebar (interactive)
     with st.sidebar:
@@ -168,8 +305,14 @@ with tab_search:
         st.markdown("### ⚡ Suggested Skills")
         default_skills = ["SQL", "Python", "AWS", "RAG", "Docker", "Spark"]
 
+        # Get current selected skills from session state
+        current_skills = st.session_state.get("selected_skills", [])
+        
+        # Ensure current skills are in the options (handle session state issues)
+        available_skills = list(set(default_skills + current_skills))
+        
         # multi-select for skills (works inside form)
-        selected = st.multiselect("Select Skills (suggested)", default_skills, default=st.session_state.get("selected_skills", []))
+        selected = st.multiselect("Select Skills (suggested)", available_skills, default=current_skills)
         st.session_state.selected_skills = selected or []
 
         custom_skill = st.text_input("Add custom skill")
@@ -258,7 +401,10 @@ with tab_search:
                         extract_role = fallback_extract_role
 
                     role = meta.get("role") or meta.get("title") or extract_role(text)
-                    location = meta.get("location") or meta.get("city") or extract_location(text)
+                    
+                    # ✅ FIXED: Use location from doc if available (extracted by query pipeline)
+                    location = doc.get("location") or meta.get("location") or meta.get("city") or extract_location(text)
+                    
                     skills = meta.get("skills") or meta.get("keywords") or []
                     if isinstance(skills, (str,)):
                         skills = [s.strip() for s in skills.split(",") if s.strip()]
@@ -319,7 +465,11 @@ with tab_search:
                                         with col1:
                                             st.subheader(f"👤 {name}")
                                             st.write(f"💼 {role}")
-                                            st.write(f"📍 {location}")
+                                            # ✅ FIXED: Show location prominently with proper formatting
+                                            if location != "unknown" and location != "Not specified":
+                                                st.write(f"📍 Location: {location.title()}")
+                                            else:
+                                                st.write(f"📍 Location: Not specified")
 
                                         with col2:
                                             st.metric(label="Match", value=f"{score_percent}%", delta=color_emoji)
@@ -467,9 +617,17 @@ with tab_search:
                     except Exception:
                         pass
 
-                    # Location score (LOW weight)
-                    loc = (q.get("location") or "").lower()
-                    if loc and loc in text:
+                    # ✅ FIXED LOCATION LOGIC
+                    query_location = (q.get("location") or "").lower()
+                    candidate_location = (candidate.get("location") or "").lower()
+                    
+                    if query_location and candidate_location:
+                        if query_location in candidate_location or candidate_location in query_location:
+                            score += 15  # Bonus for matching location
+                        else:
+                            score -= 10  # Penalize wrong location
+                    elif query_location and query_location in text:
+                        # Fallback to text search if location not extracted
                         score += 5
 
                     # Query relevance (keyword match)
@@ -551,7 +709,8 @@ with tab_search:
 
                             name = c.get("name") or f"Candidate {i+1}"
                             role = info.get("role") or c.get("role") or "Software Engineer"
-                            location = info.get("location") or c.get("location") or "Not specified"
+                            # ✅ FIXED: Use location from candidate if available (extracted by query pipeline)
+                            location = c.get("location") or info.get("location") or "Not specified"
                             experience = info.get("experience") or c.get("experience") or "Not specified"
                             # prefer calculated match percent if available
                             score_pct = int(c.get("_match_pct", int(round(float(c.get("score", 0) or 0) * 100))))
@@ -560,7 +719,11 @@ with tab_search:
                                 col1, col2 = st.columns([4, 1])
                                 with col1:
                                     st.markdown(f"### 👤 {name}")
-                                    st.caption(f"{role} • {location}")
+                                    # ✅ FIXED: Show location prominently with proper formatting
+                                    if location != "unknown" and location != "Not specified":
+                                        st.caption(f"{role} • 📍 {location.title()}")
+                                    else:
+                                        st.caption(f"{role} • 📍 Location not specified")
                                 with col2:
                                     st.metric("Match", f"{score_pct}%")
 
@@ -630,74 +793,140 @@ with tab_search:
                 st.error(f"An error occurred: {str(e)}")
                 st.write("Please try again or check your configuration.")
 
-# Analytics tab (outside of submit flow)
-with tab_analytics:
-    try:
-        import plotly.express as px  # type: ignore[reportMissingImports]
-    except Exception:
-        st.warning("Plotly is not installed — install with `pip install plotly` to enable Analytics charts.")
-    else:
-        try:
-            from src.analytics import load_data, extract_skills, extract_locations, category_distribution
-
-            st.title("📊 Analytics Dashboard")
-
-            @st.cache_data
-            def get_data():
-                return load_data()
-
-            with st.spinner("Loading analytics..."):
-                df = get_data()
-
-            if df is None or df.empty:
-                st.info("No resume dataset found at Resume/Resume.csv")
+# Upload & Rank tab
+with tab_upload:
+    st.markdown("## 📁 Upload Resumes & Rank Candidates")
+    
+    # Job Description input
+    jd = st.text_area(
+        "Enter Job Description",
+        placeholder="Paste job description here...",
+        height=150
+    )
+    
+    # File upload
+    uploaded_files = st.file_uploader(
+        "Upload Resumes",
+        type=["pdf", "docx", "txt"],
+        accept_multiple_files=True
+    )
+    
+    # Run ranking button
+    run_ranking = st.button("🚀 Rank Candidates")
+    
+    # Process files when button is clicked
+    if run_ranking and uploaded_files and jd.strip():
+        # 🧹 Remove error spam - validate inputs first
+        if not uploaded_files:
+            st.warning("Please upload resumes (PDF, DOCX, TXT)")
+            st.stop()
+        
+        if not jd.strip():
+            st.warning("Enter Job Description")
+            st.stop()
+        
+        # 🛡️ Filter valid files
+        valid_files = [f for f in uploaded_files if f.name.endswith(("pdf", "docx", "txt"))]
+        
+        if not valid_files:
+            st.error("No valid resume files found. Please upload PDF, DOCX, or TXT files.")
+            st.stop()
+        
+        st.success(f"{len(valid_files)} files uploaded successfully")
+        
+        with st.spinner("Processing resumes and computing match scores..."):
+            # Parse job description
+            jd_data = parse_jd(jd)
+            
+            results = []
+            
+            # Process each uploaded resume
+            for file in valid_files:
+                text = extract_text(file)
+                
+                if not text or len(text.strip()) < 50:
+                    continue  # skip empty/broken resumes
+                
+                parsed = parse_resume(text)
+                
+                score, matched_skills = compute_match_score(parsed, jd_data)
+                
+                results.append({
+                    "name": file.name,
+                    "score": score,
+                    "skills": parsed["skills"],
+                    "matched_skills": matched_skills,
+                    "experience": parsed["experience"]
+                })
+            
+            # Sort results by score (descending)
+            results = sorted(results, key=lambda x: x["score"], reverse=True)
+            
+            # Display results
+            if results:
+                st.markdown("### 🎯 Ranked Candidates")
+                
+                # Export option
+                df = pd.DataFrame(results)
+                csv_data = df.to_csv(index=False)
+                st.download_button(
+                    "📁 Export Results",
+                    csv_data,
+                    "ranked_candidates.csv",
+                    mime="text/csv"
+                )
+                
+                # Display candidate cards with clean UI
+                for r in results:
+                    st.markdown("---")
+                    
+                    col1, col2 = st.columns([4, 1])
+                    
+                    with col1:
+                        st.subheader(f"👤 {r['name']}")
+                        
+                        # ✨ Optional: Show file type badge
+                        file_type = r['name'].split(".")[-1].upper()
+                        st.caption(f"📎 {file_type} file")
+                        
+                        st.write(f"💼 Experience: {r['experience']} yrs")
+                        
+                        st.write("🧠 Skills:")
+                        st.write(", ".join(r["skills"][:5]))
+                        
+                        st.write("✅ Matched Skills:")
+                        if r["matched_skills"]:
+                            st.success(", ".join(r["matched_skills"]))
+                        else:
+                            st.caption("No strong match")
+                        
+                    with col2:
+                        st.metric("Match", f"{r['score']}%")
+                    
+                    # Shortlist button
+                    if st.button("⭐ Shortlist", key=f"upload_shortlist_{r['name']}"):
+                        # Add to shortlist
+                        if "upload_shortlist" not in st.session_state:
+                            st.session_state.upload_shortlist = []
+                        
+                        if r['name'] not in st.session_state.upload_shortlist:
+                            st.session_state.upload_shortlist.append(r['name'])
+                            st.success(f"Added {r['name']} to shortlist!")
+                        else:
+                            st.info(f"{r['name']} already in shortlist")
             else:
-                text_col = "Resume" if "Resume" in df.columns else next((c for c in df.columns if df[c].dtype == object), df.columns[0])
-
-                skills = extract_skills(df[text_col])
-                locations = extract_locations(df[text_col])
-                categories = category_distribution(df)
-
-                col1, col2 = st.columns(2)
-
-                with col1:
-                    st.subheader("Top Skills")
-                    if skills:
-                        fig = px.bar(
-                            x=list(skills.keys()),
-                            y=list(skills.values()),
-                            labels={"x": "Skill", "y": "Count"},
-                        )
-                        st.plotly_chart(fig, use_container_width=True)
-                    else:
-                        st.info("No skills detected in the dataset.")
-
-                with col2:
-                    st.subheader("Top Locations")
-                    if locations:
-                        fig = px.bar(
-                            x=list(locations.keys()),
-                            y=list(locations.values()),
-                            labels={"x": "Location", "y": "Count"},
-                        )
-                        st.plotly_chart(fig, use_container_width=True)
-                    else:
-                        st.info("No locations detected in the dataset.")
-
-                st.subheader("Candidate Categories")
-                if getattr(categories, "empty", False) or (isinstance(categories, dict) and not categories):
-                    st.info("No category data available.")
-                else:
-                    if isinstance(categories, dict):
-                        names = list(categories.keys())
-                        values = list(categories.values())
-                    else:
-                        names = list(categories.index)
-                        values = list(categories.values)
-
-                    fig = px.pie(values=values, names=names)
-                    st.plotly_chart(fig, use_container_width=True)
-        except Exception as e:
-            st.error(f"Analytics module error: {e}")
+                st.warning("No valid resumes found. Please check your files.")
+    
+    elif run_ranking:
+        if not uploaded_files:
+            st.error("Please upload resume PDFs, DOCX, or TXT files first.")
+        if not jd.strip():
+            st.error("Please enter a job description first.")
+    
+    # Show upload shortlist if exists
+    if "upload_shortlist" in st.session_state and st.session_state.upload_shortlist:
+        st.markdown("### ⭐ Upload Shortlist")
+        for name in st.session_state.upload_shortlist:
+            st.write(f"📄 {name}")
 
 
