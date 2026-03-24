@@ -260,3 +260,7 @@ For issues and questions:
 ---
 
 **Talentlens** - Transforming recruitment with AI-powered candidate intelligence. 🚀
+
+----
+
+## Author - Shreya Dubey
