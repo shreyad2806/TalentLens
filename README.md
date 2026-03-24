@@ -23,11 +23,11 @@ AI-powered candidate discovery using Retrieval Augmented Generation (RAG). This 
 ### 1. Environment Setup
 Create `.env` in the project root:
 ```bash
-OPENAI_API_KEY=YOUR_OPENAI_KEY
 PINECONE_API_KEY=YOUR_PINECONE_KEY
 PINECONE_INDEX=resumes-index
 PINECONE_CLOUD=aws
 PINECONE_REGION=us-east-1
+# Note: No OpenAI API key required - uses local Sentence Transformers model
 ```
 
 ### 2. Install Dependencies
@@ -101,9 +101,10 @@ score = (len(matched) / len(jd_skills)) * 100
 
 ### Core Technologies
 - **Frontend**: Streamlit (Python web framework)
-- **AI/ML**: OpenAI GPT-4o-mini, Embeddings
+- **Embeddings**: Sentence Transformers `all-MiniLM-L6-v2` (384-dim, open source)
 - **Vector DB**: Pinecone (serverless)
 - **Processing**: Python, Pandas, Regex
+- **LLM**: Rule-based fast summarizer (no API costs)
 
 ### Architecture
 ```
@@ -113,8 +114,8 @@ score = (len(matched) / len(jd_skills)) * 100
                                 │
                                 ▼
                        ┌──────────────────┐
-                       │  OpenAI APIs     │
-                       │ (Embed + Chat)   │
+                       │ Sentence Transformers │
+                       │ all-MiniLM-L6-v2│
                        └──────────────────┘
 ```
 
@@ -142,18 +143,47 @@ TalentLens/
 
 ### Environment Variables
 ```bash
-OPENAI_API_KEY=your_openai_api_key
 PINECONE_API_KEY=your_pinecone_api_key
 PINECONE_INDEX=resumes-index
 PINECONE_CLOUD=aws
 PINECONE_REGION=us-east-1
+# Note: OPENAI_API_KEY optional - current implementation uses local models
 ```
 
 ### Model Settings
-- **Embedding Model**: `text-embedding-3-small` (1536 dimensions)
-- **Chat Model**: `gpt-4o-mini`
+- **Embedding Model**: `all-MiniLM-L6-v2` (384 dimensions, open source)
+- **LLM**: Rule-based fast summarizer (no API costs)
 - **Similarity Metric**: Cosine
 - **Top Results**: 5-20 candidates
+
+### 🤖 Current AI Models
+
+#### **Embeddings: Sentence Transformers**
+- **Model**: `all-MiniLM-L6-v2`
+- **Type**: Open source, runs locally
+- **Dimensions**: 384
+- **Cost**: Free
+- **Performance**: Fast and effective for resume matching
+
+#### **Text Generation: Rule-Based**
+- **Implementation**: Fast summarizer in `src/llm.py`
+- **Cost**: Free (no API calls)
+- **Purpose**: Quick candidate summaries
+- **Performance**: Instant response
+
+#### **🚀 Upgrade Options**
+To upgrade to OpenAI models:
+```python
+# In src/config.py:
+EMBEDDING_MODEL = "text-embedding-3-small"  # OpenAI
+EMBEDDING_DIM = 1536
+
+# In src/llm.py:
+import openai
+# Replace rule-based with GPT-4o-mini calls
+```
+
+**Current setup optimized for speed and low cost!**
 
 ## 🐛 Troubleshooting
 
