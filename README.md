@@ -18,6 +18,11 @@ AI-powered candidate discovery using Retrieval Augmented Generation (RAG). This 
 - **Debug Mode**: Transparent matching pipeline for troubleshooting
 - **Export Functionality**: Download candidate results as CSV
 
+<img width="1919" height="871" alt="image" src="https://github.com/user-attachments/assets/c55c2463-2a9b-4086-9875-6ff1d28e11ed" />
+<img width="1918" height="902" alt="image" src="https://github.com/user-attachments/assets/edaf75d5-59d5-486f-b73f-186eec507a2c" />
+<img width="1919" height="944" alt="image" src="https://github.com/user-attachments/assets/a0ae2e57-a1bf-4524-9934-d074c3c26db3" />
+
+
 ## 🚀 Quick Start
 
 ### 1. Environment Setup
