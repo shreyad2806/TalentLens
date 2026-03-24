@@ -1,186 +1,227 @@
-## Resume QA with Category Filtering, Pinecone, and OpenAI
+# Talentlens - Resume Intelligence Platform
 
-### Overview
-This project builds a simple retrieval-augmented QA system over resumes. Each CSV row is a single document stored in Pinecone along with metadata. At query time, we:
-- Classify the query into one category (via OpenAI),
-- Embed the query (OpenAI embeddings),
-- Metadata-filter by the predicted category and run vector search in Pinecone,
-- Return the top-5 documents as-is and generate a readable answer with an LLM.
+AI-powered candidate discovery using Retrieval Augmented Generation (RAG). This platform helps recruiters quickly find and rank candidates based on skills, experience, and job requirements.
 
-The Streamlit UI shows both the answer and the documents, along with a default-open trace of the entire pipeline so reviewers can see each step.
+## 🎯 Features
 
-### Stack
-- OpenAI Embeddings: `text-embedding-3-small` (1536-dim, cosine)
-- OpenAI Chat: `gpt-4o-mini` (adjustable)
-- Vector DB: Pinecone (serverless)
-- Orchestration/UI: Streamlit
-- Validation: Pydantic (category tool)
+### Core Functionality
+- **Resume Search**: Natural language queries to find matching candidates
+- **Upload & Rank**: Bulk resume upload with intelligent ranking
+- **Skill-Based Matching**: Automatic skill extraction and matching (0-100% scores)
+- **Real-time Scoring**: Dynamic match percentage calculation
+- **Candidate Cards**: Clean, professional candidate display with match details
 
-## Sample Conversations
+### Advanced Features
+- **Smart Skill Extraction**: Automatically extracts 40+ tech skills from resumes and job descriptions
+- **Intelligent Matching**: Normalized skill matching with fallback logic
+- **Session Persistence**: Results persist across UI interactions
+- **Debug Mode**: Transparent matching pipeline for troubleshooting
+- **Export Functionality**: Download candidate results as CSV
 
-<img width="1918" height="1015" alt="Screenshot 2025-11-02 at 5 25 57 PM" src="https://github.com/user-attachments/assets/eb44a005-5615-4164-b2a0-cfb52d7cf1f5" />
-<img width="1918" height="1015" alt="Screenshot 2025-11-02 at 6 07 03 PM" src="https://github.com/user-attachments/assets/c11f284a-cdc2-469c-affb-8b39585654d1" />
-<img width="1918" height="1015" alt="Screenshot 2025-11-02 at 6 06 34 PM" src="https://github.com/user-attachments/assets/fed321da-e4f3-4173-9abc-4c7b3c7a2f97" />
-<img width="1918" height="1015" alt="Screenshot 2025-11-02 at 5 28 05 PM" src="https://github.com/user-attachments/assets/7d072782-5b7e-46f9-99f0-867512a71e60" />
-<img width="1918" height="1015" alt="Screenshot 2025-11-02 at 5 27 04 PM" src="https://github.com/user-attachments/assets/437467ae-208e-4d76-b378-2323c1174188" />
+## 🚀 Quick Start
 
-## Quickstart
-
-### 1) Environment
+### 1. Environment Setup
 Create `.env` in the project root:
 ```bash
-cat > .env << 'EOF'
 OPENAI_API_KEY=YOUR_OPENAI_KEY
 PINECONE_API_KEY=YOUR_PINECONE_KEY
 PINECONE_INDEX=resumes-index
 PINECONE_CLOUD=aws
 PINECONE_REGION=us-east-1
-EOF
 ```
 
-### 2) Install dependencies
+### 2. Install Dependencies
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3) Upsert data (one-time)
-Your cleaned CSV should have at least the columns `Resume` and `Category` (and optionally `id`). Example path used here:
+### 3. Upload Resume Data (One-time)
 ```bash
-python upsert_resumes.py \
-  --csv Resume_cleaned.csv
+python upsert_resumes.py --csv Resume_cleaned.csv
 ```
-What this does:
-- Ensures a Pinecone index (cosine, dim=1536)
-- Embeds `Resume` text
-- Upserts each row with: `id`, `values` (vector), `metadata` = `{ category, text, row_id }`
 
-### 4) Run the app
+### 4. Run the Application
 ```bash
 streamlit run app.py
 ```
 
----
+Visit `http://localhost:8501` to access Talentlens.
 
-## Data assumptions
-- Each row is a separate document (no chunking).
-- Required columns: `Resume`, `Category`.
-- Optional: `id` column; if missing, IDs are generated as `row_{i}`.
-- Categories come from a fixed set used for metadata filtering:
-  - HR, DESIGNER, INFORMATION-TECHNOLOGY, TEACHER, ADVOCATE, BUSINESS-DEVELOPMENT, HEALTHCARE, FITNESS, AGRICULTURE, BPO, SALES, CONSULTANT, DIGITAL-MEDIA, AUTOMOBILE, CHEF, FINANCE, APPAREL, ENGINEERING, ACCOUNTANT, CONSTRUCTION, PUBLIC-RELATIONS, BANKING, ARTS, AVIATION.
+## 🎨 UI Overview
 
----
+### Resume Search Tab
+1. **Query Input**: Describe the role you're looking for
+2. **Refine Search**: Set experience range, location, and number of candidates
+3. **Results**: View matched candidates with scores and skill highlights
+4. **Actions**: View full resume or add to shortlist
 
-## How it works (end-to-end)
-1) Category classification (OpenAI chat)
-- Given the user’s question, the system returns exactly one category from the fixed enum using a Pydantic-validated JSON response.
+### Upload & Rank Tab
+1. **Job Description**: Paste the job requirements
+2. **Upload Resumes**: Upload PDF, DOCX, or TXT files
+3. **Rank Candidates**: Get AI-powered ranking with match scores
+4. **Export Results**: Download ranked candidates as CSV
 
-2) Query embedding (OpenAI embeddings)
-- Embeds the user’s question with `text-embedding-3-small` (1536-dim).
+## 🧠 Skill Matching Pipeline
 
-3) Metadata filter + vector search (Pinecone)
-- Queries the index with filter `{ "category": <chosen_category> }` and metric = cosine.
-- Retrieves top-5 documents, including IDs, scores, and stored text in metadata.
+### Skill Extraction
+The platform automatically extracts skills from:
+- **Resumes**: 40+ tech skills including Python, AWS, Docker, React, etc.
+- **Job Descriptions**: Natural language processing to identify requirements
+- **Fallback Logic**: Default skills if none detected
 
-4) LLM answer generation (OpenAI chat)
-- Sends the exact user question and the 5 documents to the LLM to produce a concise, readable answer. IDs can be referenced inline.
-
-5) UI display (Streamlit)
-- Left column: LLM answer
-- Right column: Top 5 documents “as-is” with IDs and scores
-- Default-open trace expander shows each step: tools, models, filters, durations, fetched IDs.
-
----
-
-## Repository layout
-```text
-  README.md                  # This file
-  requirements.txt           # Python deps
-  .env                       # Your keys (not committed)
-  app.py                     # Streamlit UI
-  scripts/
-    upsert_resumes.py        # One-time embed & upsert from CSV to Pinecone
-  src/
-    config.py                # Env loading, constants (embedding model, categories, index)
-    embed.py                 # OpenAI embedding helpers
-    pinecone_client.py       # Pinecone client + index helpers
-    tools.py                 # Pydantic enum + category classifier (OpenAI chat)
-    llm.py                   # LLM answer generation (+trace)
-    query_pipeline.py        # Retrieval+filtering+search and answer orchestration (+trace)
-  Resume/
-    Resume_cleaned.csv       # Your cleaned dataset
+### Matching Algorithm
+```python
+# Normalized skill intersection
+matched = set(candidate_skills) & set(jd_skills)
+score = (len(matched) / len(jd_skills)) * 100
 ```
 
----
+### Supported Skills
+- **Programming**: Python, Java, JavaScript, C++, TypeScript
+- **Cloud**: AWS, Azure, GCP, Docker, Kubernetes
+- **Databases**: SQL, PostgreSQL, MongoDB, Redis
+- **Frameworks**: React, Node.js, Django, Flask, Spring
+- **AI/ML**: Machine Learning, AI, TensorFlow, PyTorch
+- **Tools**: Git, CI/CD, Jira, Power BI, Tableau
 
-## Key files explained
+## 📊 Match Scoring
 
-### `src/config.py`
-- Loads env vars and centralizes constants:
-  - Embedding model: `text-embedding-3-small` (dim = 1536)
-  - Category list (enum)
-  - Pinecone index name, cloud, region
+### Score Calculation
+- **100%**: All required skills found
+- **66.7%**: 2 out of 3 skills match
+- **33.3%**: 1 out of 3 skills match
+- **0%**: No skill overlap
 
-### `src/embed.py`
-- `embed_text(text)`, `embed_texts(texts)`: wrappers around OpenAI Embeddings API.
+### Visual Indicators
+- 🎯 **Match Skills**: Shows overlapping skills
+- ✅ **Skill Count**: Number of matches found
+- ❌ **No Matches**: Clear indication when no overlap
 
-### `src/pinecone_client.py`
-- `ensure_index(name, dimension)`: creates a serverless index if missing.
-- `get_index(name)`: returns the Pinecone index handle.
+## 🛠️ Technical Stack
 
-### `scripts/upsert_resumes.py`
-- Reads the CSV, ensures columns, generates/uses IDs, embeds `Resume`, and upserts documents to Pinecone with metadata `{ category, text, row_id }`.
+### Core Technologies
+- **Frontend**: Streamlit (Python web framework)
+- **AI/ML**: OpenAI GPT-4o-mini, Embeddings
+- **Vector DB**: Pinecone (serverless)
+- **Processing**: Python, Pandas, Regex
 
-### `src/tools.py`
-- `CategoryEnum` with the fixed allowed categories.
-- `classify_category(user_query)`: OpenAI chat call that returns a JSON object parsed by Pydantic to ensure exactly one valid category.
+### Architecture
+```
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│   Streamlit UI  │───▶│  Query Pipeline  │───▶│   Pinecone DB   │
+└─────────────────┘    └──────────────────┘    └─────────────────┘
+                                │
+                                ▼
+                       ┌──────────────────┐
+                       │  OpenAI APIs     │
+                       │ (Embed + Chat)   │
+                       └──────────────────┘
+```
 
-### `src/query_pipeline.py`
-- `retrieve(user_query, top_k=5)`: classify → embed → Pinecone query with metadata filter; returns `{ category, docs, trace }`.
-- `answer(user_query, retrieved)`: generates a final answer from the top-5 docs; returns `{ answer, trace }`.
+## 📁 Project Structure
 
-### `src/llm.py`
-- `generate_answer(...)`: calls OpenAI chat to produce a readable answer using the 5 docs.
-- `generate_answer_with_trace(...)`: same but also returns a small trace object for the UI.
+```
+TalentLens/
+├── app.py                 # Main Streamlit application
+├── requirements.txt       # Python dependencies
+├── .env                  # Environment variables (not committed)
+├── README.md             # This file
+├── src/
+│   ├── config.py         # Configuration and constants
+│   ├── parser.py         # Resume parsing and skill extraction
+│   ├── embed.py          # OpenAI embedding helpers
+│   ├── query_pipeline.py # Search and retrieval logic
+│   └── tools.py          # Utility functions
+├── scripts/
+│   └── upsert_resumes.py # Data upload script
+└── Resume/
+    └── Resume_cleaned.csv # Sample resume data
+```
 
-### `app.py` (Streamlit)
-- Simple UI with:
-  - Category badge
-  - Two columns for answer and documents
-  - Default-open “Processing Trace” with tools, models, filters, durations, and the 5 IDs
+## 🔧 Configuration
 
----
-
-## Switch models / tune behavior
-- Change embedding model: edit `EMBEDDING_MODEL` in `src/config.py` and ensure the dimension matches the index.
-- Change chat model: update `model` in `src/tools.py` and `src/llm.py`.
-- Change topK: pass a different `top_k` to `retrieve()` or adjust default in `src/query_pipeline.py`.
-- Change index name/region/cloud: update `.env` and/or `src/config.py`.
-
----
-
-## Troubleshooting
-- Missing env var: `Missing required env var: OPENAI_API_KEY`
-  - Ensure `.env` exists in the project root with your keys.
-
-- “No documents found”
-  - Confirm the CSV categories match the fixed enum exactly.
-  - Ensure the upsert completed without errors and targeted the same index configured at runtime.
-
-- Costs and rate limits
-  - Embeddings and chat both call OpenAI APIs; Pinecone calls are billed per capacity/usage. Keep topK small (5) for demos.
-
----
-
-## Example commands
+### Environment Variables
 ```bash
-# Upsert
-python upsert_resumes.py \
-  --csv Resume_cleaned.csv
-
-# Run UI
-streamlit run app.py
+OPENAI_API_KEY=your_openai_api_key
+PINECONE_API_KEY=your_pinecone_api_key
+PINECONE_INDEX=resumes-index
+PINECONE_CLOUD=aws
+PINECONE_REGION=us-east-1
 ```
+
+### Model Settings
+- **Embedding Model**: `text-embedding-3-small` (1536 dimensions)
+- **Chat Model**: `gpt-4o-mini`
+- **Similarity Metric**: Cosine
+- **Top Results**: 5-20 candidates
+
+## 🐛 Troubleshooting
+
+### Common Issues
+
+#### 0% Match Scores
+- **Cause**: Empty skill lists or extraction failure
+- **Fix**: Check debug panel for skill extraction details
+- **Solution**: Ensure resumes contain tech keywords
+
+#### No Results Found
+- **Cause**: Empty database or wrong index
+- **Fix**: Verify Pinecone index and data upload
+- **Solution**: Run upsert script with correct CSV
+
+#### Button Clicks Reset Page
+- **Cause**: Streamlit form issues
+- **Fix**: Session state persistence implemented
+- **Solution**: All actions now persist properly
+
+### Debug Mode
+Enable debug information by expanding the "🔍 Debug: Matching Details" section to see:
+- JD skills extracted
+- Candidate skills found
+- Skill matching calculation
+- Final scoring breakdown
+
+## 📈 Performance
+
+### Speed
+- **Query Response**: 2-5 seconds
+- **File Upload**: 1-3 seconds per resume
+- **Skill Extraction**: <1 second per document
+
+### Scaling
+- **Database**: Pinecone serverless (auto-scaling)
+- **Concurrent Users**: Streamlit supports multiple users
+- **File Limits**: No hard limit on resume uploads
+
+## 🤝 Contributing
+
+### Development Setup
+1. Clone the repository
+2. Install dependencies: `pip install -r requirements.txt`
+3. Set up `.env` file with API keys
+4. Run: `streamlit run app.py`
+
+### Adding New Skills
+Update the `SKILL_KEYWORDS` list in `app.py`:
+```python
+SKILL_KEYWORDS = [
+    "python", "sql", "aws",  # existing skills
+    "new_skill", "another_skill"  # add new skills here
+]
+```
+
+## 📄 License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## 🆘 Support
+
+For issues and questions:
+1. Check the troubleshooting section
+2. Enable debug mode for detailed logs
+3. Review the skill extraction pipeline
+4. Verify environment configuration
 
 ---
 
-
+**Talentlens** - Transforming recruitment with AI-powered candidate intelligence. 🚀
