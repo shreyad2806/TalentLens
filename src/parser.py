@@ -1,109 +1,53 @@
 import re
 
-
-def extract_skills(text: str):
-    skills = [
-        "python","java","c++","sql","machine learning","deep learning",
-        "react","node","spring","aws","docker","kubernetes","nlp"
+def extract_skills(text):
+    """Extract skills from resume text"""
+    skills_db = [
+        "python", "java", "sql", "aws", "docker", "kubernetes",
+        "react", "node", "spring", "ml", "ai", "tensorflow",
+        "pytorch", "excel", "tableau", "power bi", "c++",
+        "javascript", "postgresql", "mongodb", "git", "ci/cd",
+        "html", "css", "angular", "vue", "django", "flask",
+        "rest api", "graphql", "microservices", "linux", "ubuntu",
+        "windows", "azure", "gcp", "salesforce", "jira"
     ]
-    if not text:
-        return []
+    
     text = text.lower()
-    return list({skill for skill in skills if skill in text})
+    return [skill for skill in skills_db if skill in text]
 
 
-def extract_experience(text: str):
-    if not text:
-        return "Not specified"
-    match = re.search(r"(\d{1,2})\+?\s+years", text.lower())
-    if match:
-        return f"{match.group(1)}+ years"
+def extract_experience(text):
+    """Extract years of experience from resume text"""
+    matches = re.findall(r"(\d+)\+?\s+years", text.lower())
+    if matches:
+        return max(matches) + " years"
     return "Not specified"
 
 
-def extract_location(text: str):
-    if not text:
-        return "Not specified"
-    locations = ["bangalore","mumbai","delhi","hyderabad","pune","chennai"]
+def extract_location(text):
+    """Extract location from resume text"""
+    locations = [
+        "bangalore", "mumbai", "delhi", "hyderabad",
+        "pune", "chennai", "india", "usa", "uk", "remote",
+        "new york", "california", "texas", "florida",
+        "london", "toronto", "vancouver", "sydney"
+    ]
+    
     text = text.lower()
+    
     for loc in locations:
         if loc in text:
             return loc.title()
+    
     return "Not specified"
 
 
-def extract_role(text: str):
-    if not text:
-        return "Software Developer"
-    lines = text.split("\n")
-    for line in lines[:6]:
-        if any(x in line.lower() for x in ["engineer","developer","manager","analyst"]):
+def extract_role(text):
+    """Extract role from resume text"""
+    lines = text.split("\n")[:5]
+    
+    for line in lines:
+        if any(x in line.lower() for x in ["engineer", "developer", "scientist", "manager", "analyst"]):
             return line.strip()
+    
     return "Software Developer"
-
-
-def extract_candidate_info(text: str, query: str = "") -> dict:
-    """Return a compact structured candidate info dict.
-
-    Fields: role, experience, skills (max 6), matched_skills, location
-    """
-    if not text:
-        return {
-            "role": "Software Developer",
-            "experience": "Not specified",
-            "skills": [],
-            "matched_skills": [],
-            "location": "Not specified",
-        }
-
-    text_low = text.lower()
-
-    # EXPERIENCE (first numeric years match)
-    exp_match = re.search(r"(\d{1,2})\+?\s*(years|yrs)", text_low)
-    experience = f"{exp_match.group(1)}+ years" if exp_match else "Not specified"
-
-    # SKILLS (basic keyword matching)
-    skill_keywords = [
-        "python",
-        "java",
-        "sql",
-        "aws",
-        "docker",
-        "kubernetes",
-        "react",
-        "node",
-        "ml",
-        "ai",
-        "ci/cd",
-        "django",
-        "flask",
-        "spring",
-    ]
-    skills = [s for s in skill_keywords if s in text_low]
-
-    # ROLE DETECTION (simple)
-    role = "Software Engineer"
-    if "data scientist" in text_low or "data science" in text_low:
-        role = "Data Scientist"
-    elif "backend" in text_low or "backend developer" in text_low:
-        role = "Backend Developer"
-    elif "frontend" in text_low or "frontend developer" in text_low:
-        role = "Frontend Developer"
-    elif "manager" in text_low:
-        role = "Engineering Manager"
-
-    # LOCATION
-    locations = ["pune", "delhi", "bangalore", "mumbai", "hyderabad", "chennai"]
-    location = next((loc.title() for loc in locations if loc in text_low), "India")
-
-    # MATCHED SKILLS (based on query)
-    q_low = (query or "").lower()
-    matched_skills = [s for s in skills if s in q_low]
-
-    return {
-        "role": role,
-        "experience": experience,
-        "skills": skills[:6],
-        "matched_skills": matched_skills,
-        "location": location,
-    }
