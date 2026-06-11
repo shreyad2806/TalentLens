@@ -50,8 +50,6 @@ python upsert_resumes.py --csv Resume_cleaned.csv
 streamlit run app.py
 ```
 
-Visit `http://localhost:8501` to access Talentlens.
-
 ## 🎨 UI Overview
 
 ### Resume Search Tab
