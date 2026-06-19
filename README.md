@@ -66,6 +66,85 @@ streamlit run app.py
 
 ## 🧠 Skill Matching Pipeline
 
+### Offline Model Caching
+
+The embedding layer uses the BAAI/bge-m3 model for generating vector embeddings. To ensure tests and production runs work without internet connectivity, the model can be cached locally.
+
+#### Preload Model Locally
+
+Download and cache the model before running tests or production code:
+
+```bash
+python preload_model.py
+```
+
+This will:
+- Download BAAI/bge-m3 from HuggingFace
+- Cache it to `./models/bge-m3/` (or custom path via `BGE_MODEL_PATH` env var)
+- Test the model to ensure it works correctly
+
+#### Environment Variables
+
+Configure model caching behavior:
+
+```bash
+# Set custom model cache path (default: ./models/bge-m3)
+export BGE_MODEL_PATH=/path/to/models/bge-m3
+
+# Enable offline mode (never download from internet)
+export OFFLINE_MODE=true
+
+# Set download retry attempts (default: 3)
+export MODEL_DOWNLOAD_RETRIES=3
+```
+
+#### Running Tests Offline
+
+After preloading the model, run tests in offline mode:
+
+```bash
+# Linux/Mac
+export OFFLINE_MODE=true
+python tests/test_embeddings.py
+
+# Windows
+set OFFLINE_MODE=true
+python tests\test_embeddings.py
+```
+
+If the model is unavailable, tests will skip gracefully with a warning message instead of failing.
+
+#### Model Loading Behavior
+
+The embedding layer follows this loading strategy:
+
+1. **Check local cache** - If model exists at `BGE_MODEL_PATH`, load from cache
+2. **Download from HuggingFace** - If not in offline mode and cache miss, download
+3. **Retry mechanism** - Retry download up to 3 times with exponential backoff
+4. **Graceful failure** - If all attempts fail, raise friendly exception with instructions
+
+#### Troubleshooting Model Issues
+
+**Model not found in offline mode:**
+```bash
+# Solution: Run preload script
+python preload_model.py
+```
+
+**Download failed due to network:**
+```bash
+# Solution: Check internet connection and retry
+# Or use a different network
+python preload_model.py
+```
+
+**Model path configuration:**
+```bash
+# Solution: Set custom path
+export BGE_MODEL_PATH=/custom/path/bge-m3
+python preload_model.py
+```
+
 ### Skill Extraction
 The platform automatically extracts skills from:
 - **Resumes**: 40+ tech skills including Python, AWS, Docker, React, etc.
