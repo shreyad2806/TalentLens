@@ -1,6 +1,7 @@
-# Python & venv
+# Python
 __pycache__/
 *.pyc
+.venv/
 venv/
 
 # OS
@@ -16,3 +17,29 @@ data/
 # Streamlit
 .streamlit/
 
+# AI Models
+models/
+checkpoints/
+
+# HuggingFace
+.cache/
+huggingface/
+hf_cache/
+
+# Vector Stores
+vector_store/
+faiss_index/
+chroma/
+pinecone_cache/
+
+# Embeddings & Model Files
+*.bin
+*.safetensors
+*.pt
+*.pth
+*.onnx
+*.ckpt
+
+# Logs
+logs/
+*.log
