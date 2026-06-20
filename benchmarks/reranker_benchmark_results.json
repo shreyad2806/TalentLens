@@ -1,0 +1,62 @@
+{
+  "depth_10": {
+    "rerank_depth": 10,
+    "avg_latency": 0,
+    "total_time": 0.032713890075683594,
+    "throughput": 611.3611054426726,
+    "total_candidates_reranked": 0,
+    "avg_candidates_per_query": 0.0,
+    "cache_hits": 0,
+    "cache_misses": 0,
+    "cache_hit_rate": 0.0,
+    "memory_usage_before_mb": 54.7890625,
+    "memory_usage_after_mb": 54.99609375,
+    "memory_usage_delta_mb": 0.20703125,
+    "batch_size": 32
+  },
+  "depth_25": {
+    "rerank_depth": 25,
+    "avg_latency": 0,
+    "total_time": 0.03773164749145508,
+    "throughput": 530.059017553615,
+    "total_candidates_reranked": 0,
+    "avg_candidates_per_query": 0.0,
+    "cache_hits": 0,
+    "cache_misses": 0,
+    "cache_hit_rate": 0.0,
+    "memory_usage_before_mb": 54.99609375,
+    "memory_usage_after_mb": 55.42578125,
+    "memory_usage_delta_mb": 0.4296875,
+    "batch_size": 32
+  },
+  "depth_50": {
+    "rerank_depth": 50,
+    "avg_latency": 0,
+    "total_time": 0.05106854438781738,
+    "throughput": 391.63050836379597,
+    "total_candidates_reranked": 0,
+    "avg_candidates_per_query": 0.0,
+    "cache_hits": 0,
+    "cache_misses": 0,
+    "cache_hit_rate": 0.0,
+    "memory_usage_before_mb": 55.42578125,
+    "memory_usage_after_mb": 56.24609375,
+    "memory_usage_delta_mb": 0.8203125,
+    "batch_size": 32
+  },
+  "depth_100": {
+    "rerank_depth": 100,
+    "avg_latency": 0,
+    "total_time": 0.06381464004516602,
+    "throughput": 313.40770684978594,
+    "total_candidates_reranked": 0,
+    "avg_candidates_per_query": 0.0,
+    "cache_hits": 0,
+    "cache_misses": 0,
+    "cache_hit_rate": 0.0,
+    "memory_usage_before_mb": 56.24609375,
+    "memory_usage_after_mb": 57.546875,
+    "memory_usage_delta_mb": 1.30078125,
+    "batch_size": 32
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "results": [
+    {
+      "provider": "memory",
+      "timestamp": "2026-06-20T03:19:30.325722",
+      "metrics": {
+        "connect_time_seconds": 0.0037751197814941406,
+        "memory_usage_mb": 0.0234375,
+        "upsert_100_time_seconds": 0.010385990142822266,
+        "upsert_100_throughput_vectors_per_second": 9628.354988292549,
+        "upsert_1000_time_seconds": 0.08343696594238281,
+        "upsert_1000_throughput_vectors_per_second": 11985.095439478797,
+        "query_latency_avg_seconds": 0.14884443283081056,
+        "query_latency_min_seconds": 0.1288743019104004,
+        "query_latency_max_seconds": 0.1616520881652832,
+        "delete_100_time_seconds": 0.0005304813385009766,
+        "delete_100_throughput_vectors_per_second": 188508.04494382022,
+        "final_memory_mb": 78.75
+      }
+    }
+  ],
+  "recommendations": {
+    "development": "Memory (fastest, no setup required, ideal for development)",
+    "small_projects": "Memory (sufficient throughput for small datasets)",
+    "enterprise": "Pinecone or Qdrant (not benchmarked, but recommended for enterprise)",
+    "high_throughput": "Pinecone or Qdrant (not benchmarked, but recommended for high throughput)"
+  },
+  "timestamp": "2026-06-20T03:19:32.200564"
+}

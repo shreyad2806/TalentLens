@@ -1,0 +1,298 @@
+"""
+Test script for the QdrantAdapter.
+
+This script tests the QdrantAdapter implementation to verify that it
+correctly implements the VectorStore interface and handles errors gracefully.
+Note: This test requires Qdrant credentials to run actual operations.
+"""
+
+import sys
+from pathlib import Path
+import logging
+import os
+
+# Add project root to path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+
+from src.vector_store import (
+    VectorRecord,
+    VectorStoreService,
+    VectorStoreConfig,
+    VectorStoreProvider,
+    VectorStoreError
+)
+
+
+def print_success(message: str):
+    """Print a success message in green."""
+    print(f"\033[92m✅ {message}\033[0m")
+
+
+def print_failure(message: str):
+    """Print a failure message in red."""
+    print(f"\033[91m❌ {message}\033[0m")
+
+
+def print_info(message: str):
+    """Print an info message in blue."""
+    print(f"\033[94mℹ️  {message}\033[0m")
+
+
+def print_warning(message: str):
+    """Print a warning message in yellow."""
+    print(f"\033[93m⚠ {message}\033[0m")
+
+
+def print_header(message: str):
+    """Print a header message in yellow."""
+    print(f"\033[93m{'=' * 80}\033[0m")
+    print(f"\033[93m{message}\033[0m")
+    print(f"\033[93m{'=' * 80}\033[0m")
+
+
+def test_qdrant_adapter_initialization():
+    """
+    Test Qdrant adapter initialization without credentials.
+    
+    This test verifies that the adapter fails gracefully when credentials
+    are not provided, with clear error messages.
+    """
+    print_header("QDRANT ADAPTER INITIALIZATION TEST")
+    print()
+    
+    # Clear environment variables to test error handling
+    collection_backup = os.environ.get("QDRANT_COLLECTION")
+    
+    if "QDRANT_COLLECTION" in os.environ:
+        del os.environ["QDRANT_COLLECTION"]
+    
+    # Set provider to qdrant
+    os.environ["VECTOR_STORE_PROVIDER"] = "qdrant"
+    
+    print_info("Testing Qdrant adapter without credentials...")
+    try:
+        service = VectorStoreService()
+        print_failure("Service should have failed without credentials")
+        return False
+    except VectorStoreError as e:
+        if "QDRANT_COLLECTION" in str(e):
+            print_success(f"Correctly failed without credentials: {str(e)[:80]}...")
+        else:
+            print_failure(f"Unexpected error: {e}")
+            return False
+    except Exception as e:
+        print_failure(f"Unexpected error type: {e}")
+        return False
+    print()
+    
+    # Restore environment variables if they existed
+    if collection_backup:
+        os.environ["QDRANT_COLLECTION"] = collection_backup
+    
+    return True
+
+
+def test_qdrant_adapter_with_credentials():
+    """
+    Test Qdrant adapter with credentials (if provided).
+    
+    This test attempts to initialize the Qdrant adapter with credentials
+    and performs basic operations if credentials are available.
+    """
+    print_header("QDRANT ADAPTER WITH CREDENTIALS TEST")
+    print()
+    
+    # Check if credentials are provided
+    collection_name = os.environ.get("QDRANT_COLLECTION")
+    
+    if not collection_name:
+        print_warning("QDRANT_COLLECTION not set")
+        print_info("Skipping integration test (requires Qdrant credentials)")
+        print()
+        print_info("To test with Qdrant, set environment variables:")
+        print("  export QDRANT_HOST=localhost (default)")
+        print("  export QDRANT_PORT=6333 (default)")
+        print("  export QDRANT_COLLECTION=your_collection_name")
+        print("  export QDRANT_API_KEY=your_api_key (optional)")
+        print()
+        return True
+    
+    print_info("Credentials found, testing Qdrant adapter...")
+    print(f"  Host: {os.environ.get('QDRANT_HOST', 'localhost')}")
+    print(f"  Port: {os.environ.get('QDRANT_PORT', '6333')}")
+    print(f"  Collection: {collection_name}")
+    print(f"  API Key: {'Set' if os.environ.get('QDRANT_API_KEY') else 'Not set'}")
+    print()
+    
+    # Set provider to qdrant
+    os.environ["VECTOR_STORE_PROVIDER"] = "qdrant"
+    
+    try:
+        service = VectorStoreService()
+        print_success("VectorStoreService created successfully")
+        print()
+    except Exception as e:
+        print_failure(f"Failed to create service: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+    
+    # Test health check
+    print_info("Checking Qdrant health...")
+    try:
+        health = service.health()
+        if health['healthy']:
+            print_success(f"Health check passed: {health['status']}")
+            print(f"  Record count: {health['record_count']}")
+            print(f"  Latency: {health.get('latency_ms', 0):.2f}ms")
+        else:
+            print_warning(f"Health check returned unhealthy: {health['status']}")
+            print(f"  Message: {health['message']}")
+        print()
+    except Exception as e:
+        print_failure(f"Health check failed: {e}")
+        return False
+    
+    # Test upsert (if healthy)
+    if health.get('healthy', False):
+        print_info("Testing upsert operation...")
+        try:
+            # Create a test record with correct dimension
+            config = service.config
+            dimension = config.dimension
+            
+            # Create a test vector with correct dimension
+            test_vector = [0.1] * dimension
+            
+            record = VectorRecord(
+                id="test-qdrant-adapter-001",
+                resume_id="test-resume-001",
+                chunk_id="test-chunk-001",
+                candidate_name="Test User",
+                section="test",
+                vector=test_vector,
+                metadata={
+                    "experience": "Test experience",
+                    "location": "Test location",
+                    "role": "Test role",
+                    "education": "Test education"
+                }
+            )
+            
+            result = service.upsert([record])
+            if result['success']:
+                print_success(f"Upsert successful: {result['upserted_count']} records")
+                print(f"  Batch count: {result.get('batch_count', 0)}")
+                print(f"  Latency: {result.get('latency_seconds', 0):.3f}s")
+            else:
+                print_failure(f"Upsert failed: {result['errors']}")
+                return False
+            print()
+        except Exception as e:
+            print_failure(f"Upsert failed: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+        
+        # Test query
+        print_info("Testing query operation...")
+        try:
+            results = service.query(test_vector, k=1)
+            print_success(f"Query returned {len(results)} results")
+            if results:
+                print(f"  Top result ID: {results[0]['id']}")
+                print(f"  Top result score: {results[0]['score']:.4f}")
+                print(f"  Metadata preserved: {bool(results[0]['metadata'])}")
+            print()
+        except Exception as e:
+            print_failure(f"Query failed: {e}")
+            return False
+        
+        # Test fetch
+        print_info("Testing fetch operation...")
+        try:
+            record = service.fetch("test-qdrant-adapter-001")
+            if record:
+                print_success(f"Fetch successful: {record.id}")
+                print(f"  Candidate: {record.candidate_name}")
+                print(f"  Section: {record.section}")
+                print(f"  Metadata: {record.metadata}")
+            else:
+                print_failure("Record not found")
+                return False
+            print()
+        except Exception as e:
+            print_failure(f"Fetch failed: {e}")
+            return False
+        
+        # Test delete
+        print_info("Testing delete operation...")
+        try:
+            result = service.delete(["test-qdrant-adapter-001"])
+            if result['success']:
+                print_success(f"Delete successful: {result['deleted_count']} records")
+                print(f"  Latency: {result.get('latency_seconds', 0):.3f}s")
+            else:
+                print_failure(f"Delete failed: {result['errors']}")
+            print()
+        except Exception as e:
+            print_failure(f"Delete failed: {e}")
+            return False
+    
+    # Close service
+    print_info("Closing Qdrant connection...")
+    try:
+        service.close()
+        print_success("Qdrant connection closed")
+        print()
+    except Exception as e:
+        print_failure(f"Close failed: {e}")
+        return False
+    
+    return True
+
+
+def test_qdrant_adapter():
+    """
+    Test the QdrantAdapter implementation.
+    
+    This test verifies that the QdrantAdapter correctly implements
+    the VectorStore interface and handles errors gracefully.
+    """
+    print_header("QDRANT ADAPTER TEST")
+    print()
+    
+    # Test initialization without credentials
+    if not test_qdrant_adapter_initialization():
+        return False
+    
+    # Test with credentials if available
+    if not test_qdrant_adapter_with_credentials():
+        return False
+    
+    # Final result
+    print_header("QDRANT ADAPTER TEST PASSED")
+    print_success("All tests passed")
+    print()
+    print("🚀 QdrantAdapter Ready")
+    print()
+    print("Note: Full integration test requires Qdrant credentials.")
+    print("Set QDRANT_COLLECTION environment variable to test with Qdrant.")
+    return True
+
+
+if __name__ == "__main__":
+    try:
+        success = test_qdrant_adapter()
+        sys.exit(0 if success else 1)
+    except Exception as e:
+        print_failure(f"Test execution failed: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)

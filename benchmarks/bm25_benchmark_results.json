@@ -1,0 +1,50 @@
+{
+  "100_documents": {
+    "num_documents": 100,
+    "num_queries": 100,
+    "index_build_time": 0.0514681339263916,
+    "avg_query_latency": 0.00037266254425048827,
+    "total_query_time": 0.03726625442504883,
+    "throughput": 2683.392832009008,
+    "cache_hits": 90,
+    "cache_misses": 9,
+    "cache_hit_ratio": 0.9090909090909091,
+    "incremental_update_time": 0.0011796951293945312,
+    "index_memory_mb": 0.484375,
+    "total_memory_mb": 0.5703125,
+    "vocabulary_size": 32,
+    "avg_document_length": 32.56
+  },
+  "1000_documents": {
+    "num_documents": 1000,
+    "num_queries": 100,
+    "index_build_time": 2.1729297637939453,
+    "avg_query_latency": 0.001310434341430664,
+    "total_query_time": 0.13314056396484375,
+    "throughput": 751.0858976562947,
+    "cache_hits": 90,
+    "cache_misses": 9,
+    "cache_hit_ratio": 0.9090909090909091,
+    "incremental_update_time": 0.0,
+    "index_memory_mb": 5.9609375,
+    "total_memory_mb": 6.1484375,
+    "vocabulary_size": 32,
+    "avg_document_length": 32.359
+  },
+  "10000_documents": {
+    "num_documents": 10000,
+    "num_queries": 100,
+    "index_build_time": 3.7625248432159424,
+    "avg_query_latency": 0.005837666988372803,
+    "total_query_time": 0.5837666988372803,
+    "throughput": 171.30130957996647,
+    "cache_hits": 90,
+    "cache_misses": 9,
+    "cache_hit_ratio": 0.9090909090909091,
+    "incremental_update_time": 0.002074003219604492,
+    "index_memory_mb": 52.10546875,
+    "total_memory_mb": 47.7109375,
+    "vocabulary_size": 32,
+    "avg_document_length": 32.381
+  }
+}

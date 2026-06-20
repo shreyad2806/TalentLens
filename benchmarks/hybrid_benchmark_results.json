@@ -1,0 +1,82 @@
+{
+  "dense": {
+    "avg_latency": 0,
+    "total_time": 16.96772313117981,
+    "throughput": 5.893542653123593,
+    "total_results": 0,
+    "avg_results": 0.0
+  },
+  "sparse": {
+    "avg_latency": 0.00030014753341674807,
+    "total_time": 0.03157639503479004,
+    "throughput": 3166.9226296992624,
+    "total_results": 300,
+    "avg_results": 3.0
+  },
+  "hybrid": {
+    "avg_latency": 0.0033656883239746092,
+    "total_time": 0.33823132514953613,
+    "throughput": 295.6556432370325,
+    "total_results": 300,
+    "avg_results": 3.0,
+    "fusion_time": 0.00033656883239746094,
+    "overlap_count": 0,
+    "dense_only_count": 0,
+    "sparse_only_count": 300,
+    "overlap_ratio": 0.0
+  },
+  "rrf_parameters": {
+    "k_30": {
+      "avg_latency": 0.006526503562927246,
+      "total_time": 0.3263251781463623,
+      "throughput": 153.22139800556292,
+      "total_results": 150,
+      "avg_results": 3.0,
+      "fusion_time": 0.0006526503562927247,
+      "overlap_count": 0,
+      "dense_only_count": 0,
+      "sparse_only_count": 150,
+      "overlap_ratio": 0.0,
+      "k": 30
+    },
+    "k_60": {
+      "avg_latency": 0.006565957069396972,
+      "total_time": 0.3343234062194824,
+      "throughput": 149.5557866121259,
+      "total_results": 150,
+      "avg_results": 3.0,
+      "fusion_time": 0.0006565957069396973,
+      "overlap_count": 0,
+      "dense_only_count": 0,
+      "sparse_only_count": 150,
+      "overlap_ratio": 0.0,
+      "k": 60
+    },
+    "k_90": {
+      "avg_latency": 0.0066469240188598636,
+      "total_time": 0.33234620094299316,
+      "throughput": 150.44552896386628,
+      "total_results": 150,
+      "avg_results": 3.0,
+      "fusion_time": 0.0006646924018859864,
+      "overlap_count": 0,
+      "dense_only_count": 0,
+      "sparse_only_count": 150,
+      "overlap_ratio": 0.0,
+      "k": 90
+    },
+    "k_120": {
+      "avg_latency": 0.006476025581359863,
+      "total_time": 0.32380127906799316,
+      "throughput": 154.41569639229493,
+      "total_results": 150,
+      "avg_results": 3.0,
+      "fusion_time": 0.0006476025581359864,
+      "overlap_count": 0,
+      "dense_only_count": 0,
+      "sparse_only_count": 150,
+      "overlap_ratio": 0.0,
+      "k": 120
+    }
+  }
+}
