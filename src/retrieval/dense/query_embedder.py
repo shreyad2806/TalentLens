@@ -17,6 +17,7 @@ SOLID Principles Applied:
 """
 
 import logging
+import uuid
 from typing import List, Optional
 from src.embeddings.embedding_service import EmbeddingService
 
@@ -87,8 +88,8 @@ class QueryEmbedder:
         from src.chunks.schema import Chunk, ChunkMetadata
         
         query_chunk = Chunk(
-            chunk_id="query",
-            resume_id="query",
+            chunk_id=str(uuid.uuid4()),
+            resume_id=str(uuid.uuid4()),
             text=query,
             section="query",
             candidate_name="query",
@@ -104,7 +105,7 @@ class QueryEmbedder:
                 raise RuntimeError("Failed to generate embedding")
             
             # Extract the embedding vector
-            embedding = embedding_record[0].embedding
+            embedding = embedding_record[0].vector
             
             logger.debug(f"Generated embedding for query: {query[:50]}... (dimension: {len(embedding)})")
             
@@ -136,8 +137,8 @@ class QueryEmbedder:
                 raise ValueError(f"Query at index {i} cannot be empty")
             
             query_chunk = Chunk(
-                chunk_id=f"query_{i}",
-                resume_id="query",
+                chunk_id=str(uuid.uuid4()),
+                resume_id=str(uuid.uuid4()),
                 text=query,
                 section="query",
                 candidate_name="query",
@@ -154,7 +155,7 @@ class QueryEmbedder:
                 raise RuntimeError("Failed to generate embeddings")
             
             # Extract the embedding vectors
-            embeddings = [record.embedding for record in embedding_records]
+            embeddings = [record.vector for record in embedding_records]
             
             logger.info(f"Generated embeddings for {len(queries)} queries")
             

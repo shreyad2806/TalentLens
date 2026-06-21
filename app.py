@@ -1,7 +1,13 @@
+print("STEP 1 Loading Config")
 import os
 import warnings
 from dotenv import load_dotenv
+load_dotenv() # Load environment variables
+
+print("STEP 2 Loading UI")
 import streamlit as st
+st.set_page_config(page_title="Talentlens", page_icon="🎯", layout="wide")
+
 import re
 import html
 import time
@@ -10,14 +16,48 @@ from PyPDF2 import PdfReader
 import io
 import docx
 
-# Warm embedding model on startup to avoid loading during first query
-try:
-    from src.embed import load_embedding_model
-    _ = load_embedding_model()
-except Exception:
-    pass
+print("STEP 3 Loading Retrieval Services")
 
-st.set_page_config(page_title="Talentlens", page_icon="🎯", layout="wide")
+@st.cache_resource
+def get_metadata_service():
+    try:
+        from src.retrieval.metadata import MetadataService
+        return MetadataService(cache_enabled=True)
+    except Exception as e:
+        print(f"Warning: Metadata service failed to load: {e}")
+        return None
+
+@st.cache_resource
+def get_hybrid_service():
+    try:
+        from src.retrieval.dense import DenseRetrievalService
+        from src.retrieval.sparse import SparseRetrievalService, BM25Index
+        from src.retrieval.hybrid import HybridRetrievalService
+        
+        dense = DenseRetrievalService()
+        sparse = SparseRetrievalService(index=BM25Index())
+        return HybridRetrievalService(
+            dense_retrieval_service=dense,
+            sparse_retrieval_service=sparse
+        )
+    except Exception as e:
+        print(f"Warning: Hybrid service failed to load: {e}")
+        return None
+
+@st.cache_resource
+def get_reranker_service():
+    try:
+        from src.retrieval.reranker import RerankerService
+        return RerankerService()
+    except Exception as e:
+        print(f"Warning: Reranker service failed to load: {e}")
+        return None
+
+metadata_service = get_metadata_service()
+hybrid_service = get_hybrid_service()
+reranker_service = get_reranker_service()
+
+print("STEP 5 Rendering Streamlit")
 
 st.markdown("""
 # Talentlens - Resume Intelligence Platform
@@ -199,10 +239,7 @@ def extract_text(file):
 def parse_resume(text):
     """Parse resume text into structured data - NEVER CRASHES"""
     try:
-        # Use new parser functions
-        from src.parser import extract_skills, extract_experience, extract_location, extract_role
-        
-        skills = extract_skills(text)
+        skills = extract_skills_from_text(text)
         experience = extract_experience(text)
         location = extract_location(text)
         role = extract_role(text)
@@ -228,10 +265,7 @@ def parse_resume(text):
 def parse_jd(jd_text):
     """Parse job description into structured data - NEVER CRASHES"""
     try:
-        # Use new parser functions
-        from src.parser import extract_skills, extract_experience, extract_location
-        
-        skills = extract_skills(jd_text)
+        skills = extract_jd_skills(jd_text)
         experience = extract_experience(jd_text)
         location = extract_location(jd_text)
         
@@ -472,78 +506,104 @@ with tab_search:
                     st.write("**JD Skills:**", jd_skills)
                     st.write("**User Query:**", user_query)
                 
-                refined_query = {
-                    "text": user_query,
-                    "skills": jd_skills,
-                    "experience_min": exp_range[0],
-                    "experience_max": exp_range[1],
-                    "location": location,
-                    "num_candidates": num_candidates
-                }
+                # Create MetadataFilter directly from UI fields
+                from src.retrieval.metadata import MetadataFilter
+                try:
+                    m_filter = MetadataFilter(
+                        minimum_experience=exp_range[0],
+                        maximum_experience=exp_range[1],
+                        location=location if location and location.strip() else None,
+                        skills=jd_skills if jd_skills else None
+                    )
+                    hybrid_filters = m_filter.model_dump(exclude_none=True)
+                except Exception as e:
+                    hybrid_filters = None
+                    print(f"Filter validation failed: {e}")
                 
-                retrieved = retrieve(refined_query["text"], top_k=refined_query.get("num_candidates", 10))
-                docs = retrieved.get("docs", [])
+                if not hybrid_service:
+                    st.warning("⚠️ Hybrid Retrieval Service unavailable. Check backend.")
+                    st.stop()
                 
-                # Process and score candidates
-                scored_results = []
-                for i, d in enumerate(docs):
-                    meta = d.get("meta", {}) or {}
-                    doc = d.get("text", "")
-                    
-                    # Extract candidate info
-                    candidate = {
-                        "id": str(i),
-                        "name": meta.get("name", f"Candidate {i+1}"),
-                        "role": meta.get("role", "Software Developer"),
-                        "location": meta.get("location", "Not specified"),
-                        "experience": meta.get("experience", "Not specified"),
-                        "skills": meta.get("skills", []),
-                        "text": doc
-                    }
-                    
-                    # ✅ CRITICAL FIX: Extract skills from resume text if not present
-                    if not candidate["skills"] or len(candidate["skills"]) == 0:
-                        candidate["skills"] = extract_skills_from_text(doc)
-                    
-                    # Ensure candidate has at least some skills
-                    if not candidate["skills"]:
-                        candidate["skills"] = ["unknown"]
-                    
-                    # Score the candidate with fixed logic
-                    score, matched_skills = compute_match_score(
-                        candidate["skills"],
-                        jd_skills
+                if not reranker_service:
+                    st.warning("⚠️ Cross Encoder Reranker unavailable. Check backend.")
+                    st.stop()
+                
+                # 1. Hybrid Retrieval
+                retrieved = hybrid_service.search(
+                    query=user_query,
+                    top_k=num_candidates * 3, # Fetch more for reranker
+                    filters=hybrid_filters
+                )
+                
+                if not retrieved:
+                    st.info("No candidates found matching criteria.")
+                    st.session_state.search_results = []
+                else:
+                    # 2. Cross Encoder Reranker
+                    reranked = reranker_service.rerank(
+                        query=user_query,
+                        candidates=retrieved,
+                        top_k=num_candidates
                     )
                     
-                    candidate["score"] = score
-                    candidate["matched_skills"] = matched_skills
-                    
-                    scored_results.append(candidate)
-                
-                # Sort by score
-                scored_results = sorted(scored_results, key=lambda x: x["score"], reverse=True)
-                
-                # Store in session state
-                st.session_state.search_results = scored_results
-                
-                # Debug: Show first candidate details
-                if scored_results:
-                    with st.expander("🔍 Debug: Matching Details"):
-                        first = scored_results[0]
-                        st.write("**JD Skills:**", jd_skills)
-                        st.write("**Candidate Name:**", first["name"])
-                        st.write("**Candidate Skills:**", first["skills"])
-                        st.write("**Matched Skills:**", first["matched_skills"])
-                        st.write("**Score:**", first["score"])
+                    # 3. Map to UI Schema
+                    scored_results = []
+                    for i, r in enumerate(reranked):
+                        # Extract skills either from metadata or text
+                        candidate_skills = r.metadata.get("skills", [])
+                        if not candidate_skills or len(candidate_skills) == 0:
+                            candidate_skills = extract_skills_from_text(r.matched_text)
                         
-                        # Show first 3 candidates for comparison
-                        st.write("---")
-                        st.write("**First 3 Candidates:**")
-                        for i, c in enumerate(scored_results[:3]):
-                            st.write(f"{i+1}. {c['name']}: {c['skills']} → {c['matched_skills']} ({c['score']}%)")
+                        if not candidate_skills:
+                            candidate_skills = ["unknown"]
+                        
+                        # Match skills for highlighting
+                        _, matched_skills = compute_match_score(candidate_skills, jd_skills)
+                        
+                        # Scale score to percentage
+                        score_pct = int(max(0.0, min(1.0, r.rerank_score)) * 100) if r.rerank_score <= 1.0 else int(r.rerank_score)
+                        
+                        # Format experience
+                        exp_val = r.metadata.get("minimum_experience")
+                        exp_str = f"{exp_val} years" if exp_val is not None else "Not specified"
+                        
+                        candidate = {
+                            "id": f"{i}_{r.resume_id}",
+                            "name": r.candidate_name,
+                            "role": r.section if r.section else "Software Developer",
+                            "location": r.metadata.get("location", "Not specified"),
+                            "experience": exp_str,
+                            "skills": candidate_skills,
+                            "text": r.matched_text,
+                            "score": score_pct,
+                            "matched_skills": matched_skills,
+                            "reasons": [
+                                f"Cross-Encoder Score: {r.rerank_score:.2f}",
+                                f"Hybrid Rank: {r.original_rank}"
+                            ]
+                        }
+                        scored_results.append(candidate)
+                    
+                    # Store in session state
+                    st.session_state.search_results = scored_results
+                    
+                    # Debug: Show first candidate details
+                    if scored_results:
+                        with st.expander("🔍 Debug: Matching Details"):
+                            first = scored_results[0]
+                            st.write("**JD Skills:**", jd_skills)
+                            st.write("**Candidate Name:**", first["name"])
+                            st.write("**Candidate Skills:**", first["skills"])
+                            st.write("**Matched Skills:**", first["matched_skills"])
+                            st.write("**Score:**", first["score"])
+                            
+                            st.write("---")
+                            st.write("**First 3 Candidates:**")
+                            for i, c in enumerate(scored_results[:3]):
+                                st.write(f"{i+1}. {c['name']}: {c['skills']} → {c['matched_skills']} ({c['score']}%)")
                 
             except Exception as e:
-                st.warning("Some components could not load properly. Please try again.")
+                st.warning(f"Search failed: {str(e)}")
 
     # Always read from session state
     results = st.session_state.search_results
