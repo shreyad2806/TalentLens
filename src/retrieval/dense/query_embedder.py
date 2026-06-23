@@ -2,7 +2,7 @@
 Query Embedder for Dense Retrieval Service.
 
 This module provides functionality to generate embeddings for recruiter queries
-using the existing BGE-M3 model without reloading it.
+using the existing embedding model without reloading it.
 
 Architecture Notes:
 - Reuses existing embedding infrastructure
@@ -20,6 +20,7 @@ import logging
 import uuid
 from typing import List, Optional
 from src.embeddings.embedding_service import EmbeddingService
+from src.config import EMBEDDING_DIM
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +30,7 @@ class QueryEmbedder:
     Generates embeddings for recruiter queries.
     
     This class provides a simple interface for generating embeddings for
-    recruiter queries using the existing BGE-M3 model. It reuses the
+    recruiter queries using the existing embedding model. It reuses the
     existing embedding infrastructure and leverages the embedding cache
     to avoid recomputing embeddings for identical queries.
     
@@ -40,23 +41,23 @@ class QueryEmbedder:
     - No model reloading
     
     Features:
-        - Reuses existing BGE-M3 model
+        - Reuses existing embedding model
         - Leverages embedding cache
         - No model reloading
         - Efficient query embedding
     """
     
-    def __init__(self, expected_dimension: int = 1024):
+    def __init__(self, expected_dimension: Optional[int] = None):
         """
         Initialize the query embedder.
         
         Args:
-            expected_dimension: Expected dimension of embedding vectors (default: 1024)
+            expected_dimension: Expected dimension of embedding vectors. If None, uses config default.
         """
         # Initialize embedding service (this will reuse the existing model)
         try:
             self.embedding_service = EmbeddingService(expected_dimension=expected_dimension)
-            self.dimension = expected_dimension
+            self.dimension = expected_dimension or EMBEDDING_DIM
             logger.info("QueryEmbedder initialized with existing embedding service")
         except Exception as e:
             logger.error(f"Failed to initialize embedding service: {e}")

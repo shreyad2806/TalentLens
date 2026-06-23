@@ -279,6 +279,9 @@ class SparseRetrievalValidator:
         """
         Validate search filters.
         
+        Note: Unknown filter keys are silently ignored to avoid log pollution.
+        Use SchemaAlignment for proper schema mapping between metadata and retrieval layers.
+        
         Args:
             filters: Dictionary of filters to validate
             
@@ -291,14 +294,8 @@ class SparseRetrievalValidator:
         if not isinstance(filters, dict):
             raise ValidationError("Filters must be a dictionary", field="filters")
         
-        valid_filter_keys = {
-            "resume_id", "candidate_name", "section", "experience", "location", "role", "education"
-        }
-        
+        # Validate filter values (keys are not validated to allow extensibility)
         for key, value in filters.items():
-            if key not in valid_filter_keys:
-                logger.warning(f"Unknown filter key: {key}")
-            
             if value is None:
                 raise ValidationError(f"Filter value for '{key}' cannot be None", field="filters")
             

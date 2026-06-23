@@ -33,9 +33,23 @@ def get_hybrid_service():
         from src.retrieval.dense import DenseRetrievalService
         from src.retrieval.sparse import SparseRetrievalService, BM25Index
         from src.retrieval.hybrid import HybridRetrievalService
+        from src.indexing.pipeline import IndexingPipeline
+        from pathlib import Path
         
         dense = DenseRetrievalService()
-        sparse = SparseRetrievalService(index=BM25Index())
+        
+        # Try to load BM25 index from persistent storage
+        bm25_index_path = Path("data/indexes/bm25")
+        if (bm25_index_path / "metadata.json").exists():
+            print("Loading BM25 index from persistent storage for retrieval...")
+            bm25_index = BM25Index()
+            bm25_index.load_from_disk(bm25_index_path)
+            print(f"BM25 loaded: {bm25_index.num_documents} documents")
+        else:
+            print("BM25 index not found, creating empty index")
+            bm25_index = BM25Index()
+        
+        sparse = SparseRetrievalService(index=bm25_index)
         return HybridRetrievalService(
             dense_retrieval_service=dense,
             sparse_retrieval_service=sparse
@@ -56,6 +70,103 @@ def get_reranker_service():
 metadata_service = get_metadata_service()
 hybrid_service = get_hybrid_service()
 reranker_service = get_reranker_service()
+
+print("STEP 4 Bootstrap System")
+@st.cache_resource
+def get_bootstrap_service():
+    try:
+        from src.bootstrap import BootstrapService
+        return BootstrapService(verbose=True)
+    except Exception as e:
+        print(f"Warning: Bootstrap service failed to load: {e}")
+        return None
+
+@st.cache_resource
+def run_bootstrap():
+    """Run bootstrap once per session with logging and timing metrics."""
+    import time
+    from src.bootstrap import BootstrapService
+    from src.vector_store.qdrant.qdrant_adapter import QdrantAdapter
+    from src.vector_store.config import VectorStoreConfig, VectorStoreProvider
+    
+    print("STARTUP HEALTH CHECK")
+    start_time = time.time()
+    
+    # Check vector store configuration
+    config = VectorStoreConfig()
+    print(f"Vector Store Provider: {config.provider.value}")
+    
+    # Check Qdrant if it's the provider
+    if config.provider == VectorStoreProvider.QDRANT:
+        try:
+            qdrant_adapter = QdrantAdapter()
+            health_status = qdrant_adapter.health_check()
+            
+            print(f"Qdrant URL: {qdrant_adapter.url}")
+            print(f"Qdrant Collection: {qdrant_adapter.collection_name}")
+            print(f"Qdrant Connected: {health_status.connection_healthy}")
+            print(f"Qdrant Collection Exists: {health_status.collection_exists}")
+            print(f"Qdrant Vector Count: {health_status.vector_count}")
+            
+            # If collection exists and has vectors, skip bootstrap
+            if health_status.connection_healthy and health_status.collection_exists and health_status.vector_count > 0:
+                elapsed_time = time.time() - start_time
+                print(f"✓ INDEX FOUND - Skipping bootstrap (startup time: {elapsed_time:.2f}s)")
+                
+                # Load BM25 index from cache
+                import pickle
+                from pathlib import Path
+                bm25_cache_path = Path("data/cache/bm25.pkl")
+                if bm25_cache_path.exists():
+                    print(f"✓ Loading BM25 index from cache...")
+                    with open(bm25_cache_path, 'rb') as f:
+                        bm25_index = pickle.load(f)
+                    print(f"✓ BM25 index loaded")
+                else:
+                    print(f"⚠ BM25 index cache not found at {bm25_cache_path}")
+                
+                return {"bootstrapped": False, "vector_count": health_status.vector_count}
+            
+        except Exception as e:
+            print(f"⚠ Qdrant health check failed: {e}")
+            print("Continuing with bootstrap...")
+    
+    # Run bootstrap if Qdrant check failed or collection doesn't exist
+    bootstrap_service = None
+    try:
+        bootstrap_service = BootstrapService(verbose=True)
+    except Exception as e:
+        print(f"Warning: Bootstrap service failed to load: {e}")
+        return None
+    
+    if not bootstrap_service:
+        return None
+    
+    print("BOOTSTRAP START")
+    bootstrap_start_time = time.time()
+    
+    try:
+        bootstrap_result = bootstrap_service.bootstrap()
+        bootstrap_elapsed_time = time.time() - bootstrap_start_time
+        total_elapsed_time = time.time() - start_time
+        
+        if not bootstrap_result.get('bootstrapped', True):
+            print(f"BOOTSTRAP SKIPPED - index already contains data (bootstrap time: {bootstrap_elapsed_time:.2f}s, total time: {total_elapsed_time:.2f}s)")
+        else:
+            print(f"BOOTSTRAP COMPLETE (bootstrap time: {bootstrap_elapsed_time:.2f}s, total time: {total_elapsed_time:.2f}s)")
+            print("⚠ INDEX NOT FOUND - Run 'python scripts/build_index.py' to build the production index")
+        
+        return bootstrap_result
+    except Exception as e:
+        bootstrap_elapsed_time = time.time() - bootstrap_start_time
+        total_elapsed_time = time.time() - start_time
+        print(f"BOOTSTRAP FAILED: {e} (bootstrap time: {bootstrap_elapsed_time:.2f}s, total time: {total_elapsed_time:.2f}s)")
+        import traceback
+        traceback.print_exc()
+        return None
+
+# Run bootstrap once per session
+bootstrap_result = run_bootstrap()
 
 print("STEP 5 Rendering Streamlit")
 

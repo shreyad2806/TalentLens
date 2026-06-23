@@ -7,6 +7,9 @@ document-query pairs.
 """
 
 import math
+import json
+import pickle
+from pathlib import Path
 from typing import Dict, List, Tuple, Set
 from collections import defaultdict
 import logging
@@ -239,3 +242,119 @@ class BM25Index:
         self.avg_doc_length = 0.0
         self.total_tokens = 0
         logger.info("BM25Index cleared")
+    
+    def save_to_disk(self, index_path: Path) -> None:
+        """
+        Save the BM25 index to disk.
+        
+        This method serializes the index data structures to JSON format
+        for persistence across sessions.
+        
+        Args:
+            index_path: Path to save the index (directory)
+        """
+        index_path = Path(index_path)
+        index_path.mkdir(parents=True, exist_ok=True)
+        
+        try:
+            # Save inverted index
+            inverted_index_path = index_path / "inverted_index.json"
+            with open(inverted_index_path, 'w', encoding='utf-8') as f:
+                json.dump(dict(self.inverted_index), f)
+            
+            # Save document lengths
+            doc_lengths_path = index_path / "document_lengths.json"
+            with open(doc_lengths_path, 'w', encoding='utf-8') as f:
+                json.dump(self.document_lengths, f)
+            
+            # Save vocabulary
+            vocab_path = index_path / "vocabulary.json"
+            with open(vocab_path, 'w', encoding='utf-8') as f:
+                json.dump(list(self.vocabulary), f)
+            
+            # Save documents (convert to dict)
+            docs_path = index_path / "documents.json"
+            docs_dict = {}
+            for doc_id, doc in self.documents.items():
+                if hasattr(doc, 'model_dump'):
+                    docs_dict[doc_id] = doc.model_dump()
+                elif hasattr(doc, 'dict'):
+                    docs_dict[doc_id] = doc.dict()
+                else:
+                    docs_dict[doc_id] = doc
+            with open(docs_path, 'w', encoding='utf-8') as f:
+                json.dump(docs_dict, f)
+            
+            # Save metadata
+            metadata = {
+                'k1': self.k1,
+                'b': self.b,
+                'num_documents': self.num_documents,
+                'avg_doc_length': self.avg_doc_length,
+                'total_tokens': self.total_tokens
+            }
+            metadata_path = index_path / "metadata.json"
+            with open(metadata_path, 'w', encoding='utf-8') as f:
+                json.dump(metadata, f)
+            
+            logger.info(f"BM25Index saved to {index_path}")
+            
+        except Exception as e:
+            logger.error(f"Failed to save BM25Index: {e}")
+            raise
+    
+    def load_from_disk(self, index_path: Path) -> None:
+        """
+        Load the BM25 index from disk.
+        
+        This method deserializes the index data structures from JSON format.
+        
+        Args:
+            index_path: Path to load the index from (directory)
+        """
+        index_path = Path(index_path)
+        
+        try:
+            # Load inverted index
+            inverted_index_path = index_path / "inverted_index.json"
+            with open(inverted_index_path, 'r', encoding='utf-8') as f:
+                inverted_index_data = json.load(f)
+                self.inverted_index = defaultdict(lambda: defaultdict(int))
+                for term, doc_dict in inverted_index_data.items():
+                    for doc_id, count in doc_dict.items():
+                        self.inverted_index[term][doc_id] = count
+            
+            # Load document lengths
+            doc_lengths_path = index_path / "document_lengths.json"
+            with open(doc_lengths_path, 'r', encoding='utf-8') as f:
+                self.document_lengths = json.load(f)
+            
+            # Load vocabulary
+            vocab_path = index_path / "vocabulary.json"
+            with open(vocab_path, 'r', encoding='utf-8') as f:
+                self.vocabulary = set(json.load(f))
+            
+            # Load documents
+            docs_path = index_path / "documents.json"
+            with open(docs_path, 'r', encoding='utf-8') as f:
+                docs_dict = json.load(f)
+                from .schema import BM25Document
+                self.documents = {}
+                for doc_id, doc_data in docs_dict.items():
+                    self.documents[doc_id] = BM25Document(**doc_data)
+            
+            # Load metadata
+            metadata_path = index_path / "metadata.json"
+            with open(metadata_path, 'r', encoding='utf-8') as f:
+                metadata = json.load(f)
+                self.k1 = metadata['k1']
+                self.b = metadata['b']
+                self.num_documents = metadata['num_documents']
+                self.avg_doc_length = metadata['avg_doc_length']
+                self.total_tokens = metadata['total_tokens']
+            
+            logger.info(f"BM25Index loaded from {index_path}")
+            
+        except Exception as e:
+            logger.error(f"Failed to load BM25Index: {e}")
+            raise

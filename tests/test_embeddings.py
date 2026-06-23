@@ -21,6 +21,7 @@ from src.resume_parser.parser_service import ParserService
 from src.chunks.service import ChunkService
 from src.embeddings.embedding_service import EmbeddingService
 from src.embeddings.model_loader import get_model_loader
+from src.config import EMBEDDING_DIM
 
 
 def print_success(message: str):
@@ -174,7 +175,7 @@ def test_embedding_layer():
     
     # Validate vector dimension correct
     print_info("Validating vector dimension correct...")
-    expected_dimension = 1024
+    expected_dimension = EMBEDDING_DIM
     if all(embedding.vector_dimension == expected_dimension for embedding in embeddings):
         print_success(f"All embeddings have correct dimension: {expected_dimension}")
     else:

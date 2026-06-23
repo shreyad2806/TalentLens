@@ -25,6 +25,7 @@ from typing import List, Dict, Any, Optional
 from ..interface import VectorStore, VectorStoreError
 from ..schema import VectorRecord
 from ..config import VectorStoreConfig
+from ...config import EMBEDDING_DIM
 
 logger = logging.getLogger(__name__)
 
@@ -550,7 +551,7 @@ class PineconeAdapter(VectorStore):
         def _fetch_resume():
             """Execute fetch resume with Pinecone."""
             # Use a dummy vector to query all records with the filter
-            dimension = self.config.dimension if self.config else 1024
+            dimension = self.config.dimension if self.config else EMBEDDING_DIM
             dummy_vector = [0.0] * dimension
             
             results = self._index.query(

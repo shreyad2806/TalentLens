@@ -19,6 +19,9 @@ import os
 from typing import Optional
 from enum import Enum
 
+# Import embedding dimension from config to ensure alignment
+from ..config import EMBEDDING_DIM
+
 
 class VectorStoreProvider(Enum):
     """
@@ -62,8 +65,8 @@ class VectorStoreConfig:
     ENV_VECTOR_STORE_METRIC = "VECTOR_STORE_METRIC"
     
     # Default values
-    DEFAULT_PROVIDER = VectorStoreProvider.MEMORY
-    DEFAULT_DIMENSION = 1024  # BAAI/bge-m3 embedding dimension
+    DEFAULT_PROVIDER = VectorStoreProvider.QDRANT
+    DEFAULT_DIMENSION = EMBEDDING_DIM  # Use configured embedding dimension
     DEFAULT_METRIC = "cosine"
     
     def __init__(self):

@@ -1,6 +1,5 @@
 import time
 from typing import Optional
-import streamlit as st
 from pinecone import Pinecone, ServerlessSpec
 from .config import (
     PINECONE_API_KEY,
@@ -9,6 +8,13 @@ from .config import (
     PINECONE_REGION,
     EMBEDDING_DIM,
 )
+
+# Optional streamlit import for Streamlit-specific caching
+try:
+    import streamlit as st
+    STREAMLIT_AVAILABLE = True
+except ImportError:
+    STREAMLIT_AVAILABLE = False
 
 
 def get_pc() -> Pinecone:
@@ -41,8 +47,13 @@ def get_index(index_name: Optional[str] = None):
     return pc.Index(index_name)
 
 
-@st.cache_resource
 def get_cached_index(index_name: Optional[str] = None):
-    return get_index(index_name)
+    if STREAMLIT_AVAILABLE:
+        @st.cache_resource
+        def _get_cached():
+            return get_index(index_name)
+        return _get_cached()
+    else:
+        return get_index(index_name)
 
 

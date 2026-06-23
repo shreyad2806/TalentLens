@@ -13,6 +13,7 @@ from typing import List, Optional
 from .vectorizer import Vectorizer
 from .validator import EmbeddingValidator
 from .schema import EmbeddingRecord
+from ..config import EMBEDDING_DIM, EMBEDDING_MODEL
 
 
 class EmbeddingService:
@@ -32,15 +33,38 @@ class EmbeddingService:
     for the outside world.
     """
     
-    def __init__(self, expected_dimension: int = 1024):
+    def __init__(self, expected_dimension: Optional[int] = None):
         """
         Initialize the embedding service.
         
         Args:
-            expected_dimension: Expected dimension of embedding vectors (default: 1024 for BAAI/bge-m3)
+            expected_dimension: Expected dimension of embedding vectors. If None, uses config default.
         """
         self.vectorizer = Vectorizer()
-        self.validator = EmbeddingValidator(expected_dimension=expected_dimension)
+        self.validator = EmbeddingValidator(expected_dimension=expected_dimension or EMBEDDING_DIM)
+        self._print_model_info()
+    
+    def _print_model_info(self) -> None:
+        """
+        Print embedding model information.
+        
+        This method prints the model name, dimension, and load time
+        to provide visibility into the embedding configuration.
+        """
+        model_loader = self.vectorizer.model_loader
+        diagnostics = model_loader.get_diagnostics()
+        
+        print("\n" + "="*60)
+        print("🧠 Embedding Model Configuration")
+        print("="*60)
+        print(f"Model: {diagnostics['model_name']}")
+        print(f"Dimension: {EMBEDDING_DIM}")
+        print(f"Load Time: {diagnostics['load_time']:.2f}s")
+        print(f"Device: {diagnostics['device']}")
+        print(f"Memory Usage: {diagnostics['memory_usage_mb']:.2f} MB")
+        print("="*60)
+        print("🚀 Embedding Model Ready")
+        print("="*60 + "\n")
     
     def embed_chunk(self, chunk) -> Optional[EmbeddingRecord]:
         """

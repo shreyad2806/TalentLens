@@ -14,6 +14,7 @@ Validations include:
 
 from typing import List, Optional, Set
 from .schema import EmbeddingRecord
+from ..config import EMBEDDING_DIM
 import math
 
 
@@ -28,14 +29,14 @@ class EmbeddingValidator:
     in the vector database, improving retrieval accuracy and system reliability.
     """
     
-    def __init__(self, expected_dimension: int = 1024):
+    def __init__(self, expected_dimension: Optional[int] = None):
         """
         Initialize the embedding validator.
         
         Args:
-            expected_dimension: Expected dimension of embedding vectors (default: 1024 for BAAI/bge-m3)
+            expected_dimension: Expected dimension of embedding vectors. If None, uses config default.
         """
-        self.expected_dimension = expected_dimension
+        self.expected_dimension = expected_dimension or EMBEDDING_DIM
     
     def validate_text_not_empty(self, text: str) -> bool:
         """

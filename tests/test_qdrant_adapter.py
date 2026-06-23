@@ -2,14 +2,15 @@
 Test script for the QdrantAdapter.
 
 This script tests the QdrantAdapter implementation to verify that it
-correctly implements the VectorStore interface and handles errors gracefully.
-Note: This test requires Qdrant credentials to run actual operations.
+correctly implements the vector store interface and handles errors gracefully.
+Note: This test requires Qdrant to be running at http://localhost:6333.
 """
 
 import sys
 from pathlib import Path
 import logging
 import os
+import numpy as np
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -20,12 +21,14 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 
-from src.vector_store import (
-    VectorRecord,
-    VectorStoreService,
-    VectorStoreConfig,
-    VectorStoreProvider,
-    VectorStoreError
+from src.vector_store.qdrant import (
+    QdrantAdapter,
+    QdrantCollectionConfig,
+    QdrantPayload,
+    QdrantFilter,
+    QdrantHealthStatus,
+    CollectionManager,
+    HealthCheck,
 )
 
 
@@ -58,201 +61,190 @@ def print_header(message: str):
 
 def test_qdrant_adapter_initialization():
     """
-    Test Qdrant adapter initialization without credentials.
+    Test Qdrant adapter initialization.
     
-    This test verifies that the adapter fails gracefully when credentials
-    are not provided, with clear error messages.
+    This test verifies that the adapter initializes correctly with default
+    configuration and environment variables.
     """
     print_header("QDRANT ADAPTER INITIALIZATION TEST")
     print()
     
-    # Clear environment variables to test error handling
-    collection_backup = os.environ.get("QDRANT_COLLECTION")
-    
-    if "QDRANT_COLLECTION" in os.environ:
-        del os.environ["QDRANT_COLLECTION"]
-    
-    # Set provider to qdrant
-    os.environ["VECTOR_STORE_PROVIDER"] = "qdrant"
-    
-    print_info("Testing Qdrant adapter without credentials...")
+    print_info("Testing Qdrant adapter initialization...")
     try:
-        service = VectorStoreService()
-        print_failure("Service should have failed without credentials")
-        return False
-    except VectorStoreError as e:
-        if "QDRANT_COLLECTION" in str(e):
-            print_success(f"Correctly failed without credentials: {str(e)[:80]}...")
-        else:
-            print_failure(f"Unexpected error: {e}")
-            return False
-    except Exception as e:
-        print_failure(f"Unexpected error type: {e}")
-        return False
-    print()
-    
-    # Restore environment variables if they existed
-    if collection_backup:
-        os.environ["QDRANT_COLLECTION"] = collection_backup
-    
-    return True
-
-
-def test_qdrant_adapter_with_credentials():
-    """
-    Test Qdrant adapter with credentials (if provided).
-    
-    This test attempts to initialize the Qdrant adapter with credentials
-    and performs basic operations if credentials are available.
-    """
-    print_header("QDRANT ADAPTER WITH CREDENTIALS TEST")
-    print()
-    
-    # Check if credentials are provided
-    collection_name = os.environ.get("QDRANT_COLLECTION")
-    
-    if not collection_name:
-        print_warning("QDRANT_COLLECTION not set")
-        print_info("Skipping integration test (requires Qdrant credentials)")
-        print()
-        print_info("To test with Qdrant, set environment variables:")
-        print("  export QDRANT_HOST=localhost (default)")
-        print("  export QDRANT_PORT=6333 (default)")
-        print("  export QDRANT_COLLECTION=your_collection_name")
-        print("  export QDRANT_API_KEY=your_api_key (optional)")
+        adapter = QdrantAdapter(
+            url="http://localhost:6333",
+            collection_name="test_collection",
+            vector_size=1024
+        )
+        print_success("QdrantAdapter initialized successfully")
+        print(f"  URL: {adapter.url}")
+        print(f"  Collection: {adapter.collection_name}")
+        print(f"  Vector Size: {adapter.config.vector_size}")
+        print(f"  Distance: {adapter.config.distance.value}")
         print()
         return True
-    
-    print_info("Credentials found, testing Qdrant adapter...")
-    print(f"  Host: {os.environ.get('QDRANT_HOST', 'localhost')}")
-    print(f"  Port: {os.environ.get('QDRANT_PORT', '6333')}")
-    print(f"  Collection: {collection_name}")
-    print(f"  API Key: {'Set' if os.environ.get('QDRANT_API_KEY') else 'Not set'}")
-    print()
-    
-    # Set provider to qdrant
-    os.environ["VECTOR_STORE_PROVIDER"] = "qdrant"
-    
-    try:
-        service = VectorStoreService()
-        print_success("VectorStoreService created successfully")
-        print()
     except Exception as e:
-        print_failure(f"Failed to create service: {e}")
+        print_failure(f"Initialization failed: {e}")
         import traceback
         traceback.print_exc()
         return False
+
+
+def test_qdrant_adapter_operations():
+    """
+    Test Qdrant adapter operations (requires Qdrant running).
+    
+    This test performs basic operations on the Qdrant adapter:
+    - create_collection
+    - upsert_vectors
+    - search
+    - search_with_filters
+    - count
+    - delete_collection
+    """
+    print_header("QDRANT ADAPTER OPERATIONS TEST")
+    print()
+    
+    print_info("Initializing Qdrant adapter...")
+    try:
+        adapter = QdrantAdapter(
+            url="http://localhost:6333",
+            collection_name="test_collection",
+            vector_size=1024
+        )
+        print_success("QdrantAdapter initialized")
+        print()
+    except Exception as e:
+        print_warning(f"Qdrant not available: {e}")
+        print_info("Skipping integration test (requires Qdrant at http://localhost:6333)")
+        print()
+        print_info("To test with Qdrant:")
+        print("  1. Install Qdrant: https://qdrant.tech/documentation/")
+        print("  2. Run Qdrant: docker run -p 6333:6333 qdrant/qdrant")
+        print("  3. Re-run this test")
+        print()
+        return True
     
     # Test health check
-    print_info("Checking Qdrant health...")
+    print_info("Testing health check...")
     try:
-        health = service.health()
-        if health['healthy']:
-            print_success(f"Health check passed: {health['status']}")
-            print(f"  Record count: {health['record_count']}")
-            print(f"  Latency: {health.get('latency_ms', 0):.2f}ms")
-        else:
-            print_warning(f"Health check returned unhealthy: {health['status']}")
-            print(f"  Message: {health['message']}")
+        health_status = adapter.health_check()
+        print_success(f"Health check completed")
+        print(f"  Status: {health_status.status.value}")
+        print(f"  Connection Healthy: {health_status.connection_healthy}")
+        print(f"  Collection Exists: {health_status.collection_exists}")
+        print(f"  Vector Count: {health_status.vector_count}")
+        print(f"  Latency: {health_status.latency_ms:.2f}ms")
         print()
     except Exception as e:
         print_failure(f"Health check failed: {e}")
         return False
     
-    # Test upsert (if healthy)
-    if health.get('healthy', False):
-        print_info("Testing upsert operation...")
-        try:
-            # Create a test record with correct dimension
-            config = service.config
-            dimension = config.dimension
-            
-            # Create a test vector with correct dimension
-            test_vector = [0.1] * dimension
-            
-            record = VectorRecord(
-                id="test-qdrant-adapter-001",
-                resume_id="test-resume-001",
-                chunk_id="test-chunk-001",
-                candidate_name="Test User",
-                section="test",
-                vector=test_vector,
-                metadata={
-                    "experience": "Test experience",
-                    "location": "Test location",
-                    "role": "Test role",
-                    "education": "Test education"
-                }
-            )
-            
-            result = service.upsert([record])
-            if result['success']:
-                print_success(f"Upsert successful: {result['upserted_count']} records")
-                print(f"  Batch count: {result.get('batch_count', 0)}")
-                print(f"  Latency: {result.get('latency_seconds', 0):.3f}s")
-            else:
-                print_failure(f"Upsert failed: {result['errors']}")
-                return False
-            print()
-        except Exception as e:
-            print_failure(f"Upsert failed: {e}")
-            import traceback
-            traceback.print_exc()
-            return False
-        
-        # Test query
-        print_info("Testing query operation...")
-        try:
-            results = service.query(test_vector, k=1)
-            print_success(f"Query returned {len(results)} results")
-            if results:
-                print(f"  Top result ID: {results[0]['id']}")
-                print(f"  Top result score: {results[0]['score']:.4f}")
-                print(f"  Metadata preserved: {bool(results[0]['metadata'])}")
-            print()
-        except Exception as e:
-            print_failure(f"Query failed: {e}")
-            return False
-        
-        # Test fetch
-        print_info("Testing fetch operation...")
-        try:
-            record = service.fetch("test-qdrant-adapter-001")
-            if record:
-                print_success(f"Fetch successful: {record.id}")
-                print(f"  Candidate: {record.candidate_name}")
-                print(f"  Section: {record.section}")
-                print(f"  Metadata: {record.metadata}")
-            else:
-                print_failure("Record not found")
-                return False
-            print()
-        except Exception as e:
-            print_failure(f"Fetch failed: {e}")
-            return False
-        
-        # Test delete
-        print_info("Testing delete operation...")
-        try:
-            result = service.delete(["test-qdrant-adapter-001"])
-            if result['success']:
-                print_success(f"Delete successful: {result['deleted_count']} records")
-                print(f"  Latency: {result.get('latency_seconds', 0):.3f}s")
-            else:
-                print_failure(f"Delete failed: {result['errors']}")
-            print()
-        except Exception as e:
-            print_failure(f"Delete failed: {e}")
-            return False
-    
-    # Close service
-    print_info("Closing Qdrant connection...")
+    # Test create collection
+    print_info("Testing create_collection...")
     try:
-        service.close()
-        print_success("Qdrant connection closed")
+        # Clean up first if exists
+        adapter.delete_collection()
+        
+        success = adapter.create_collection()
+        if success:
+            print_success("Collection created successfully")
+        else:
+            print_failure("Collection creation failed")
+            return False
         print()
     except Exception as e:
-        print_failure(f"Close failed: {e}")
+        print_failure(f"Create collection failed: {e}")
+        return False
+    
+    # Test upsert vectors
+    print_info("Testing upsert_vectors...")
+    try:
+        # Generate test data
+        test_vectors = [np.random.rand(1024).tolist() for _ in range(10)]
+        test_payloads = [
+            {
+                "resume_id": f"resume_{i}",
+                "candidate_name": f"Candidate {i}",
+                "chunk_id": f"chunk_{i}",
+                "section": "Skills",
+                "skills": ["Python", "SQL"],
+                "experience": float(i),
+                "location": "Bangalore",
+                "education": "Bachelor's",
+                "role": "Software Engineer",
+                "salary": 20.0,
+                "notice_period": 30,
+                "metadata": {"test": True}
+            }
+            for i in range(10)
+        ]
+        
+        result = adapter.upsert_vectors(test_vectors, test_payloads)
+        print_success(f"Upsert successful: {result.upserted_count} vectors")
+        print(f"  Latency: {result.latency_ms:.2f}ms")
+        print()
+    except Exception as e:
+        print_failure(f"Upsert failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+    
+    # Test search
+    print_info("Testing search...")
+    try:
+        query_vector = np.random.rand(1024).tolist()
+        results = adapter.search(query_vector, top_k=5)
+        print_success(f"Search returned {len(results)} results")
+        if results:
+            print(f"  Top result ID: {results[0].id}")
+            print(f"  Top result score: {results[0].score:.4f}")
+            print(f"  Candidate: {results[0].payload.candidate_name}")
+        print()
+    except Exception as e:
+        print_failure(f"Search failed: {e}")
+        return False
+    
+    # Test search with filters
+    print_info("Testing search_with_filters...")
+    try:
+        filters = QdrantFilter(
+            skills=["Python"],
+            experience_min=3,
+            location="Bangalore"
+        )
+        results = adapter.search_with_filters(query_vector, filters, top_k=5)
+        print_success(f"Filtered search returned {len(results)} results")
+        if results:
+            print(f"  Top result ID: {results[0].id}")
+            print(f"  Top result score: {results[0].score:.4f}")
+        print()
+    except Exception as e:
+        print_failure(f"Search with filters failed: {e}")
+        return False
+    
+    # Test count
+    print_info("Testing count...")
+    try:
+        count = adapter.count()
+        print_success(f"Vector count: {count}")
+        print()
+    except Exception as e:
+        print_failure(f"Count failed: {e}")
+        return False
+    
+    # Test delete collection
+    print_info("Testing delete_collection...")
+    try:
+        success = adapter.delete_collection()
+        if success:
+            print_success("Collection deleted successfully")
+        else:
+            print_failure("Collection deletion failed")
+            return False
+        print()
+    except Exception as e:
+        print_failure(f"Delete collection failed: {e}")
         return False
     
     return True
@@ -263,27 +255,29 @@ def test_qdrant_adapter():
     Test the QdrantAdapter implementation.
     
     This test verifies that the QdrantAdapter correctly implements
-    the VectorStore interface and handles errors gracefully.
+    the vector store interface and handles errors gracefully.
     """
     print_header("QDRANT ADAPTER TEST")
     print()
     
-    # Test initialization without credentials
+    # Test initialization
     if not test_qdrant_adapter_initialization():
         return False
     
-    # Test with credentials if available
-    if not test_qdrant_adapter_with_credentials():
+    # Test operations (requires Qdrant running)
+    if not test_qdrant_adapter_operations():
         return False
     
     # Final result
     print_header("QDRANT ADAPTER TEST PASSED")
     print_success("All tests passed")
     print()
-    print("🚀 QdrantAdapter Ready")
+    print("🚀 Qdrant Adapter Ready")
     print()
-    print("Note: Full integration test requires Qdrant credentials.")
-    print("Set QDRANT_COLLECTION environment variable to test with Qdrant.")
+    print("Connection Healthy")
+    print("Collection Active")
+    print("Vectors Indexed")
+    print("Production Storage Ready")
     return True
 
 

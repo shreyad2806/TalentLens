@@ -5,8 +5,19 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-EMBEDDING_MODEL = "all-MiniLM-L6-v2"
-EMBEDDING_DIM = 384
+# Embedding model configuration
+# Default model: BAAI/bge-small-en-v1.5 (faster, smaller)
+# Production model: BAAI/bge-m3 (slower, larger, better quality)
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5")
+
+# Model dimensions based on model selection
+MODEL_DIMENSIONS = {
+    "BAAI/bge-small-en-v1.5": 384,
+    "BAAI/bge-m3": 1024,
+    "all-MiniLM-L6-v2": 384,
+}
+
+EMBEDDING_DIM = MODEL_DIMENSIONS.get(EMBEDDING_MODEL, 1024)
 
 
 CATEGORIES = [

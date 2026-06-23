@@ -20,6 +20,7 @@ SOLID Principles Applied:
 import logging
 from typing import List, Dict, Any, Optional
 from .schema import DenseSearchResult, AggregatedCandidateResult
+from src.config import EMBEDDING_DIM
 
 logger = logging.getLogger(__name__)
 
@@ -62,15 +63,15 @@ class RetrievalValidator:
     - Scores: Valid range (0.0 - 1.0)
     """
     
-    def __init__(self, vector_dimension: int = 1024):
+    def __init__(self, vector_dimension: Optional[int] = None):
         """
         Initialize the validator.
         
         Args:
-            vector_dimension: Expected dimension of vectors (default: 1024)
+            vector_dimension: Expected dimension of vectors. If None, uses config default.
         """
-        self.vector_dimension = vector_dimension
-        logger.info(f"RetrievalValidator initialized with vector dimension: {vector_dimension}")
+        self.vector_dimension = vector_dimension or EMBEDDING_DIM
+        logger.info(f"RetrievalValidator initialized with vector dimension: {self.vector_dimension}")
     
     def validate_query(self, query: str) -> None:
         """
@@ -292,6 +293,9 @@ class RetrievalValidator:
         
         Validates that filters are properly structured and contain valid values.
         
+        Note: Unknown filter keys are silently ignored to avoid log pollution.
+        Use SchemaAlignment for proper schema mapping between metadata and retrieval layers.
+        
         Args:
             filters: Filters dictionary to validate
             
@@ -304,15 +308,8 @@ class RetrievalValidator:
         if not isinstance(filters, dict):
             raise ValidationError("Filters must be a dictionary", field="filters")
         
-        # Validate filter keys and values
-        valid_filter_keys = {
-            "resume_id", "candidate_name", "section", "experience", "location", "role", "education"
-        }
-        
+        # Validate filter values (keys are not validated to allow extensibility)
         for key, value in filters.items():
-            if key not in valid_filter_keys:
-                logger.warning(f"Unknown filter key: {key}")
-            
             if value is None:
                 raise ValidationError(f"Filter value for '{key}' cannot be None", field="filters")
             

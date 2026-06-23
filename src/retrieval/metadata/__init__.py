@@ -66,6 +66,11 @@ from .filter_engine import FilterEngine
 from .validator import MetadataFilterValidator, ValidationError
 from .cache import MetadataFilterCache
 from .metadata_service import MetadataService
+from .schema_alignment import (
+    SchemaAlignment,
+    SchemaAlignmentError,
+    FilterKeyNormalizer,
+)
 
 __all__ = [
     # Schema
@@ -90,4 +95,8 @@ __all__ = [
     "MetadataFilterCache",
     # Service
     "MetadataService",
+    # Schema Alignment
+    "SchemaAlignment",
+    "SchemaAlignmentError",
+    "FilterKeyNormalizer",
 ]
