@@ -6,9 +6,8 @@ load_dotenv()
 
 
 # Embedding model configuration
-# Default model: BAAI/bge-small-en-v1.5 (faster, smaller)
-# Production model: BAAI/bge-m3 (slower, larger, better quality)
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5")
+# Production model: BAAI/bge-m3 (larger, higher quality)
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "BAAI/bge-m3")
 
 # Model dimensions based on model selection
 MODEL_DIMENSIONS = {
