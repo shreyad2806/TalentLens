@@ -29,6 +29,8 @@ from .score_normalizer import ScoreNormalizer, NormalizationStrategy
 from .candidate_aggregator import CandidateAggregator
 from .query_embedder import QueryEmbedder
 from src.vector_store import VectorStoreService
+from src.embeddings.embedding_service import EmbeddingService
+
 
 logger = logging.getLogger(__name__)
 
@@ -68,12 +70,15 @@ class DenseRetrievalService:
     def __init__(
         self,
         vector_store_service: Optional[VectorStoreService] = None,
+        embedding_service: Optional[EmbeddingService] = None,
+
         cache_enabled: bool = True,
         cache_max_size: int = 1000,
         cache_ttl_seconds: int = 3600,
         normalization_strategy: NormalizationStrategy = NormalizationStrategy.COSINE,
         section_weights: Optional[Dict[str, float]] = None
     ):
+
         """
         Initialize the dense retrieval service.
         
@@ -86,11 +91,23 @@ class DenseRetrievalService:
             section_weights: Section weights for candidate aggregation
         """
         # Initialize components
+        # Dependency injection: never instantiate dependent services here when provided.
         self.vector_store_service = vector_store_service or VectorStoreService()
         self.validator = RetrievalValidator(vector_dimension=self.vector_store_service.config.dimension)
-        self.query_embedder = QueryEmbedder()
+
+        # Query embedder depends on EmbeddingService
+        if embedding_service is not None:
+            self.query_embedder = QueryEmbedder(
+                expected_dimension=self.vector_store_service.config.dimension,
+                embedding_service=embedding_service,
+            )
+
+        else:
+            self.query_embedder = QueryEmbedder()
+
         self.score_normalizer = ScoreNormalizer(strategy=normalization_strategy)
         self.candidate_aggregator = CandidateAggregator(section_weights=section_weights)
+
         
         # Initialize cache
         self.cache_enabled = cache_enabled
@@ -103,6 +120,7 @@ class DenseRetrievalService:
             f"DenseRetrievalService initialized with cache_enabled={cache_enabled}, "
             f"normalization_strategy={normalization_strategy.value}"
         )
+
     
     def search(self, query: str, top_k: int = 10, filters: Optional[Dict[str, Any]] = None) -> List[DenseSearchResult]:
         """

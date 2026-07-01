@@ -356,12 +356,15 @@ class CSVIngestionService:
                 # Restore indexed documents
                 indexing_service._indexed_documents = indexed_documents
                 
-                # Load BM25 index from persistent storage
+                # Load BM25 index from persistent storage into the injected instance
+                # (BM25Index construction is owned by composition_root.py only)
                 print("Loading BM25 index from persistent storage...")
-                from src.retrieval.bm25.bm25_index import BM25Index
-                indexing_service._bm25_index = BM25Index()
-                indexing_service._bm25_index.load_from_disk(bm25_index_path)
+                assert indexing_service.get_bm25_index() is not None, (
+                    "IndexingService must receive an injected BM25Index instance"
+                )
+                indexing_service.get_bm25_index().load_from_disk(bm25_index_path)
                 print("BM25 index loaded from persistent storage")
+
                 
                 # Upsert cached vectors to vector store
                 print("Upserting cached vectors to vector store...")
@@ -369,7 +372,9 @@ class CSVIngestionService:
                 from src.vector_store.schema import VectorRecord
                 import uuid
                 
+                # Use a fresh adapter only if the caller didn't inject; CSV ingestion manages its own wiring.
                 vector_store_service = VectorStoreService()
+
                 records = []
                 
                 for chunk_data, embedding_vector in zip(chunks_data, embeddings_array):
@@ -550,10 +555,12 @@ class CSVIngestionService:
                     bm25_start = time.time()
                     try:
                         if indexing_service._bm25_index is None:
-                            from src.retrieval.bm25.bm25_index import BM25Index
-                            indexing_service._bm25_index = BM25Index()
-                        
+                            raise RuntimeError(
+                                "IndexingService must receive an injected BM25Index instance"
+                            )
+
                         for chunk in chunks:
+
                             bm25_doc, tokens = indexing_service.index_builder.chunk_to_document(chunk)
                             indexing_service._bm25_index.add_document(
                                 document_id=bm25_doc.document_id,

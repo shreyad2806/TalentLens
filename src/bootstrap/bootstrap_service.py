@@ -62,11 +62,28 @@ class BootstrapService:
         self.base_path = base_path
         self.verbose = verbose
         
-        # Initialize indexing pipeline
-        self.indexing_pipeline = IndexingPipeline()
+        # Initialize indexing pipeline (dependency injected from composition root)
+        # NOTE: composition_root is the only place allowed to construct BM25Index/EmbeddingService/VectorStoreService.
+        from .composition_root import create_retrieval_bundle
+        bundle = create_retrieval_bundle()
+
+        self.indexing_pipeline = IndexingPipeline(
+            bm25_index=bundle.bm25_index,
+            embedding_service=bundle.embedding_service,
+            vector_store_service=bundle.vector_store_service,
+        )
+
         
         # Initialize CSV ingestion service
         self.csv_ingestion_service = CSVIngestionService()
+
+        # Store bundle references for temporary identity logging
+        self._bm25_id = id(bundle.bm25_index)
+        self._emb_id = id(bundle.embedding_service)
+        self._vec_id = id(bundle.vector_store_service)
+        if self.verbose:
+            print(f"[IDENTITY] BootstrapService bm25_id={self._bm25_id} embedding_id={self._emb_id} vector_store_id={self._vec_id}")
+
         
         # Initialize validator and reporter
         self.validator = StartupValidator(self.indexing_pipeline)

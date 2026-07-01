@@ -74,6 +74,14 @@ class StartupValidator:
         # Check 3: BM25 documents indexed
         bm25_check = self._check_bm25_indexed(stats)
         validation_result['checks']['bm25_indexed'] = bm25_check
+        
+        # Temporary identity logging
+        try:
+            bm25_id = stats.get('bm25_id')
+            logger.info(f"[IDENTITY] StartupValidator bm25_id={bm25_id}")
+        except Exception:
+            pass
+
         if not bm25_check['passed']:
             validation_result['errors'].append(bm25_check['message'])
         

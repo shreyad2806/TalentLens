@@ -86,10 +86,21 @@ class HybridRetrievalService:
         
         self.cache_enabled = cache_enabled
         
+        # Temporary identity logging (dense/sparse services reference shared deps)
+        if logger.isEnabledFor(logging.INFO):
+            try:
+                dense_bm25 = getattr(getattr(self.sparse_service, 'index', None), '__class__', None)
+            except Exception:
+                dense_bm25 = None
+            logger.info(
+                f"[IDENTITY] HybridRetrievalService dense_id={id(self.dense_service)} sparse_id={id(self.sparse_service)}"
+            )
+
         logger.info(
             f"HybridRetrievalService initialized with strategy={strategy_name}, "
             f"cache_enabled={cache_enabled}"
         )
+
     
     def search(
         self,

@@ -568,10 +568,13 @@ class BM25Index:
             raise
     
     def load_from_disk(self, index_path: Path) -> None:
+
         """
         Load the BM25 index from disk.
         
         This method deserializes the index data structures from JSON format.
+        It supports both the new format (document_frequency.json, posting_lists.json)
+        and the legacy format (inverted_index.json, document_lengths.json).
         
         Args:
             index_path: Path to load the index from (directory)
@@ -584,15 +587,36 @@ class BM25Index:
             with open(vocab_path, 'r', encoding='utf-8') as f:
                 self.vocabulary = set(json.load(f))
             
-            # Load document frequency
-            doc_freq_path = index_path / "document_frequency.json"
-            with open(doc_freq_path, 'r', encoding='utf-8') as f:
-                self.document_frequency = defaultdict(int, json.load(f))
+            # Check for legacy format first (inverted_index.json, document_lengths.json)
+            inverted_index_path = index_path / "inverted_index.json"
+            doc_lengths_path = index_path / "document_lengths.json"
             
-            # Load posting lists
-            posting_lists_path = index_path / "posting_lists.json"
-            with open(posting_lists_path, 'r', encoding='utf-8') as f:
-                self.posting_lists = defaultdict(list, json.load(f))
+            if inverted_index_path.exists() and doc_lengths_path.exists():
+                logger.info("Loading legacy BM25 index format, converting to new format...")
+                
+                # Load inverted index and convert to document_frequency + posting_lists
+                with open(inverted_index_path, 'r', encoding='utf-8') as f:
+                    inverted_index = json.load(f)
+                
+                for term, doc_dict in inverted_index.items():
+                    self.document_frequency[term] = len(doc_dict)
+                    self.posting_lists[term] = list(doc_dict.keys())
+                
+                logger.info(f"Converted {len(inverted_index)} terms from legacy format")
+            else:
+                # Check for new format (document_frequency.json, posting_lists.json)
+                doc_freq_path = index_path / "document_frequency.json"
+                posting_lists_path = index_path / "posting_lists.json"
+                
+                if doc_freq_path.exists() and posting_lists_path.exists():
+                    # Load new format
+                    with open(doc_freq_path, 'r', encoding='utf-8') as f:
+                        self.document_frequency = defaultdict(int, json.load(f))
+                    
+                    with open(posting_lists_path, 'r', encoding='utf-8') as f:
+                        self.posting_lists = defaultdict(list, json.load(f))
+                else:
+                    raise FileNotFoundError("Neither new nor legacy BM25 index format found")
             
             # Load documents
             docs_path = index_path / "documents.json"
@@ -600,15 +624,54 @@ class BM25Index:
                 docs_dict = json.load(f)
                 self.document_store = {}
                 for doc_id, doc_data in docs_dict.items():
-                    self.document_store[doc_id] = BM25Document(**doc_data)
+                    # Check if this is legacy format (missing 'tokens' field)
+                    if 'tokens' not in doc_data:
+                        # Convert legacy format to new format
+                        # Legacy format: document_id, chunk_id, resume_id, candidate_name, section, text, metadata, token_count, created_at
+                        # New format: chunk_id, resume_id, section, candidate_name, text, tokens, document_length, metadata
+                        
+                        # Tokenize the text to generate tokens
+                        from .tokenizer import Tokenizer
+                        tokenizer = Tokenizer()
+                        tokens = tokenizer.tokenize_document(doc_data.get('text', ''))
+                        
+                        converted_doc = BM25Document(
+                            chunk_id=doc_data.get('chunk_id', doc_data.get('document_id', doc_id)),
+                            resume_id=doc_data.get('resume_id', ''),
+                            section=doc_data.get('section', ''),
+                            candidate_name=doc_data.get('candidate_name', '') or 'Unknown',
+                            text=doc_data.get('text', ''),
+                            tokens=tokens,
+                            document_length=len(tokens),
+                            metadata=doc_data.get('metadata', {})
+                        )
+                        self.document_store[doc_id] = converted_doc
+                    else:
+                        # New format - load directly
+                        self.document_store[doc_id] = BM25Document(**doc_data)
             
             # Load metadata
             metadata_path = index_path / "metadata.json"
             with open(metadata_path, 'r', encoding='utf-8') as f:
                 metadata = json.load(f)
-                self.total_documents = metadata['total_documents']
-                self.average_document_length = metadata['average_document_length']
-                self.total_tokens = metadata['total_tokens']
+                # total_documents is the document count used for IDF.
+                # Some legacy builders persisted `num_documents`.
+                self.total_documents = metadata.get('total_documents', metadata.get('num_documents', 0))
+                self.average_document_length = metadata.get(
+                    'average_document_length',
+                    metadata.get('avg_doc_length', 0.0)
+                )
+                self.total_tokens = metadata.get('total_tokens', 0)
+
+            # IMPORTANT: ensure BM25Document token list is available as `tokens`.
+            # Some persisted formats may store `token_count` instead.
+            for doc_id, doc in list(self.document_store.items()):
+                if not hasattr(doc, 'tokens') or doc.tokens is None:
+                    # leave it as-is; scorer will handle empty tokens
+                    pass
+                # if tokens exist but document_length mismatches, we keep loaded value
+                self.document_store[doc_id] = doc
+
             
             logger.info(f"BM25Index loaded from {index_path}")
             

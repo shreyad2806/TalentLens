@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 
 
 class QueryEmbedder:
+
     """
     Generates embeddings for recruiter queries.
     
@@ -47,21 +48,34 @@ class QueryEmbedder:
         - Efficient query embedding
     """
     
-    def __init__(self, expected_dimension: Optional[int] = None):
+    def __init__(
+        self,
+        expected_dimension: Optional[int] = None,
+        embedding_service: Optional["EmbeddingService"] = None,
+    ):
+
         """
         Initialize the query embedder.
         
         Args:
             expected_dimension: Expected dimension of embedding vectors. If None, uses config default.
         """
-        # Initialize embedding service (this will reuse the existing model)
+        self.dimension = expected_dimension or EMBEDDING_DIM
+
+        # Dependency injection: prefer provided EmbeddingService.
+        if embedding_service is not None:
+            self.embedding_service = embedding_service
+            logger.info("QueryEmbedder initialized with injected EmbeddingService")
+            return
+
+        # Default: create embedding service (backward compatible)
         try:
             self.embedding_service = EmbeddingService(expected_dimension=expected_dimension)
-            self.dimension = expected_dimension or EMBEDDING_DIM
             logger.info("QueryEmbedder initialized with existing embedding service")
         except Exception as e:
             logger.error(f"Failed to initialize embedding service: {e}")
             raise
+
     
     def embed_query(self, query: str) -> List[float]:
         """

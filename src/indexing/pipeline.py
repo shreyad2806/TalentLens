@@ -31,17 +31,36 @@ class IndexingPipeline:
     while handling errors gracefully and providing detailed feedback.
     """
     
-    def __init__(self, embedding_dim: Optional[int] = None):
-        """
-        Initialize the indexing pipeline.
-        
-        Args:
-            embedding_dim: Dimension of embedding vectors. If None, uses config default.
+    def __init__(
+        self,
+        embedding_dim: Optional[int] = None,
+        *,
+        bm25_index=None,
+        embedding_service=None,
+        vector_store_service=None,
+    ):
+        """Initialize the indexing pipeline.
+
+        Dependency injection note:
+        - bm25_index / embedding_service / vector_store_service are optional.
+        - If provided, IndexingService will reuse them instead of constructing new instances.
+        - Default behavior is preserved when dependencies are not provided.
         """
         self.ingestor = ResumeIngestor()
-        self.indexing_service = IndexingService(embedding_dim=embedding_dim or EMBEDDING_DIM)
-        
-        logger.info(f"IndexingPipeline initialized with embedding_dim={embedding_dim or EMBEDDING_DIM}")
+        self.indexing_service = IndexingService(
+            embedding_dim=embedding_dim or EMBEDDING_DIM,
+            bm25_index=bm25_index,
+            embedding_service=embedding_service,
+            vector_store_service=vector_store_service,
+        )
+        logger.info(
+            "IndexingPipeline initialized with embedding_dim=%s (bm25_injected=%s, embedding_injected=%s, vector_store_injected=%s)",
+            embedding_dim or EMBEDDING_DIM,
+            bm25_index is not None,
+            embedding_service is not None,
+            vector_store_service is not None,
+        )
+
     
     def index_directory(
         self,

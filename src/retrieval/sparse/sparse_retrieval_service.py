@@ -30,6 +30,7 @@ from .scorer import BM25Scorer
 from .bm25_index import BM25Index
 from .tokenizer import Tokenizer
 
+
 logger = logging.getLogger(__name__)
 
 
@@ -88,8 +89,10 @@ class SparseRetrievalService:
         # Initialize components
         self.index = index
         self.validator = SparseRetrievalValidator()
+        # Dependency injection: never instantiate dependent services here when provided.
         self.tokenizer = tokenizer or Tokenizer()
         self.scorer = scorer or BM25Scorer()
+
         
         # Initialize caches
         self.cache_enabled = cache_enabled
@@ -100,10 +103,18 @@ class SparseRetrievalService:
             self.query_cache = None
             self.token_cache = None
         
+        # Temporary identity logging for BM25Index
+        if logger.isEnabledFor(logging.INFO):
+            try:
+                logger.info(f"[IDENTITY] SparseRetrievalService bm25_id={id(self.index)}")
+            except Exception:
+                pass
+
         logger.info(
             f"SparseRetrievalService initialized with cache_enabled={cache_enabled}, "
             f"index_documents={index.total_documents}"
         )
+
     
     def search(self, query: str, top_k: int = 10, filters: Optional[Dict[str, Any]] = None) -> List[SparseSearchResult]:
         """

@@ -30,30 +30,10 @@ def get_metadata_service():
 @st.cache_resource
 def get_hybrid_service():
     try:
-        from src.retrieval.dense import DenseRetrievalService
-        from src.retrieval.sparse import SparseRetrievalService, BM25Index
-        from src.retrieval.hybrid import HybridRetrievalService
-        from src.indexing.pipeline import IndexingPipeline
-        from pathlib import Path
-        
-        dense = DenseRetrievalService()
-        
-        # Try to load BM25 index from persistent storage
-        bm25_index_path = Path("data/indexes/bm25")
-        if (bm25_index_path / "metadata.json").exists():
-            print("Loading BM25 index from persistent storage for retrieval...")
-            bm25_index = BM25Index()
-            bm25_index.load_from_disk(bm25_index_path)
-            print(f"BM25 loaded: {bm25_index.num_documents} documents")
-        else:
-            print("BM25 index not found, creating empty index")
-            bm25_index = BM25Index()
-        
-        sparse = SparseRetrievalService(index=bm25_index)
-        return HybridRetrievalService(
-            dense_retrieval_service=dense,
-            sparse_retrieval_service=sparse
-        )
+        from src.bootstrap.composition_root import create_retrieval_bundle
+        bundle = create_retrieval_bundle()
+        return bundle.hybrid_service
+
     except Exception as e:
         print(f"Warning: Hybrid service failed to load: {e}")
         return None
@@ -154,7 +134,15 @@ def run_bootstrap():
             print(f"BOOTSTRAP SKIPPED - index already contains data (bootstrap time: {bootstrap_elapsed_time:.2f}s, total time: {total_elapsed_time:.2f}s)")
         else:
             print(f"BOOTSTRAP COMPLETE (bootstrap time: {bootstrap_elapsed_time:.2f}s, total time: {total_elapsed_time:.2f}s)")
-            print("⚠ INDEX NOT FOUND - Run 'python scripts/build_index.py' to build the production index")
+            
+            # Check validation result before showing warning
+            validation_result = bootstrap_result.get('validation_result', {})
+            is_valid = validation_result.get('is_valid', False)
+            
+            if not is_valid:
+                print("⚠ INDEX NOT FOUND - Run 'python scripts/build_index.py' to build the production index")
+            else:
+                print("✓ Index validation passed")
         
         return bootstrap_result
     except Exception as e:
