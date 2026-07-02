@@ -135,6 +135,11 @@ class SparseRetrievalService:
             ValidationError: If input validation fails
             RuntimeError: If retrieval pipeline fails
         """
+        print(f"------------------------------------")
+        print(f"STAGE: SparseRetrievalService.search()")
+        print(f"Input: query='{query}', top_k={top_k}, filters={filters}")
+        print(f"------------------------------------")
+        
         # Validate inputs
         self.validator.validate_query(query)
         self.validator.validate_index(self.index)
@@ -145,8 +150,11 @@ class SparseRetrievalService:
         if self.cache_enabled and self.query_cache:
             cached_results = self.query_cache.get(query, filters, top_k)
             if cached_results is not None:
+                print(f"CACHE HIT: Returning {len(cached_results)} cached results")
                 logger.info(f"Cache hit for query: {query[:50]}...")
                 return cached_results
+        
+        print(f"Cache miss - proceeding with sparse search")
         
         # Track metrics
         start_time = time.time()
@@ -166,6 +174,7 @@ class SparseRetrievalService:
                 query_tokens = self.tokenizer.tokenize_query(query)
             tokenization_latency = time.time() - tokenization_start
             
+            print(f"Query tokens: {query_tokens}")
             logger.debug(f"Query tokenization completed in {tokenization_latency:.3f}s")
             
             # Step 2: BM25 scoring
@@ -173,18 +182,37 @@ class SparseRetrievalService:
             search_results = self.index.search(query_tokens, top_k * 3)  # Get more for filtering
             scoring_latency = time.time() - scoring_start
             
+            print(f"BM25 scoring: {len(search_results)} results")
+            if search_results:
+                # Handle both dict and object formats
+                if isinstance(search_results[0], dict):
+                    doc_id = search_results[0].get('document', {}).get('resume_id', 'N/A') if isinstance(search_results[0].get('document'), dict) else getattr(search_results[0].get('document'), 'resume_id', 'N/A')
+                    score = search_results[0].get('score', 0)
+                else:
+                    doc_id = getattr(search_results[0], 'doc_id', 'N/A')
+                    score = getattr(search_results[0], 'score', 0)
+                print(f"Example BM25 result: doc_id='{doc_id}', score={score}")
             logger.debug(f"BM25 scoring completed in {scoring_latency:.3f}s, returned {len(search_results)} results")
             
             # Step 3: Convert to SparseSearchResult
             filtering_start = time.time()
             search_results = self._convert_to_sparse_results(query, search_results, query_tokens)
+            print(f"Converted to SparseSearchResult: {len(search_results)} results")
             
             # Step 4: Apply metadata filters
             if filters:
+                before_filter = len(search_results)
                 search_results = self._apply_filters(search_results, filters)
+                after_filter = len(search_results)
+                print(f"Metadata filtering: {before_filter} -> {after_filter} results (removed {before_filter - after_filter})")
+                if before_filter > after_filter:
+                    print(f"Filter applied: {filters}")
+            else:
+                print(f"No metadata filters applied")
             
             # Step 5: Sort by BM25 score
             search_results.sort(key=lambda x: x.bm25_score, reverse=True)
+            print(f"After sorting: {len(search_results)} results")
             
             # Step 6: Assign ranks
             search_results = [
@@ -204,9 +232,14 @@ class SparseRetrievalService:
             ]
             
             # Step 7: Limit to top_k
+            before_limit = len(search_results)
             search_results = search_results[:top_k]
+            print(f"Limited to top_k={top_k}: {before_limit} -> {len(search_results)} results")
             
             filtering_latency = time.time() - filtering_start
+            
+            if search_results:
+                print(f"Example: resume_id='{search_results[0].resume_id}', candidate_name='{search_results[0].candidate_name}', bm25_score={search_results[0].bm25_score}")
             
             # Cache results
             if self.cache_enabled and self.query_cache:
@@ -232,6 +265,10 @@ class SparseRetrievalService:
                 f"returned {len(search_results)} results in {total_latency:.3f}s"
             )
             
+            print(f"Output: {len(search_results)} SparseSearchResult objects")
+            print(f"Unique candidates: {len(set(r.resume_id for r in search_results))}")
+            print(f"------------------------------------")
+            
             return search_results
             
         except Exception as e:
@@ -242,15 +279,17 @@ class SparseRetrievalService:
     def _convert_to_sparse_results(
         self,
         query: str,
-        search_results: List[Dict[str, Any]],
+        search_results: List[Any],
         query_tokens: List[str]
     ) -> List[SparseSearchResult]:
         """
         Convert index search results to SparseSearchResult objects.
         
+        Handles both dict format (from BM25Index) and object format (legacy).
+        
         Args:
             query: Original search query
-            search_results: Results from index search
+            search_results: Results from index search (dicts or objects)
             query_tokens: Tokenized query terms
             
         Returns:
@@ -259,26 +298,64 @@ class SparseRetrievalService:
         sparse_results = []
         
         for result in search_results:
-            document = result['document']
-            score = result['score']
+            # Handle both dict and object formats
+            if isinstance(result, dict):
+                # Dict format from BM25Index
+                document = result.get('document')
+                score = result.get('score', 0.0)
+                
+                # Extract document fields (handle both dict and object)
+                if isinstance(document, dict):
+                    candidate_name = document.get('candidate_name', 'Unknown')
+                    resume_id = document.get('resume_id', '')
+                    chunk_id = document.get('chunk_id', '')
+                    section = document.get('section', '')
+                    metadata = document.get('metadata', {})
+                    text = document.get('text', '')
+                    tokens = document.get('tokens', [])
+                else:
+                    # Object format
+                    candidate_name = getattr(document, 'candidate_name', 'Unknown')
+                    resume_id = getattr(document, 'resume_id', '')
+                    chunk_id = getattr(document, 'chunk_id', '')
+                    section = getattr(document, 'section', '')
+                    metadata = getattr(document, 'metadata', {})
+                    text = getattr(document, 'text', '')
+                    tokens = getattr(document, 'tokens', [])
+            else:
+                # Object format (legacy BM25Result)
+                document = getattr(result, 'document', None)
+                score = getattr(result, 'score', 0.0)
+                
+                if document:
+                    candidate_name = getattr(document, 'candidate_name', 'Unknown')
+                    resume_id = getattr(document, 'resume_id', '')
+                    chunk_id = getattr(document, 'chunk_id', '')
+                    section = getattr(document, 'section', '')
+                    metadata = getattr(document, 'metadata', {})
+                    text = getattr(document, 'text', '')
+                    tokens = getattr(document, 'tokens', [])
+                else:
+                    # Skip if no document
+                    continue
             
             # Find matched terms
             matched_terms = []
             for term in query_tokens:
-                if term in document.tokens:
+                if term in tokens:
                     matched_terms.append(term)
             
             # Find matched text (highlight matched terms)
-            matched_text = self._find_matched_text(document.text, matched_terms)
+            matched_text = self._find_matched_text(text, matched_terms)
             
             sparse_result = SparseSearchResult(
                 query=query,
-                candidate_name=document.candidate_name,
-                resume_id=document.resume_id,
-                chunk_id=document.chunk_id,
-                section=document.section,
+                candidate_name=candidate_name,
+                resume_id=resume_id,
+                chunk_id=chunk_id,
+                section=section,
                 bm25_score=score,
-                metadata=document.metadata,
+                metadata=metadata,
                 matched_terms=matched_terms,
                 matched_text=matched_text,
                 rank=0  # Will be assigned later

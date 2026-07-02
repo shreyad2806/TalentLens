@@ -66,52 +66,39 @@ def run_bootstrap():
     """Run bootstrap once per session with logging and timing metrics."""
     import time
     from src.bootstrap import BootstrapService
-    from src.vector_store.qdrant.qdrant_adapter import QdrantAdapter
-    from src.vector_store.config import VectorStoreConfig, VectorStoreProvider
+    from src.vector_store import VectorStoreService
     
     print("STARTUP HEALTH CHECK")
     start_time = time.time()
     
-    # Check vector store configuration
-    config = VectorStoreConfig()
-    print(f"Vector Store Provider: {config.provider.value}")
+    # Check vector store health using generic service
+    vector_store = VectorStoreService()
+    health = vector_store.health()
     
-    # Check Qdrant if it's the provider
-    if config.provider == VectorStoreProvider.QDRANT:
-        try:
-            qdrant_adapter = QdrantAdapter()
-            health_status = qdrant_adapter.health_check()
-            
-            print(f"Qdrant URL: {qdrant_adapter.url}")
-            print(f"Qdrant Collection: {qdrant_adapter.collection_name}")
-            print(f"Qdrant Connected: {health_status.connection_healthy}")
-            print(f"Qdrant Collection Exists: {health_status.collection_exists}")
-            print(f"Qdrant Vector Count: {health_status.vector_count}")
-            
-            # If collection exists and has vectors, skip bootstrap
-            if health_status.connection_healthy and health_status.collection_exists and health_status.vector_count > 0:
-                elapsed_time = time.time() - start_time
-                print(f"✓ INDEX FOUND - Skipping bootstrap (startup time: {elapsed_time:.2f}s)")
-                
-                # Load BM25 index from cache
-                import pickle
-                from pathlib import Path
-                bm25_cache_path = Path("data/cache/bm25.pkl")
-                if bm25_cache_path.exists():
-                    print(f"✓ Loading BM25 index from cache...")
-                    with open(bm25_cache_path, 'rb') as f:
-                        bm25_index = pickle.load(f)
-                    print(f"✓ BM25 index loaded")
-                else:
-                    print(f"⚠ BM25 index cache not found at {bm25_cache_path}")
-                
-                return {"bootstrapped": False, "vector_count": health_status.vector_count}
-            
-        except Exception as e:
-            print(f"⚠ Qdrant health check failed: {e}")
-            print("Continuing with bootstrap...")
+    print(f"Vector Store Provider: {health.get('provider', 'unknown')}")
+    print(f"Vector Store Healthy: {health.get('healthy', False)}")
+    print(f"Vector Count: {health.get('vector_count', 0)}")
     
-    # Run bootstrap if Qdrant check failed or collection doesn't exist
+    # If vector store is healthy and has vectors, skip bootstrap
+    if health.get('healthy', False) and health.get('vector_count', 0) > 0:
+        elapsed_time = time.time() - start_time
+        print(f"✓ INDEX FOUND - Skipping bootstrap (startup time: {elapsed_time:.2f}s)")
+        
+        # Load BM25 index from cache
+        import pickle
+        from pathlib import Path
+        bm25_cache_path = Path("data/cache/bm25.pkl")
+        if bm25_cache_path.exists():
+            print(f"✓ Loading BM25 index from cache...")
+            with open(bm25_cache_path, 'rb') as f:
+                bm25_index = pickle.load(f)
+            print(f"✓ BM25 index loaded")
+        else:
+            print(f"⚠ BM25 index cache not found at {bm25_cache_path}")
+        
+        return {"bootstrapped": False, "vector_count": health.get('vector_count', 0)}
+    
+    # Run bootstrap if vector store check failed or no vectors
     bootstrap_service = None
     try:
         bootstrap_service = BootstrapService(verbose=True)
@@ -628,24 +615,48 @@ with tab_search:
                     st.stop()
                 
                 # 1. Hybrid Retrieval
+                print(f"------------------------------------")
+                print(f"STAGE: app.py Hybrid Retrieval")
+                print(f"Input: query='{user_query}', top_k={num_candidates * 3}, filters={hybrid_filters}")
+                print(f"------------------------------------")
+                
                 retrieved = hybrid_service.search(
                     query=user_query,
                     top_k=num_candidates * 3, # Fetch more for reranker
                     filters=hybrid_filters
                 )
                 
+                print(f"After hybrid retrieval: {len(retrieved)} results")
+                if retrieved:
+                    print(f"Example: resume_id='{retrieved[0].resume_id}', candidate_name='{retrieved[0].candidate_name}'")
+                
                 if not retrieved:
+                    print("No candidates found from hybrid retrieval - stopping")
                     st.info("No candidates found matching criteria.")
                     st.session_state.search_results = []
                 else:
                     # 2. Cross Encoder Reranker
+                    print(f"------------------------------------")
+                    print(f"STAGE: app.py Cross Encoder Reranker")
+                    print(f"Input: {len(retrieved)} candidates, top_k={num_candidates}")
+                    print(f"------------------------------------")
+                    
                     reranked = reranker_service.rerank(
                         query=user_query,
                         candidates=retrieved,
                         top_k=num_candidates
                     )
                     
+                    print(f"After reranking: {len(reranked)} candidates")
+                    if reranked:
+                        print(f"Example: resume_id='{reranked[0].resume_id}', candidate_name='{reranked[0].candidate_name}', rerank_score={reranked[0].rerank_score}")
+                    
                     # 3. Map to UI Schema
+                    print(f"------------------------------------")
+                    print(f"STAGE: app.py Map to UI Schema")
+                    print(f"Input: {len(reranked)} candidates")
+                    print(f"------------------------------------")
+                    
                     scored_results = []
                     for i, r in enumerate(reranked):
                         # Extract skills either from metadata or text
@@ -681,7 +692,15 @@ with tab_search:
                                 f"Hybrid Rank: {r.original_rank}"
                             ]
                         }
+                        
                         scored_results.append(candidate)
+                    
+                    print(f"After UI schema mapping: {len(scored_results)} candidates")
+                    if scored_results:
+                        print(f"Example: name='{scored_results[0]['name']}', score={scored_results[0]['score']}")
+                    
+                    print(f"Storing in st.session_state.search_results")
+                    print(f"------------------------------------")
                     
                     # Store in session state
                     st.session_state.search_results = scored_results

@@ -141,6 +141,11 @@ class DenseRetrievalService:
             ValidationError: If input validation fails
             RuntimeError: If retrieval pipeline fails
         """
+        print(f"------------------------------------")
+        print(f"STAGE: DenseRetrievalService.search()")
+        print(f"Input: query='{query}', top_k={top_k}, filters={filters}")
+        print(f"------------------------------------")
+        
         # Validate inputs
         self.validator.validate_query(query)
         self.validator.validate_top_k(top_k)
@@ -150,8 +155,11 @@ class DenseRetrievalService:
         if self.cache_enabled and self.cache:
             cached_results = self.cache.get(query, filters, top_k)
             if cached_results is not None:
+                print(f"CACHE HIT: Returning {len(cached_results)} cached results")
                 logger.info(f"Cache hit for query: {query[:50]}...")
                 return cached_results
+        
+        print(f"Cache miss - proceeding with dense search")
         
         # Track metrics
         start_time = time.time()
@@ -165,6 +173,7 @@ class DenseRetrievalService:
             query_vector = self.query_embedder.embed_query(query)
             embedding_latency = time.time() - embedding_start
             
+            print(f"Query embedding generated in {embedding_latency:.3f}s")
             logger.debug(f"Query embedding generated in {embedding_latency:.3f}s")
             
             # Step 2: Query vector store
@@ -172,6 +181,9 @@ class DenseRetrievalService:
             vector_results = self.vector_store_service.query(query_vector, k=top_k, filters=filters)
             vector_latency = time.time() - vector_start
             
+            print(f"Vector store query: {len(vector_results)} results")
+            if vector_results:
+                print(f"Example vector result: id='{vector_results[0].get('id', 'N/A')}', score={vector_results[0].get('score', 0)}")
             logger.debug(f"Vector store query completed in {vector_latency:.3f}s, returned {len(vector_results)} results")
             
             # Step 3: Normalize scores
@@ -183,8 +195,11 @@ class DenseRetrievalService:
             search_results = self._convert_to_dense_results(query, vector_results, normalized_scores)
             aggregation_latency = time.time() - aggregation_start
             
+            print(f"Converted to DenseSearchResult: {len(search_results)} results")
+            
             # Step 5: Sort by normalized score
             search_results.sort(key=lambda x: x.normalized_score, reverse=True)
+            print(f"After sorting: {len(search_results)} results")
             
             # Step 6: Reassign ranks after sorting
             # Since DenseSearchResult is frozen, we need to recreate with new ranks
@@ -203,6 +218,10 @@ class DenseRetrievalService:
                 )
                 for i, result in enumerate(search_results)
             ]
+            
+            print(f"After rank reassignment: {len(search_results)} results")
+            if search_results:
+                print(f"Example: resume_id='{search_results[0].resume_id}', candidate_name='{search_results[0].candidate_name}', normalized_score={search_results[0].normalized_score}")
             
             # Cache results
             if self.cache_enabled and self.cache:
@@ -227,6 +246,10 @@ class DenseRetrievalService:
                 f"Search completed for query: {query[:50]}... "
                 f"returned {len(search_results)} results in {total_latency:.3f}s"
             )
+            
+            print(f"Output: {len(search_results)} DenseSearchResult objects")
+            print(f"Unique candidates: {len(set(r.resume_id for r in search_results))}")
+            print(f"------------------------------------")
             
             return search_results
             

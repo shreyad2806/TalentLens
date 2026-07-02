@@ -392,15 +392,22 @@ class FusionService:
         Returns:
             Tuple of (fused results, fusion metrics)
         """
+        print(f"------------------------------------")
+        print(f"STAGE: FusionService.fuse_results()")
+        print(f"Input: dense_results={len(dense_results)}, sparse_results={len(sparse_results)}")
+        print(f"------------------------------------")
+        
         start_time = time.time()
         
         # Create candidate mapping by chunk_id
         candidates = {}
         
+        print(f"Processing {len(dense_results)} dense results...")
         # Process dense results
         for idx, result in enumerate(dense_results):
             chunk_id = result.get("chunk_id")
             if not chunk_id:
+                print(f"  Skipping dense result {idx}: no chunk_id")
                 continue
             
             if chunk_id not in candidates:
@@ -439,10 +446,14 @@ class FusionService:
             if "metadata" in result:
                 candidates[chunk_id]["metadata"].update(result["metadata"])
         
+        print(f"After dense processing: {len(candidates)} unique candidates")
+        
+        print(f"Processing {len(sparse_results)} sparse results...")
         # Process sparse results
         for idx, result in enumerate(sparse_results):
             chunk_id = result.get("chunk_id")
             if not chunk_id:
+                print(f"  Skipping sparse result {idx}: no chunk_id")
                 continue
             
             if chunk_id not in candidates:
@@ -481,6 +492,8 @@ class FusionService:
             if "metadata" in result:
                 candidates[chunk_id]["metadata"].update(result["metadata"])
         
+        print(f"After sparse processing: {len(candidates)} unique candidates")
+        
         # Calculate fusion scores using selected strategy
         fused_results = []
         for chunk_id, candidate in candidates.items():
@@ -508,8 +521,11 @@ class FusionService:
             
             fused_results.append(hybrid_result)
         
+        print(f"Calculated fusion scores: {len(fused_results)} results")
+        
         # Sort by fusion score (descending)
         fused_results.sort(key=lambda x: x.rrf_score, reverse=True)
+        print(f"After sorting by fusion score: {len(fused_results)} results")
         
         # Assign final ranks
         for idx, result in enumerate(fused_results):
@@ -530,6 +546,8 @@ class FusionService:
             1 for r in fused_results 
             if r.dense_rank is not None and r.sparse_rank is not None
         )
+        
+        print(f"Fusion stats: overlap={overlap_count}, dense_only={dense_only_count}, sparse_only={sparse_only_count}")
         
         metrics = FusionMetrics(
             dense_latency=0.0,  # Will be set by caller
@@ -556,6 +574,12 @@ class FusionService:
             f"dense_only={dense_only_count}, "
             f"sparse_only={sparse_only_count}"
         )
+        
+        if fused_results:
+            print(f"Example fused result: resume_id='{fused_results[0].resume_id}', candidate_name='{fused_results[0].candidate_name}', rrf_score={fused_results[0].rrf_score}")
+        
+        print(f"Output: {len(fused_results)} HybridSearchResult objects")
+        print(f"------------------------------------")
         
         return fused_results, metrics
     

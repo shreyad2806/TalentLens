@@ -128,26 +128,33 @@ class HybridRetrievalService:
         Returns:
             List of HybridSearchResult objects
         """
+        print(f"------------------------------------")
+        print(f"STAGE: HybridRetrievalService.search()")
+        print(f"Input: query='{query}', top_k={top_k}")
+        print(f"------------------------------------")
+        
         start_time = time.time()
         
         # Check cache
         if self.cache_enabled and self.cache:
             cached_results = self.cache.get(query, filters)
             if cached_results:
-                logger.info(f"Cache hit for query: {query}")
+                print(f"CACHE HIT: Returning {len(cached_results)} cached results")
                 return cached_results[:top_k]
         
-        logger.info(f"Hybrid search for query: {query}")
+        print(f"Cache miss - proceeding with hybrid search")
         
         # Dense retrieval
         dense_start = time.time()
         dense_results = self._retrieve_dense(query, top_k, filters)
         dense_latency = time.time() - dense_start
+        print(f"Dense retrieval: {len(dense_results)} results")
         
         # Sparse retrieval
         sparse_start = time.time()
         sparse_results = self._retrieve_sparse(query, top_k, filters)
         sparse_latency = time.time() - sparse_start
+        print(f"Sparse retrieval: {len(sparse_results)} results")
         
         # Fusion
         fusion_start = time.time()
@@ -157,6 +164,8 @@ class HybridRetrievalService:
             query
         )
         fusion_latency = time.time() - fusion_start
+        print(f"Fusion: {len(fused_results)} results")
+        print(f"Fusion stats: overlap={metrics.overlap_count}, dense_only={metrics.dense_only_count}, sparse_only={metrics.sparse_only_count}")
         
         # Update metrics
         metrics.dense_latency = dense_latency
@@ -165,6 +174,7 @@ class HybridRetrievalService:
         
         # Validate results
         self.validator.validate_results(fused_results, strict=False)
+        print(f"After validation: {len(fused_results)} results")
         
         # Cache results
         if self.cache_enabled and self.cache:
@@ -187,7 +197,13 @@ class HybridRetrievalService:
         )
         
         # Return top-k results
-        return fused_results[:top_k]
+        final_results = fused_results[:top_k]
+        print(f"Output (top_k={top_k}): {len(final_results)} results")
+        if final_results:
+            print(f"Example: resume_id='{final_results[0].resume_id}', candidate_name='{final_results[0].candidate_name}'")
+        print(f"------------------------------------")
+        
+        return final_results
     
     def _retrieve_dense(
         self,
