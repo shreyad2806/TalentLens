@@ -58,7 +58,7 @@ class ModelLoader:
     _instance: Optional['ModelLoader'] = None
     _lock: Lock = Lock()
     _model = None
-    _model_name: str = "BAAI/bge-m3"
+    _model_name: str = "BAAI/bge-small-en-v1.5"
     _is_loaded: bool = False
     _offline_mode: bool = False
     _model_path: str = "./models"

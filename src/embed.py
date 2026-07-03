@@ -10,7 +10,8 @@ import numpy as np
 @st.cache_resource
 def load_embedding_model():
     """Load and cache the SentenceTransformer model once per Streamlit session."""
-    return SentenceTransformer("BAAI/bge-m3", cache_folder="./models")
+    from .config import EMBEDDING_MODEL
+    return SentenceTransformer(EMBEDDING_MODEL, cache_folder="./models")
 
 
 def _clean_text(text: str, max_len: int = 500) -> str:

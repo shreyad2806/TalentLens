@@ -403,34 +403,90 @@ class SparseRetrievalService:
         Returns:
             Filtered list of search results
         """
+        print(f"------------------------------------")
+        print(f"STAGE: _apply_filters")
+        print(f"Input: {len(results)} candidates, filters={filters}")
+        print(f"------------------------------------")
+        
+        # Print example candidate before filtering
+        if results:
+            example = results[0]
+            print(f"Example candidate BEFORE filtering:")
+            print(f"  resume_id: {example.resume_id}")
+            print(f"  candidate_name: {example.candidate_name}")
+            print(f"  chunk_id: {example.chunk_id}")
+            print(f"  section: {example.section}")
+            print(f"  metadata keys: {list(example.metadata.keys())}")
+            print(f"  metadata: {example.metadata}")
+            print(f"  bm25_score: {example.bm25_score}")
+            print(f"------------------------------------")
+        
         filtered_results = []
+        
+        # Rejection counters
+        rejection_reasons = {
+            'resume_id': 0,
+            'candidate_name': 0,
+            'section': 0,
+            'metadata_mismatch': 0,
+            'metadata_missing': 0
+        }
         
         for result in results:
             match = True
+            rejection_reason = None
             
             for key, value in filters.items():
                 if key == 'resume_id':
                     if result.resume_id != value:
                         match = False
+                        rejection_reason = f"resume_id mismatch (expected '{value}', got '{result.resume_id}')"
+                        rejection_reasons['resume_id'] += 1
                         break
                 elif key == 'candidate_name':
                     if value.lower() not in result.candidate_name.lower():
                         match = False
+                        rejection_reason = f"candidate_name mismatch (expected '{value}', got '{result.candidate_name}')"
+                        rejection_reasons['candidate_name'] += 1
                         break
                 elif key == 'section':
                     if value.lower() not in result.section.lower():
                         match = False
+                        rejection_reason = f"section mismatch (expected '{value}', got '{result.section}')"
+                        rejection_reasons['section'] += 1
                         break
                 elif key in result.metadata:
                     if result.metadata[key] != value:
                         match = False
+                        rejection_reason = f"metadata '{key}' mismatch (expected '{value}', got '{result.metadata[key]}')"
+                        rejection_reasons['metadata_mismatch'] += 1
                         break
                 else:
                     # Filter key not in metadata, skip
+                    rejection_reason = f"metadata key '{key}' missing from candidate metadata"
+                    rejection_reasons['metadata_missing'] += 1
+                    # Don't break, continue checking other filters
                     continue
             
             if match:
                 filtered_results.append(result)
+            else:
+                print(f"Rejected candidate:")
+                print(f"  resume_id: {result.resume_id}")
+                print(f"  candidate_name: {result.candidate_name}")
+                print(f"  Reason: {rejection_reason}")
+                print(f"  Available metadata: {result.metadata}")
+        
+        print(f"------------------------------------")
+        print(f"Rejection Summary:")
+        print(f"  Rejected by resume_id: {rejection_reasons['resume_id']}")
+        print(f"  Rejected by candidate_name: {rejection_reasons['candidate_name']}")
+        print(f"  Rejected by section: {rejection_reasons['section']}")
+        print(f"  Rejected by metadata mismatch: {rejection_reasons['metadata_mismatch']}")
+        print(f"  Rejected by metadata missing: {rejection_reasons['metadata_missing']}")
+        print(f"  Total rejected: {len(results) - len(filtered_results)}")
+        print(f"  Total passed: {len(filtered_results)}")
+        print(f"------------------------------------")
         
         return filtered_results
     

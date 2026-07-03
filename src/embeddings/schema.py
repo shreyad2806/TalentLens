@@ -42,7 +42,7 @@ class EmbeddingRecord(BaseModel):
     section: str = Field(..., description="Section type of the source chunk")
     vector: List[float] = Field(..., description="The embedding vector as a list of floats")
     vector_dimension: int = Field(..., description="Dimension of the embedding vector")
-    model_name: str = Field(default="BAAI/bge-m3", description="Name of the model used to generate the embedding")
+    model_name: str = Field(default="BAAI/bge-small-en-v1.5", description="Name of the model used to generate the embedding")
     created_at: datetime = Field(default_factory=datetime.now, description="Timestamp when the embedding was created")
     metadata: Optional[Dict[str, Any]] = Field(default=None, description="Additional metadata about the embedding")
     
