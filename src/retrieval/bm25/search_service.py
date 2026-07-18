@@ -110,6 +110,13 @@ class SearchService:
                 if filters and not self._apply_filters(document, filters):
                     continue
                 
+                # [META-READ] Log metadata keys loaded from BM25Document during retrieval
+                if rank <= 3:  # Log first 3 results
+                    _meta_keys = sorted(document.metadata.keys()) if document.metadata else []
+                    _non_null = {k: v for k, v in (document.metadata or {}).items() if v is not None and v != [] and v != ''}
+                    _sample = {k: (str(v)[:40] + '...' if len(str(v)) > 40 else v) for k, v in _non_null.items()}
+                    print(f"[META-READ][BM25Document]  rank={rank}  doc_id={document_id[:8]}  resume_id={document.resume_id[:8]}  keys={_meta_keys}  non_null={list(_non_null.keys())}  sample={_sample}")
+                
                 result = SearchResult(document, score, rank)
                 results.append(result)
                 rank += 1

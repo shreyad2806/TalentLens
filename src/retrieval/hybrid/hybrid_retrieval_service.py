@@ -25,6 +25,7 @@ from .schema import HybridSearchResult, FusionMetrics
 from .fusion_service import FusionService
 from .validator import HybridRetrievalValidator
 from .cache import HybridResultCache
+from src.debug_logger import log_stage_start, log_stage_end, log_error
 
 logger = logging.getLogger(__name__)
 
@@ -128,53 +129,45 @@ class HybridRetrievalService:
         Returns:
             List of HybridSearchResult objects
         """
-        print(f"------------------------------------")
-        print(f"STAGE: HybridRetrievalService.search()")
-        print(f"Input: query='{query}', top_k={top_k}")
-        print(f"------------------------------------")
-        
-        start_time = time.time()
+        start_time = time.perf_counter()
         
         # Check cache
         if self.cache_enabled and self.cache:
             cached_results = self.cache.get(query, filters)
             if cached_results:
-                print(f"CACHE HIT: Returning {len(cached_results)} cached results")
+                log_stage_end(9, "HYBRID FUSION", status="SUCCESS", time_ms=0,
+                              output_count=len(cached_results), sample={"source": "CACHE HIT"})
                 return cached_results[:top_k]
         
-        print(f"Cache miss - proceeding with hybrid search")
+        # ── STAGE 9 — HYBRID FUSION ──────────────────────────────────────────
+        log_stage_start(9, "HYBRID FUSION", Query=query[:80], Top_K=top_k, Strategy="RRF")
         
         # Dense retrieval
-        dense_start = time.time()
+        dense_start = time.perf_counter()
         dense_results = self._retrieve_dense(query, top_k, filters)
-        dense_latency = time.time() - dense_start
-        print(f"Dense retrieval: {len(dense_results)} results")
+        dense_latency = time.perf_counter() - dense_start
         
         # Sparse retrieval
-        sparse_start = time.time()
+        sparse_start = time.perf_counter()
         sparse_results = self._retrieve_sparse(query, top_k, filters)
-        sparse_latency = time.time() - sparse_start
-        print(f"Sparse retrieval: {len(sparse_results)} results")
+        sparse_latency = time.perf_counter() - sparse_start
         
         # Fusion
-        fusion_start = time.time()
+        fusion_start = time.perf_counter()
         fused_results, metrics = self.fusion_service.fuse_results(
             dense_results,
             sparse_results,
             query
         )
-        fusion_latency = time.time() - fusion_start
-        print(f"Fusion: {len(fused_results)} results")
-        print(f"Fusion stats: overlap={metrics.overlap_count}, dense_only={metrics.dense_only_count}, sparse_only={metrics.sparse_only_count}")
+        fusion_latency = time.perf_counter() - fusion_start
         
         # Update metrics
         metrics.dense_latency = dense_latency
         metrics.sparse_latency = sparse_latency
-        metrics.total_latency = time.time() - start_time
+        metrics.total_latency = time.perf_counter() - start_time
         
         # Validate results
         self.validator.validate_results(fused_results, strict=False)
-        print(f"After validation: {len(fused_results)} results")
         
         # Cache results
         if self.cache_enabled and self.cache:
@@ -198,10 +191,32 @@ class HybridRetrievalService:
         
         # Return top-k results
         final_results = fused_results[:top_k]
-        print(f"Output (top_k={top_k}): {len(final_results)} results")
+        
+        # Stage 9 END banner
+        top10_fused = []
+        for r in final_results[:10]:
+            top10_fused.append(f"{r.resume_id}({r.candidate_name})={r.rrf_score:.4f}")
+        
+        sample_result = None
         if final_results:
-            print(f"Example: resume_id='{final_results[0].resume_id}', candidate_name='{final_results[0].candidate_name}'")
-        print(f"------------------------------------")
+            sample_result = {
+                "Top_1_ID": final_results[0].resume_id,
+                "Top_1_Name": final_results[0].candidate_name,
+                "Top_1_RRF": f"{final_results[0].rrf_score:.4f}",
+            }
+        
+        log_stage_end(9, "HYBRID FUSION", status="SUCCESS",
+                      time_ms=metrics.total_latency * 1000,
+                      output_count=len(final_results),
+                      sample=sample_result,
+                      extra={
+                          "Dense_Candidates": len(dense_results),
+                          "Sparse_Candidates": len(sparse_results),
+                          "Overlap": metrics.overlap_count,
+                          "Dense_Only": metrics.dense_only_count,
+                          "Sparse_Only": metrics.sparse_only_count,
+                          "Top_10_Fused": top10_fused,
+                      })
         
         return final_results
     
@@ -238,6 +253,14 @@ class HybridRetrievalService:
                     "matched_text": result.matched_text,
                     "metadata": result.metadata
                 })
+            
+            # Meta trace: show metadata keys for first few dense results
+            if dense_results:
+                for idx in range(min(3, len(dense_results))):
+                    dr = dense_results[idx]
+                    meta_keys = list(dr["metadata"].keys()) if dr["metadata"] else '[]'
+                    print(f"  [META TRACE] Dense dict[{idx}]: resume_id={dr['resume_id']}, "
+                          f"candidate_name={dr['candidate_name']}, meta_keys={meta_keys}")
             
             logger.info(f"Dense retrieval: {len(dense_results)} results")
             return dense_results
@@ -279,6 +302,14 @@ class HybridRetrievalService:
                     "matched_text": result.matched_text,
                     "metadata": result.metadata
                 })
+            
+            # Meta trace: show metadata keys for first few sparse results
+            if sparse_results:
+                for idx in range(min(3, len(sparse_results))):
+                    sr = sparse_results[idx]
+                    meta_keys = list(sr["metadata"].keys()) if sr["metadata"] else '[]'
+                    print(f"  [META TRACE] Sparse dict[{idx}]: resume_id={sr['resume_id']}, "
+                          f"candidate_name={sr['candidate_name']}, meta_keys={meta_keys}")
             
             logger.info(f"Sparse retrieval: {len(sparse_results)} results")
             return sparse_results

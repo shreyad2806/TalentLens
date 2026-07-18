@@ -129,7 +129,10 @@ class CSVIngestionService:
             return None
     
     def chunk_raw_text(self, raw_text: str, resume_id: str, candidate_name: Optional[str],
-                      source_document: str, chunk_size: int = 1000, overlap: int = 100) -> List:
+                      source_document: str, chunk_size: int = 1000, overlap: int = 100,
+                      email: Optional[str] = None, phone: Optional[str] = None,
+                      skills: Optional[List[str]] = None, location: Optional[str] = None,
+                      summary: Optional[str] = None) -> List:
         """
         Chunk raw text into smaller pieces for indexing.
         
@@ -158,12 +161,22 @@ class CSVIngestionService:
             stripped_text = raw_text.strip()
             if stripped_text:
                 chunk_metadata = ChunkMetadata(
+                    candidate_name=candidate_name,
                     role=None,
                     experience=None,
-                    location=None,
+                    location=location,
                     education=None,
+                    skills=skills or [],
+                    email=email,
+                    phone=phone,
+                    summary=summary,
                     source_section="raw_text"
                 )
+                
+                # [META-WRITE] Log ChunkMetadata creation
+                _meta_dict = chunk_metadata.dict()
+                _non_null = {k: v for k, v in _meta_dict.items() if v is not None and v != [] and v != ''}
+                print(f"[META-WRITE][ChunkMetadata][CSV-short] resume_id={resume_id[:8]}  keys={sorted(_meta_dict.keys())}  non_null={list(_non_null.keys())}")
                 
                 chunk = Chunk(
                     chunk_id=str(uuid.uuid4()),
@@ -198,12 +211,22 @@ class CSVIngestionService:
             
             # Create chunk metadata
             chunk_metadata = ChunkMetadata(
+                candidate_name=candidate_name,
                 role=None,
                 experience=None,
-                location=None,
+                location=location,
                 education=None,
+                skills=skills or [],
+                email=email,
+                phone=phone,
+                summary=summary,
                 source_section="raw_text"
             )
+            
+            # [META-WRITE] Log ChunkMetadata creation
+            _meta_dict = chunk_metadata.dict()
+            _non_null = {k: v for k, v in _meta_dict.items() if v is not None and v != [] and v != ''}
+            print(f"[META-WRITE][ChunkMetadata][CSV-chunk] resume_id={resume_id[:8]}  chunk_order={chunk_order}  keys={sorted(_meta_dict.keys())}  non_null={list(_non_null.keys())}")
             
             # Create chunk
             chunk = Chunk(
@@ -489,6 +512,14 @@ class CSVIngestionService:
                     raw_text = document_dict['raw_text']
                     candidate_name = document_dict.get('name')
                     
+                    # Extract enriched metadata from CSV record
+                    _email = document_dict.get('email')
+                    _phone = document_dict.get('phone')
+                    _location = document_dict.get('metadata', {}).get('Location')
+                    _skills_raw = document_dict.get('metadata', {}).get('Skills', '')
+                    _skills_list = [s.strip() for s in _skills_raw.split(',') if s.strip()] if _skills_raw else []
+                    _summary_raw = record.get('Resume_str', '')[:200] if record.get('Resume_str') else None
+                    
                     # Chunk timing
                     chunk_start = time.time()
                     # Step 3: Chunk the raw text directly
@@ -496,7 +527,12 @@ class CSVIngestionService:
                         raw_text=raw_text,
                         resume_id=record_id,
                         candidate_name=candidate_name,
-                        source_document=str(csv_path)
+                        source_document=str(csv_path),
+                        email=_email,
+                        phone=_phone,
+                        skills=_skills_list,
+                        location=_location,
+                        summary=_summary_raw
                     )
                     chunk_time = time.time() - chunk_start
                     total_chunk_time += chunk_time

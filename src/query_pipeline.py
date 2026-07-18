@@ -3,6 +3,7 @@ from typing import Dict, List, Tuple
 
 from .llm import generate_answer_with_trace
 from .bootstrap.composition_root import create_retrieval_bundle
+from .debug_logger import StageTimer
 
 
 def retrieve(user_query: str, top_k: int = 5) -> Dict:
@@ -20,60 +21,67 @@ def retrieve(user_query: str, top_k: int = 5) -> Dict:
     Returns:
         Dictionary with format: {"category": str, "docs": List[Dict], "trace": List[Dict]}
     """
-    print(f"------------------------------------")
-    print(f"STAGE: query_pipeline.retrieve()")
-    print(f"Input: query='{user_query}', top_k={top_k}")
-    print(f"------------------------------------")
-    
     trace: List[Dict] = []
     
-    t0 = time.time()
+    t0 = time.perf_counter()
     
-    # Get retrieval bundle (creates services if needed)
-    bundle = create_retrieval_bundle()
-    
-    # Use hybrid retrieval service
-    results = bundle.hybrid_service.search(query=user_query, top_k=top_k)
-    
-    print(f"HybridRetrievalService returned {len(results)} results")
-    if results:
-        print(f"Example result: resume_id='{results[0].resume_id}', candidate_name='{results[0].candidate_name}', rrf_score={results[0].rrf_score}")
-    
-    t1 = time.time()
-    
-    # Convert HybridSearchResult to legacy format
-    docs = []
-    for result in results:
-        doc = {
-            "id": result.resume_id,
-            "text": result.metadata.get("text", ""),
-            "resume": result.metadata.get("text", ""),
-            "score": result.rrf_score,
-            "section": result.section,
-            "candidate_name": result.candidate_name,
-            "chunk_id": result.chunk_id,
-            "metadata": result.metadata
-        }
-        docs.append(doc)
-    
-    print(f"Converted to legacy format: {len(docs)} docs")
-    if docs:
-        print(f"Example doc: id='{docs[0]['id']}', candidate_name='{docs[0]['candidate_name']}', score={docs[0]['score']}")
-    
-    # Build trace
-    trace.append({
-        "step": "Hybrid retrieval",
-        "tool": "HybridRetrievalService",
-        "model": "RRF Fusion",
-        "duration_ms": int((t1 - t0) * 1000),
-        "results_count": len(docs)
-    })
-    
-    # Default category (could be extracted from metadata if needed)
-    category = "GENERAL"
-    
-    print(f"Output: {len(docs)} docs, category='{category}'")
-    print(f"------------------------------------")
+    # ── STAGE 3 — QUERY INPUT ────────────────────────────────────────────────
+    with StageTimer(
+        3, "QUERY INPUT",
+        Raw_Query=user_query,
+        Top_K=top_k,
+        Detected_Skills="(extracted in UI layer)",
+        Detected_Filters="None",
+    ) as stage3:
+        # Get retrieval bundle (creates services if needed)
+        bundle = create_retrieval_bundle()
+        
+        # Use hybrid retrieval service
+        results = bundle.hybrid_service.search(query=user_query, top_k=top_k)
+        
+        t1 = time.perf_counter()
+        
+        # Convert HybridSearchResult to legacy format
+        docs = []
+        for result in results:
+            doc = {
+                "id": result.resume_id,
+                "text": result.metadata.get("text", ""),
+                "resume": result.metadata.get("text", ""),
+                "score": result.rrf_score,
+                "section": result.section,
+                "candidate_name": result.candidate_name,
+                "chunk_id": result.chunk_id,
+                "metadata": result.metadata
+            }
+            docs.append(doc)
+        
+        # Build trace
+        trace.append({
+            "step": "Hybrid retrieval",
+            "tool": "HybridRetrievalService",
+            "model": "RRF Fusion",
+            "duration_ms": int((t1 - t0) * 1000),
+            "results_count": len(docs)
+        })
+        
+        # Default category (could be extracted from metadata if needed)
+        category = "GENERAL"
+        
+        sample_doc = None
+        if docs:
+            sample_doc = {
+                "id": docs[0]["id"],
+                "candidate_name": docs[0]["candidate_name"],
+                "score": f"{docs[0]['score']:.4f}",
+            }
+        
+        stage3.set_output(
+            count=len(docs),
+            sample=sample_doc,
+            Category=category,
+            Retrieval_Time_ms=f"{(t1 - t0) * 1000:.1f}",
+        )
     
     return {"category": category, "docs": docs, "trace": trace}
 

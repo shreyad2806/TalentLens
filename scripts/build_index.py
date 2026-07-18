@@ -117,12 +117,22 @@ class ProductionIndexBuilder:
                 continue
             
             chunk_metadata = ChunkMetadata(
+                candidate_name=candidate_name,
                 role=None,
                 experience=None,
                 location=None,
                 education=None,
+                skills=[],
+                email=None,
+                phone=None,
+                summary=None,
                 source_section="raw_text"
             )
+            
+            # [META-WRITE] Log ChunkMetadata creation
+            _meta_dict = chunk_metadata.dict()
+            _non_null = {k: v for k, v in _meta_dict.items() if v is not None and v != [] and v != ''}
+            print(f"[META-WRITE][ChunkMetadata][build_index] resume_id={resume_id[:8]}  chunk_order={chunk_order}  keys={sorted(_meta_dict.keys())}  non_null={list(_non_null.keys())}")
             
             chunk = Chunk(
                 chunk_id=str(uuid.uuid4()),

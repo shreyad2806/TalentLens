@@ -154,6 +154,9 @@ class ChunkFactory:
         """
         Extract base metadata from ResumeDocument.
         
+        Propagates all available resume-level fields into the metadata dict
+        so they flow through Chunk → BM25Document → HybridSearchResult → UI.
+        
         Args:
             document: The ResumeDocument
             
@@ -177,10 +180,15 @@ class ChunkFactory:
             education = document.education[0].institution
         
         return {
+            "candidate_name": document.name,
             "role": role,
             "experience": experience_years,
             "location": location,
             "education": education,
+            "skills": list(document.skills) if document.skills else [],
+            "email": document.email,
+            "phone": document.phone,
+            "summary": document.summary,
         }
     
     def _create_chunk(self, section: str, text: str, metadata: Dict[str, Any],
@@ -206,12 +214,23 @@ class ChunkFactory:
         
         # Create ChunkMetadata object
         chunk_metadata = ChunkMetadata(
+            candidate_name=metadata.get('candidate_name'),
             role=metadata.get('role'),
             experience=metadata.get('experience'),
             location=metadata.get('location'),
             education=metadata.get('education'),
+            skills=metadata.get('skills', []),
+            email=metadata.get('email'),
+            phone=metadata.get('phone'),
+            summary=metadata.get('summary'),
             source_section=metadata.get('source_section')
         )
+        
+        # [META-WRITE] Log ChunkMetadata creation
+        _meta_dict = chunk_metadata.dict()
+        _non_null = {k: v for k, v in _meta_dict.items() if v is not None and v != [] and v != ''}
+        _sample = {k: (str(v)[:40] + '...' if len(str(v)) > 40 else v) for k, v in _non_null.items()}
+        print(f"[META-WRITE][ChunkMetadata][ChunkFactory] resume_id={resume_id[:8]}  section={section}  keys={sorted(_meta_dict.keys())}  non_null={list(_non_null.keys())}  sample={_sample}")
         
         return Chunk(
             chunk_id=chunk_id,

@@ -16,17 +16,8 @@ from ..resume_parser.parser_service import ParserService
 from ..chunks.service import ChunkService
 from ..embeddings.embedding_service import EmbeddingService
 from ..retrieval.bm25.index_builder import IndexBuilder
-from ..retrieval.sparse.bm25_index import BM25Index
-
+from ..retrieval.bm25.bm25_index import BM25Index
 from ..config import EMBEDDING_DIM
-
-# Vector store service is only allowed to be instantiated from composition_root.py.
-# IndexingService may receive it via DI, but it must not construct it.
-try:
-    from ..vector_store import VectorStoreService
-except Exception:  # pragma: no cover
-    VectorStoreService = None
-
 
 # Optional pinecone import for vector store
 try:
@@ -40,7 +31,6 @@ logger = logging.getLogger(__name__)
 
 
 class IndexingService:
-
     """
     Main service for indexing resume documents.
     
@@ -56,73 +46,37 @@ class IndexingService:
     providing methods to query their current state and rebuild indexes.
     """
     
-    def __init__(
-        self,
-        embedding_dim: int = EMBEDDING_DIM,
-        *,
-        bm25_index: Optional[BM25Index] = None,
-        embedding_service: Optional[EmbeddingService] = None,
-        vector_store_service: Optional[Any] = None,
-    ):
-        """Initialize the indexing service.
-
-        DI constraints:
-        - BM25Index, EmbeddingService, VectorStoreService must be instantiated only in composition_root.py.
-        - This class therefore only accepts injected instances; if not provided, it falls back to legacy behavior.
-          (Legacy fallback will violate your constraint only if used; bootstrap wiring will always inject.)
+    def __init__(self, embedding_dim: int = EMBEDDING_DIM):
         """
+        Initialize the indexing service.
+        
+        Args:
+            embedding_dim: Dimension of embedding vectors (default: from config)
+        """
+        # Initialize components
         self.parser = ParserService()
         self.chunk_service = ChunkService()
-
-        self.embedding_service = embedding_service or EmbeddingService(expected_dimension=embedding_dim)
+        self.embedding_service = EmbeddingService(expected_dimension=embedding_dim)
         self.index_builder = IndexBuilder()
-
+        
         # State tracking
         self._indexed_documents: Dict[str, Any] = {}  # resume_id -> document metadata
         self._vector_count: int = 0
-        self._bm25_index: Optional[BM25Index] = bm25_index
-
-        # Temporary identity logging (will be removed)
-        if logger.isEnabledFor(logging.INFO):
-            bm25_id = id(self._bm25_index) if self._bm25_index is not None else None
-            emb_id = id(self.embedding_service)
-            logger.info(f"[IDENTITY] IndexingService bm25_id={bm25_id} embedding_id={emb_id}")
-
-
-        # Vector store ownership: default legacy path uses pinecone_client.
-        # If a vector_store_service was injected, _upsert_to_vector_store will use it.
-        self._vector_store_service = vector_store_service
-
-
-        # Temporary identity logging (will be removed)
-        if logger.isEnabledFor(logging.INFO):
-            logger.info(
-                f"[IDENTITY] IndexingService vector_store_service_id={id(self._vector_store_service)}"
-            )
-
-
+        self._bm25_index: Optional[BM25Index] = None
         self._pinecone_available = PINECONE_AVAILABLE
-
-        if self._pinecone_available and self._vector_store_service is None:
+        
+        # Ensure vector store exists if pinecone is available
+        if self._pinecone_available:
             try:
                 ensure_index(dimension=embedding_dim)
                 logger.info("Vector store ensured")
             except Exception as e:
                 logger.warning(f"Could not ensure vector store: {e}")
                 self._pinecone_available = False
-        elif self._vector_store_service is not None:
-            logger.info("Using injected VectorStoreService for upserts")
         else:
             logger.info("Vector store disabled (Pinecone not available)")
-
-        logger.info(
-            "IndexingService initialized with embedding_dim=%s (bm25_injected=%s, embedding_injected=%s, vector_store_injected=%s)",
-            embedding_dim,
-            bm25_index is not None,
-            embedding_service is not None,
-            vector_store_service is not None,
-        )
-
+        
+        logger.info(f"IndexingService initialized with embedding_dim={embedding_dim}")
     
     def index_resume(self, file_path: Union[str, Path], resume_id: Optional[str] = None) -> Dict[str, Any]:
         """
@@ -200,11 +154,8 @@ class IndexingService:
             # Step 5: Index in BM25
             try:
                 if self._bm25_index is None:
-                    raise RuntimeError(
-                        "BM25Index instance was not injected into IndexingService. "
-                        "composition_root.py must own BM25Index construction."
-                    )
-
+                    self._bm25_index = BM25Index()
+                
                 for chunk in chunks:
                     bm25_doc, tokens = self.index_builder.chunk_to_document(chunk)
                     self._bm25_index.add_document(
@@ -212,7 +163,6 @@ class IndexingService:
                         tokens=tokens,
                         document=bm25_doc
                     )
-
                 
                 result['bm25_success'] = True
                 logger.info("Successfully indexed in BM25")
@@ -314,17 +264,12 @@ class IndexingService:
         }
         
         try:
-            # Clear BM25 index (keep injected instance)
+            # Clear BM25 index
             if self._bm25_index is not None:
                 self._bm25_index.clear()
-                result['bm25_cleared'] = True
-                logger.info("BM25 index cleared (injected instance)")
-            else:
-                result['bm25_cleared'] = False
-                logger.warning(
-                    "BM25 index not injected into IndexingService; cannot clear"
-                )
-
+            self._bm25_index = BM25Index()
+            result['bm25_cleared'] = True
+            logger.info("BM25 index cleared")
             
             # Note: Vector store clearing is not implemented here as it would
             # require deleting all vectors from Pinecone, which is destructive.
@@ -366,32 +311,31 @@ class IndexingService:
         return self._vector_count
     
     def bm25_count(self) -> int:
-        """Return the number of indexed BM25 documents."""
+        """
+        Return the number of documents currently indexed in BM25.
+        """
         if self._bm25_index is None:
             return 0
 
-        # Try common attribute names across BM25Index implementations
-        # sparse/bm25_index.py uses: total_documents, document_store
-        if hasattr(self._bm25_index, "total_documents"):
-            return int(self._bm25_index.total_documents)
-
+        # Preferred attribute
         if hasattr(self._bm25_index, "num_documents"):
-            return int(self._bm25_index.num_documents)
+            return self._bm25_index.num_documents
 
+        # Fallback if num_documents is unavailable
         if hasattr(self._bm25_index, "documents"):
             return len(self._bm25_index.documents)
-
-        if hasattr(self._bm25_index, "document_store"):
-            return len(self._bm25_index.document_store)
 
         if hasattr(self._bm25_index, "_documents"):
             return len(self._bm25_index._documents)
 
+        logger.warning(
+            "BM25Index has no num_documents or documents attribute. Type=%s",
+            type(self._bm25_index)
+        )
+
         return 0
-
-
+    
     def get_bm25_index(self) -> Optional[BM25Index]:
-
         """
         Get the BM25 index instance.
         
@@ -416,15 +360,15 @@ class IndexingService:
         if self._bm25_index is not None:
             bm25_stats = self._bm25_index.get_statistics()
             stats['bm25_stats'] = bm25_stats
-            # include identity for temporary verification
-            stats['bm25_id'] = id(self._bm25_index)
-
         
         return stats
     
     def _upsert_to_vector_store(self, embedding_records: List) -> None:
         """
         Upsert embedding records to the vector store.
+        
+        Includes enriched metadata fields (skills, email, phone, etc.) so that
+        dense retrieval can propagate full metadata to the UI.
         
         Args:
             embedding_records: List of EmbeddingRecord objects
@@ -440,9 +384,20 @@ class IndexingService:
                     'resume_id': record.resume_id,
                     'candidate_name': record.candidate_name,
                     'section': record.section,
-                    'embedding_id': str(record.embedding_id)
+                    'embedding_id': str(record.embedding_id),
                 }
             }
+            # Propagate additional metadata fields if available
+            if hasattr(record, 'metadata') and isinstance(record.metadata, dict):
+                for key in ('skills', 'email', 'phone', 'summary', 'role',
+                            'experience', 'location', 'education', 'candidate_name'):
+                    if key in record.metadata and record.metadata[key] is not None:
+                        val = record.metadata[key]
+                        # Flatten lists to strings for vector store compatibility
+                        if isinstance(val, list):
+                            vector['metadata'][key] = ','.join(str(v) for v in val)
+                        else:
+                            vector['metadata'][key] = val
             vectors.append(vector)
         
         # Upsert in batches of 100

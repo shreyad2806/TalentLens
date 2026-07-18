@@ -1,13 +1,9 @@
-print("STEP 1 Loading Config")
 import os
+import sys
+import platform
 import warnings
 from dotenv import load_dotenv
-load_dotenv() # Load environment variables
-
-print("STEP 2 Loading UI")
 import streamlit as st
-st.set_page_config(page_title="Talentlens", page_icon="🎯", layout="wide")
-
 import re
 import html
 import time
@@ -16,134 +12,73 @@ from PyPDF2 import PdfReader
 import io
 import docx
 
-print("STEP 3 Loading Retrieval Services")
+from src.debug_logger import log_stage_start, log_stage_end, log_error
 
-@st.cache_resource
-def get_metadata_service():
-    try:
-        from src.retrieval.metadata import MetadataService
-        return MetadataService(cache_enabled=True)
-    except Exception as e:
-        print(f"Warning: Metadata service failed to load: {e}")
-        return None
+st.set_page_config(page_title="Talentlens", page_icon="🎯", layout="wide")
 
-@st.cache_resource
-def get_hybrid_service():
-    try:
-        from src.bootstrap.composition_root import create_retrieval_bundle
-        bundle = create_retrieval_bundle()
-        return bundle.hybrid_service
+# ── Cached resource factories (lazy — only build on first call) ────────────
 
-    except Exception as e:
-        print(f"Warning: Hybrid service failed to load: {e}")
-        return None
+@st.cache_resource(show_spinner=False)
+def _get_embedding_model():
+    """Load embedding model exactly once."""
+    from src.embed import load_embedding_model
+    return load_embedding_model()
 
-@st.cache_resource
-def get_reranker_service():
-    try:
-        from src.retrieval.reranker import RerankerService
-        return RerankerService()
-    except Exception as e:
-        print(f"Warning: Reranker service failed to load: {e}")
-        return None
+@st.cache_resource(show_spinner=False)
+def _get_retrieval_bundle():
+    """Build retrieval bundle exactly once (bootstrap, vector store, BM25, etc.)."""
+    from src.bootstrap.composition_root import create_retrieval_bundle
+    return create_retrieval_bundle()
 
-metadata_service = get_metadata_service()
-hybrid_service = get_hybrid_service()
-reranker_service = get_reranker_service()
+# ── STAGE 1 — APPLICATION STARTUP (runs once per session) ──────────────────
 
-print("STEP 4 Bootstrap System")
-@st.cache_resource
-def get_bootstrap_service():
-    try:
-        from src.bootstrap import BootstrapService
-        return BootstrapService(verbose=True)
-    except Exception as e:
-        print(f"Warning: Bootstrap service failed to load: {e}")
-        return None
+_t_startup_total = time.perf_counter()
+_t_config_end = None
 
-@st.cache_resource
-def run_bootstrap():
-    """Run bootstrap once per session with logging and timing metrics."""
-    import time
-    from src.bootstrap import BootstrapService
-    from src.vector_store import VectorStoreService
-    
-    print("STARTUP HEALTH CHECK")
-    start_time = time.time()
-    
-    # Check vector store health using generic service
-    vector_store = VectorStoreService()
-    health = vector_store.health()
-    
-    print(f"Vector Store Provider: {health.get('provider', 'unknown')}")
-    print(f"Vector Store Healthy: {health.get('healthy', False)}")
-    print(f"Vector Count: {health.get('vector_count', 0)}")
-    
-    # If vector store is healthy and has vectors, skip bootstrap
-    if health.get('healthy', False) and health.get('vector_count', 0) > 0:
-        elapsed_time = time.time() - start_time
-        print(f"✓ INDEX FOUND - Skipping bootstrap (startup time: {elapsed_time:.2f}s)")
-        
-        # Load BM25 index from cache
-        import pickle
-        from pathlib import Path
-        bm25_cache_path = Path("data/cache/bm25.pkl")
-        if bm25_cache_path.exists():
-            print(f"✓ Loading BM25 index from cache...")
-            with open(bm25_cache_path, 'rb') as f:
-                bm25_index = pickle.load(f)
-            print(f"✓ BM25 index loaded")
-        else:
-            print(f"⚠ BM25 index cache not found at {bm25_cache_path}")
-        
-        return {"bootstrapped": False, "vector_count": health.get('vector_count', 0)}
-    
-    # Run bootstrap if vector store check failed or no vectors
-    bootstrap_service = None
-    try:
-        bootstrap_service = BootstrapService(verbose=True)
-    except Exception as e:
-        print(f"Warning: Bootstrap service failed to load: {e}")
-        return None
-    
-    if not bootstrap_service:
-        return None
-    
-    print("BOOTSTRAP START")
-    bootstrap_start_time = time.time()
-    
-    try:
-        bootstrap_result = bootstrap_service.bootstrap()
-        bootstrap_elapsed_time = time.time() - bootstrap_start_time
-        total_elapsed_time = time.time() - start_time
-        
-        if not bootstrap_result.get('bootstrapped', True):
-            print(f"BOOTSTRAP SKIPPED - index already contains data (bootstrap time: {bootstrap_elapsed_time:.2f}s, total time: {total_elapsed_time:.2f}s)")
-        else:
-            print(f"BOOTSTRAP COMPLETE (bootstrap time: {bootstrap_elapsed_time:.2f}s, total time: {total_elapsed_time:.2f}s)")
-            
-            # Check validation result before showing warning
-            validation_result = bootstrap_result.get('validation_result', {})
-            is_valid = validation_result.get('is_valid', False)
-            
-            if not is_valid:
-                print("⚠ INDEX NOT FOUND - Run 'python scripts/build_index.py' to build the production index")
-            else:
-                print("✓ Index validation passed")
-        
-        return bootstrap_result
-    except Exception as e:
-        bootstrap_elapsed_time = time.time() - bootstrap_start_time
-        total_elapsed_time = time.time() - start_time
-        print(f"BOOTSTRAP FAILED: {e} (bootstrap time: {bootstrap_elapsed_time:.2f}s, total time: {total_elapsed_time:.2f}s)")
-        import traceback
-        traceback.print_exc()
-        return None
+if "_stage1_done" not in st.session_state:
+    from src.config import EMBEDDING_MODEL, EMBEDDING_DIM
 
-# Run bootstrap once per session
-bootstrap_result = run_bootstrap()
+    _t_config = time.perf_counter()
+    _t_config_end = _t_config
 
-print("STEP 5 Rendering Streamlit")
+    log_stage_start(1, "APPLICATION STARTUP",
+        Python_Version=sys.version.split()[0],
+        OS=platform.system(),
+        OS_Version=platform.version(),
+        Embedding_Model=EMBEDDING_MODEL,
+        Embedding_Dim=EMBEDDING_DIM,
+        Vector_Store_Provider=os.getenv("VECTOR_STORE_PROVIDER", "qdrant"),
+        Resume_Folder=os.getenv("RESUME_FOLDER", "Resume/"),
+        Index_Folder=os.getenv("INDEX_FOLDER", "data/indexes"),
+        Cache_Folder=os.getenv("CACHE_FOLDER", "data/cache"),
+    )
+    log_stage_end(1, "APPLICATION STARTUP",
+        status="SUCCESS",
+        time_ms=(_t_config - _t_startup_total) * 1000,
+        sample={
+            "Python": sys.version.split()[0],
+            "Platform": platform.system(),
+            "Model": EMBEDDING_MODEL,
+            "Dim": EMBEDDING_DIM,
+        },
+        extra={"Config": "Loaded from .env + defaults"},
+    )
+    st.session_state._stage1_done = True
+
+# ── Startup Timing Table ────────────────────────────────────────────────────
+_t_ui_render = time.perf_counter()
+_startup_total_ms = (_t_ui_render - _t_startup_total) * 1000
+
+with st.expander("⏱ Startup Timing", expanded=False):
+    _timing_rows = [
+        {"Phase": "Configuration (.env + imports)", "Time (ms)": f"{(_t_config - _t_startup_total) * 1000:.1f}" if _t_config_end else "cached"},
+        {"Phase": "Stage 1 banner", "Time (ms)": f"{(_t_config - _t_startup_total) * 1000:.1f}" if _t_config_end else "cached"},
+        {"Phase": "Embedding model", "Time (ms)": "deferred (lazy, cached)"},
+        {"Phase": "Retrieval bundle", "Time (ms)": "deferred (lazy, cached)"},
+        {"Phase": "UI rendering", "Time (ms)": f"{(_t_ui_render - _t_config) * 1000:.1f}" if _t_config_end else f"{(_t_ui_render - _t_startup_total) * 1000:.1f}"},
+        {"Phase": "TOTAL startup", "Time (ms)": f"{_startup_total_ms:.1f}"},
+    ]
+    st.table(pd.DataFrame(_timing_rows))
 
 st.markdown("""
 # Talentlens - Resume Intelligence Platform
@@ -190,7 +125,8 @@ def add_to_shortlist(candidate: dict) -> None:
         smap[cid] = {
             "name": candidate.get("name"),
             "role": candidate.get("role"),
-            "score": candidate.get("score")
+            "score": candidate.get("score"),
+            "match_pct": candidate.get("match_pct", 0),
         }
         st.session_state.shortlist = ss
         st.session_state.shortlist_map = smap
@@ -306,7 +242,7 @@ def extract_text(file):
         # 📝 DOCX
         elif filename.endswith(".docx"):
             file.seek(0)
-            doc = docx.Document(file)
+            doc = docx.Document (file)
             
             text = "\n".join([p.text for p in doc.paragraphs])
             return text.lower().strip()
@@ -325,7 +261,10 @@ def extract_text(file):
 def parse_resume(text):
     """Parse resume text into structured data - NEVER CRASHES"""
     try:
-        skills = extract_skills_from_text(text)
+        # Use new parser functions
+        from src.parser import extract_skills, extract_experience, extract_location, extract_role
+        
+        skills = extract_skills(text)
         experience = extract_experience(text)
         location = extract_location(text)
         role = extract_role(text)
@@ -351,7 +290,10 @@ def parse_resume(text):
 def parse_jd(jd_text):
     """Parse job description into structured data - NEVER CRASHES"""
     try:
-        skills = extract_jd_skills(jd_text)
+        # Use new parser functions
+        from src.parser import extract_skills, extract_experience, extract_location
+        
+        skills = extract_skills(jd_text)
         experience = extract_experience(jd_text)
         location = extract_location(jd_text)
         
@@ -492,8 +434,11 @@ def render_candidate_card(candidate, idx):
     location = candidate.get("location", "Not specified")
     experience = candidate.get("experience", "Not specified")
     skills = candidate.get("skills", [])[:6]
-    score = candidate.get("score", 0)  # Already a percentage
+    score = candidate.get("score", 0)          # rrf_score (retrieval ranking)
+    match_pct = candidate.get("match_pct", 0)  # skill-match % (supplementary)
     matched_skills = candidate.get("matched_skills", [])
+    email = candidate.get("email")
+    phone = candidate.get("phone")
     
     st.markdown("---")
     st.markdown(f"### 👤 {name}")
@@ -502,8 +447,18 @@ def render_candidate_card(candidate, idx):
     
     with col1:
         st.caption(f"{role} • {location}")
+        # Show contact info if available
+        contact_parts = []
+        if email:
+            contact_parts.append(f"📧 {email}")
+        if phone:
+            contact_parts.append(f"📞 {phone}")
+        if contact_parts:
+            st.caption(" • ".join(contact_parts))
     with col2:
-        st.markdown(f"### {score}%")
+        # Show retrieval score (rrf_score) as primary ranking signal
+        st.markdown(f"### {score:.4f}")
+        st.caption("RRF score")
     
     if skills:
         st.markdown("🧠 " + " ".join([f"`{s}`" for s in skills]))
@@ -548,9 +503,9 @@ with tab_search:
         if ss:
             for cid in ss:
                 item = smap.get(cid, {})
-                score_pct = int((item.get("score") or 0) * 100)
+                score_pct = item.get("match_pct", 0)
                 st.markdown(f"**{item.get('name', 'Unknown')}**")
-                st.caption(f"{item.get('role', 'Unknown')} • {score_pct}%")
+                st.caption(f"{item.get('role', 'Unknown')} • RRF {item.get('score', 0):.4f}")
         else:
             st.caption("No shortlisted candidates yet")
 
@@ -574,11 +529,14 @@ with tab_search:
         submitted = st.form_submit_button("Search 🚀")
 
     if submitted and user_query.strip():
-        # Import here to avoid heavy model loading at Streamlit startup.
-        from src.query_pipeline import retrieve, answer
+        _ui_start = time.perf_counter()
+        log_stage_start(12, "UI OUTPUT", Query=user_query[:80], Top_K=num_candidates)
 
         with st.spinner("Searching candidates and generating answer..."):
             try:
+                # Use cached retrieval bundle (built once, reused on every search)
+                bundle = _get_retrieval_bundle()
+
                 # ✅ FIXED: Extract skills from user query as fallback
                 jd_skills = extract_jd_skills(user_query)
                 
@@ -592,136 +550,213 @@ with tab_search:
                     st.write("**JD Skills:**", jd_skills)
                     st.write("**User Query:**", user_query)
                 
-                # Create MetadataFilter directly from UI fields
-                from src.retrieval.metadata import MetadataFilter
-                try:
-                    m_filter = MetadataFilter(
-                        minimum_experience=exp_range[0],
-                        maximum_experience=exp_range[1],
-                        location=location if location and location.strip() else None,
-                        skills=jd_skills if jd_skills else None
-                    )
-                    hybrid_filters = m_filter.model_dump(exclude_none=True)
-                except Exception as e:
-                    hybrid_filters = None
-                    print(f"Filter validation failed: {e}")
+                refined_query = {
+                    "text": user_query,
+                    "skills": jd_skills,
+                    "experience_min": exp_range[0],
+                    "experience_max": exp_range[1],
+                    "location": location,
+                    "num_candidates": num_candidates
+                }
                 
-                if not hybrid_service:
-                    st.warning("⚠️ Hybrid Retrieval Service unavailable. Check backend.")
-                    st.stop()
-                
-                if not reranker_service:
-                    st.warning("⚠️ Cross Encoder Reranker unavailable. Check backend.")
-                    st.stop()
-                
-                # 1. Hybrid Retrieval
-                print(f"------------------------------------")
-                print(f"STAGE: app.py Hybrid Retrieval")
-                print(f"Input: query='{user_query}', top_k={num_candidates * 3}, filters={hybrid_filters}")
-                print(f"------------------------------------")
-                
-                retrieved = hybrid_service.search(
-                    query=user_query,
-                    top_k=num_candidates * 3, # Fetch more for reranker
-                    filters=hybrid_filters
+                # ── STAGE 4 — METADATA FILTER PARSING ────────────────────────────
+                _s4_start = time.perf_counter()
+                log_stage_start(4, "METADATA FILTER PARSING",
+                    Extracted_Skills=jd_skills,
+                    Experience_Range=f"{exp_range[0]}-{exp_range[1]} years",
+                    Location=location,
+                    Education="(not extracted)",
+                    Company="(not extracted)",
+                    Role="(not extracted)",
+                )
+                log_stage_end(4, "METADATA FILTER PARSING",
+                    status="SUCCESS",
+                    time_ms=(time.perf_counter() - _s4_start) * 1000,
+                    output_count=len(jd_skills),
+                    sample={"Skills": jd_skills, "Location": location, "Exp": f"{exp_range[0]}-{exp_range[1]}"},
+                    extra={"Note": "Filters extracted in UI layer; not passed to retrieval pipeline"},
                 )
                 
-                print(f"After hybrid retrieval: {len(retrieved)} results")
-                if retrieved:
-                    print(f"Example: resume_id='{retrieved[0].resume_id}', candidate_name='{retrieved[0].candidate_name}'")
-                
-                if not retrieved:
-                    print("No candidates found from hybrid retrieval - stopping")
-                    st.info("No candidates found matching criteria.")
-                    st.session_state.search_results = []
+                # Use cached bundle for hybrid search (no re-creation)
+                _t_retrieve = time.perf_counter()
+                hybrid_results = bundle.hybrid_service.search(
+                    query=refined_query["text"],
+                    top_k=refined_query.get("num_candidates", 10),
+                )
+                _t_retrieve_ms = (time.perf_counter() - _t_retrieve) * 1000
+
+                # ── Score mapping: HybridSearchResult → docs[] ────────────────
+                print()
+                print("[SCORE TRACE] Mapping HybridSearchResult → docs[]")
+                print("[META TRACE] Mapping HybridSearchResult → docs[]")
+                if hybrid_results:
+                    print(f"  BEFORE: {len(hybrid_results)} HybridSearchResult objects")
+                    print(f"  BEFORE: top rrf_score = {hybrid_results[0].rrf_score:.6f}  "
+                          f"({hybrid_results[0].candidate_name})")
+                    _h0 = hybrid_results[0]
+                    print(f"  BEFORE META: keys={list(_h0.metadata.keys()) if _h0.metadata else '[]'}")
+                    print(f"  BEFORE META: candidate_name={_h0.candidate_name}, "
+                          f"resume_id={_h0.resume_id}")
                 else:
-                    # 2. Cross Encoder Reranker
-                    print(f"------------------------------------")
-                    print(f"STAGE: app.py Cross Encoder Reranker")
-                    print(f"Input: {len(retrieved)} candidates, top_k={num_candidates}")
-                    print(f"------------------------------------")
+                    print("  BEFORE: no hybrid results")
+
+                # Convert HybridSearchResult to legacy dict format
+                # Enrich metadata with top-level fields so downstream code can find everything in meta
+                docs = []
+                for r in hybrid_results:
+                    # Merge top-level fields into metadata for unified downstream access
+                    enriched_meta = dict(r.metadata) if r.metadata else {}
+                    enriched_meta.setdefault("candidate_name", r.candidate_name)
+                    enriched_meta.setdefault("resume_id", r.resume_id)
+                    enriched_meta.setdefault("section", r.section)
+
+                    docs.append({
+                        "id": r.resume_id,
+                        "text": enriched_meta.get("text", ""),
+                        "resume": enriched_meta.get("text", ""),
+                        "score": r.rrf_score,
+                        "section": r.section,
+                        "candidate_name": r.candidate_name,
+                        "chunk_id": r.chunk_id,
+                        "metadata": enriched_meta,
+                    })
+
+                if docs:
+                    print(f"  AFTER:  {len(docs)} docs, top score = {docs[0]['score']:.6f}")
+                    print(f"  AFTER META: keys={list(docs[0]['metadata'].keys())}")
+                
+                # ── Score mapping: docs[] → scored_results ─────────────────────
+                print()
+                print("[SCORE TRACE] Mapping docs[] → scored_results")
+                print("[META TRACE] Mapping docs[] → scored_results")
+                scored_results = []
+                for i, d in enumerate(docs):
+                    meta = d.get("metadata", {}) or {}
+                    doc_text = d.get("text", "")
+                    rrf_score = d.get("score", 0.0)          # retrieval score from pipeline
+
+                    if i < 3:  # log first 3 for meta trace
+                        print(f"  [{i}] meta keys = {list(meta.keys())}")
                     
-                    reranked = reranker_service.rerank(
-                        query=user_query,
-                        candidates=retrieved,
-                        top_k=num_candidates
+                    # Extract candidate info from metadata (all fields now propagated)
+                    candidate = {
+                        "id": str(i),
+                        "resume_id": d.get("id", ""),
+                        "name": meta.get("candidate_name") or d.get("candidate_name", f"Candidate {i+1}"),
+                        "role": meta.get("role") or "Software Developer",
+                        "location": meta.get("location") or "Not specified",
+                        "experience": meta.get("experience") or "Not specified",
+                        "skills": meta.get("skills") or [],
+                        "email": meta.get("email"),
+                        "phone": meta.get("phone"),
+                        "summary": meta.get("summary"),
+                        "text": doc_text,
+                    }
+                    
+                    # Extract skills from resume text if metadata had none
+                    if not candidate["skills"]:
+                        candidate["skills"] = extract_skills_from_text(doc_text)
+                    if not candidate["skills"]:
+                        candidate["skills"] = ["unknown"]
+                    
+                    if i < 3:  # log first 3 for meta trace
+                        print(f"  [{i}] name={candidate['name']}, role={candidate['role']}, "
+                              f"location={candidate['location']}, skills={candidate['skills'][:3]}, "
+                              f"email={candidate.get('email')}")
+                    
+                    # Skill overlap (supplementary — used for matched_skills display)
+                    _skill_match_pct, matched_skills = compute_match_score(
+                        candidate["skills"],
+                        jd_skills,
                     )
                     
-                    print(f"After reranking: {len(reranked)} candidates")
-                    if reranked:
-                        print(f"Example: resume_id='{reranked[0].resume_id}', candidate_name='{reranked[0].candidate_name}', rerank_score={reranked[0].rerank_score}")
+                    # PRESERVE rrf_score as the primary ranking score
+                    candidate["score"] = rrf_score
+                    candidate["match_pct"] = _skill_match_pct
+                    candidate["matched_skills"] = matched_skills
                     
-                    # 3. Map to UI Schema
-                    print(f"------------------------------------")
-                    print(f"STAGE: app.py Map to UI Schema")
-                    print(f"Input: {len(reranked)} candidates")
-                    print(f"------------------------------------")
+                    if i < 5:  # log first 5 for trace
+                        print(f"  [{i}] {candidate['name']:<25}  rrf={rrf_score:.6f}  "
+                              f"skill_match={_skill_match_pct:.1f}%  "
+                              f"matched={matched_skills}")
                     
-                    scored_results = []
-                    for i, r in enumerate(reranked):
-                        # Extract skills either from metadata or text
-                        candidate_skills = r.metadata.get("skills", [])
-                        if not candidate_skills or len(candidate_skills) == 0:
-                            candidate_skills = extract_skills_from_text(r.matched_text)
+                    scored_results.append(candidate)
+                
+                # Sort by retrieval score (descending)
+                scored_results = sorted(scored_results, key=lambda x: x["score"], reverse=True)
+                
+                if scored_results:
+                    print(f"  AFTER:  top candidate = {scored_results[0]['name']}, "
+                          f"score = {scored_results[0]['score']:.6f}")
+                    _c0 = scored_results[0]
+                    print(f"  AFTER META: name={_c0['name']}, role={_c0.get('role')}, "
+                          f"location={_c0.get('location')}, skills={_c0.get('skills', [])[:3]}, "
+                          f"email={_c0.get('email')}, phone={_c0.get('phone')}")
+                
+                # ── STAGE 11 — FINAL RANKING ──────────────────────────────────────
+                _s11_start = time.perf_counter()
+                log_stage_start(11, "FINAL RANKING", Total_Candidates=len(scored_results))
+                
+                # Print ranking table
+                if scored_results:
+                    print(f"  {'Rank':<6}{'Candidate':<25}{'RRF':<12}{'Skill%':<10}")
+                    print(f"  {'-'*53}")
+                    for rank_i, c in enumerate(scored_results[:10]):
+                        print(f"  {rank_i+1:<6}{c['name']:<25}{c['score']:<12.6f}{c.get('match_pct',0):<10.1f}")
+                
+                _s11_sample = None
+                if scored_results:
+                    _s11_sample = {
+                        "Rank_1": scored_results[0]["name"],
+                        "RRF_Score": f"{scored_results[0]['score']:.6f}",
+                        "Skill_Match": f"{scored_results[0].get('match_pct', 0):.1f}%",
+                    }
+                
+                log_stage_end(11, "FINAL RANKING",
+                    status="SUCCESS",
+                    time_ms=(time.perf_counter() - _s11_start) * 1000,
+                    output_count=len(scored_results),
+                    sample=_s11_sample,
+                    extra={"Scoring": "RRF retrieval score (primary) + skill-match % (supplementary)"},
+                )
+                
+                # Store in session state
+                st.session_state.search_results = scored_results
+                
+                # Debug: Show first candidate details
+                if scored_results:
+                    with st.expander("🔍 Debug: Matching Details"):
+                        first = scored_results[0]
+                        st.write("**JD Skills:**", jd_skills)
+                        st.write("**Candidate Name:**", first["name"])
+                        st.write("**Candidate Skills:**", first["skills"])
+                        st.write("**Matched Skills:**", first["matched_skills"])
+                        st.write("**Score:**", first["score"])
                         
-                        if not candidate_skills:
-                            candidate_skills = ["unknown"]
-                        
-                        # Match skills for highlighting
-                        _, matched_skills = compute_match_score(candidate_skills, jd_skills)
-                        
-                        # Scale score to percentage
-                        score_pct = int(max(0.0, min(1.0, r.rerank_score)) * 100) if r.rerank_score <= 1.0 else int(r.rerank_score)
-                        
-                        # Format experience
-                        exp_val = r.metadata.get("minimum_experience")
-                        exp_str = f"{exp_val} years" if exp_val is not None else "Not specified"
-                        
-                        candidate = {
-                            "id": f"{i}_{r.resume_id}",
-                            "name": r.candidate_name,
-                            "role": r.section if r.section else "Software Developer",
-                            "location": r.metadata.get("location", "Not specified"),
-                            "experience": exp_str,
-                            "skills": candidate_skills,
-                            "text": r.matched_text,
-                            "score": score_pct,
-                            "matched_skills": matched_skills,
-                            "reasons": [
-                                f"Cross-Encoder Score: {r.rerank_score:.2f}",
-                                f"Hybrid Rank: {r.original_rank}"
-                            ]
-                        }
-                        
-                        scored_results.append(candidate)
-                    
-                    print(f"After UI schema mapping: {len(scored_results)} candidates")
-                    if scored_results:
-                        print(f"Example: name='{scored_results[0]['name']}', score={scored_results[0]['score']}")
-                    
-                    print(f"Storing in st.session_state.search_results")
-                    print(f"------------------------------------")
-                    
-                    # Store in session state
-                    st.session_state.search_results = scored_results
-                    
-                    # Debug: Show first candidate details
-                    if scored_results:
-                        with st.expander("🔍 Debug: Matching Details"):
-                            first = scored_results[0]
-                            st.write("**JD Skills:**", jd_skills)
-                            st.write("**Candidate Name:**", first["name"])
-                            st.write("**Candidate Skills:**", first["skills"])
-                            st.write("**Matched Skills:**", first["matched_skills"])
-                            st.write("**Score:**", first["score"])
-                            
-                            st.write("---")
-                            st.write("**First 3 Candidates:**")
-                            for i, c in enumerate(scored_results[:3]):
-                                st.write(f"{i+1}. {c['name']}: {c['skills']} → {c['matched_skills']} ({c['score']}%)")
+                        # Show first 3 candidates for comparison
+                        st.write("---")
+                        st.write("**First 3 Candidates:**")
+                        for i, c in enumerate(scored_results[:3]):
+                            st.write(f"{i+1}. {c['name']}: {c['skills']} → {c['matched_skills']} ({c['score']}%)")
                 
             except Exception as e:
-                st.warning(f"Search failed: {str(e)}")
+                log_error(12, "UI OUTPUT", e, reraise=False)
+                st.warning("Some components could not load properly. Please try again.")
+
+        # ── STAGE 12 — UI OUTPUT ─────────────────────────────────────────────
+        _ui_elapsed = (time.perf_counter() - _ui_start) * 1000
+        _results_count = len(st.session_state.get("search_results", []))
+        if _results_count > 0:
+            log_stage_end(12, "UI OUTPUT",
+                status="SUCCESS",
+                time_ms=_ui_elapsed,
+                output_count=_results_count,
+                sample={
+                    "Top_Candidate": st.session_state.search_results[0].get("name", "N/A") if _results_count else "N/A",
+                    "Top_Score": st.session_state.search_results[0].get("score", 0) if _results_count else 0,
+                },
+                extra={"Cards_Rendered": _results_count, "Total_Latency_ms": f"{_ui_elapsed:.1f}"},
+            )
 
     # Always read from session state
     results = st.session_state.search_results

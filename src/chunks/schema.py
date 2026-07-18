@@ -30,16 +30,26 @@ class ChunkMetadata(BaseModel):
     background, which is useful for retrieval and ranking.
     
     Attributes:
+        candidate_name: Full name of the candidate
         role: Current or primary role
         experience: Years of experience
         location: Geographic location
         education: Education level or institution
+        skills: List of skills extracted from the resume
+        email: Email address of the candidate
+        phone: Phone number of the candidate
+        summary: Professional summary / objective
         source_section: The original section this chunk came from
     """
+    candidate_name: Optional[str] = Field(None, description="Full name of the candidate")
     role: Optional[str] = Field(None, description="Current or primary role")
     experience: Optional[int] = Field(None, description="Years of experience")
     location: Optional[str] = Field(None, description="Geographic location")
     education: Optional[str] = Field(None, description="Education level or institution")
+    skills: List[str] = Field(default_factory=list, description="List of skills from the resume")
+    email: Optional[str] = Field(None, description="Email address")
+    phone: Optional[str] = Field(None, description="Phone number")
+    summary: Optional[str] = Field(None, description="Professional summary / objective")
     source_section: Optional[str] = Field(None, description="Original section name")
     
     def to_dict(self) -> Dict[str, Any]:

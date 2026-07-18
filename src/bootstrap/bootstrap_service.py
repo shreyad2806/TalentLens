@@ -23,6 +23,7 @@ from .csv_ingestion import CSVIngestionService, CSVIngestionResult
 
 # Import existing indexing pipeline
 from ..indexing.pipeline import IndexingPipeline
+from ..debug_logger import log_stage_start, log_stage_end, log_error
 
 logger = logging.getLogger(__name__)
 
@@ -106,7 +107,10 @@ class BootstrapService:
         Returns:
             Dictionary with bootstrap results and statistics
         """
-        start_time = time.time()
+        start_time = time.perf_counter()
+        
+        # ── STAGE 2 — BOOTSTRAP ───────────────────────────────────────────────
+        log_stage_start(2, "BOOTSTRAP", Verbose=self.verbose)
         
         if self.verbose:
             print("\n" + "="*70)
@@ -132,12 +136,23 @@ class BootstrapService:
             
             logger.info("Bootstrap skipped - index already contains data")
             
-            return {
+            result = {
                 'bootstrapped': False,
                 'reason': 'index_not_empty',
                 'statistics': stats,
                 'bootstrap_time_seconds': 0.0
             }
+            
+            log_stage_end(2, "BOOTSTRAP", status="SUCCESS",
+                          time_ms=(time.perf_counter() - start_time) * 1000,
+                          sample={
+                              "Indexed_Documents": stats['indexed_documents'],
+                              "Vector_Count": stats['vector_count'],
+                              "BM25_Count": stats['bm25_count'],
+                              "Skipped": "Yes (index not empty)",
+                          })
+            
+            return result
         
         if self.verbose:
             print("📋 Index is empty - starting bootstrap workflow")
@@ -146,7 +161,7 @@ class BootstrapService:
         # Run bootstrap workflow
         result = self._run_bootstrap_workflow()
         
-        bootstrap_time = time.time() - start_time
+        bootstrap_time = time.perf_counter() - start_time
         result['bootstrap_time_seconds'] = bootstrap_time
         self._last_bootstrap_time = bootstrap_time
         self._last_bootstrap_result = result
@@ -156,6 +171,18 @@ class BootstrapService:
             self.reporter.print_report(result)
         
         logger.info(f"Bootstrap complete in {bootstrap_time:.2f}s")
+        
+        # Stage 2 END banner
+        final_stats = self.indexing_pipeline.get_statistics()
+        log_stage_end(2, "BOOTSTRAP", status="SUCCESS",
+                      time_ms=bootstrap_time * 1000,
+                      sample={
+                          "Indexed_Documents": final_stats.get('indexed_documents', 0),
+                          "Vector_Count": final_stats.get('vector_count', 0),
+                          "BM25_Count": final_stats.get('bm25_count', 0),
+                          "Skipped": "No",
+                          "Success": result.get('success', False),
+                      })
         
         return result
     

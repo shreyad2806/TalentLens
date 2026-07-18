@@ -523,6 +523,14 @@ class FusionService:
         
         print(f"Calculated fusion scores: {len(fused_results)} results")
         
+        # Meta trace: show metadata keys of first few fused results
+        if fused_results:
+            for idx in range(min(3, len(fused_results))):
+                fr = fused_results[idx]
+                meta_keys = list(fr.metadata.keys()) if fr.metadata else '[]'
+                print(f"  [META TRACE] Fused[{idx}]: resume_id={fr.resume_id}, "
+                      f"candidate_name={fr.candidate_name}, meta_keys={meta_keys}")
+        
         # Sort by fusion score (descending)
         fused_results.sort(key=lambda x: x.rrf_score, reverse=True)
         print(f"After sorting by fusion score: {len(fused_results)} results")

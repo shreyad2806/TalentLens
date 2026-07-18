@@ -11,6 +11,9 @@ from typing import List
 from ..resume_parser.schema import ResumeDocument
 from .semantic_chunker import SemanticChunker, ChunkData
 from .schema import Chunk, ChunkMetadata
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class ChunkGenerator:
@@ -80,14 +83,25 @@ class ChunkGenerator:
         # Generate unique chunk ID
         chunk_id = str(uuid.uuid4())
         
-        # Create structured metadata
+        # Create structured metadata — propagate all ResumeDocument fields
+        _skills = list(document.skills) if document.skills else []
         chunk_metadata = ChunkMetadata(
+            candidate_name=candidate_name,
             experience=chunk_data.metadata.get('experience'),
             location=chunk_data.metadata.get('location'),
             role=chunk_data.metadata.get('role'),
             education=chunk_data.metadata.get('education'),
+            skills=_skills,
+            email=document.email,
+            phone=document.phone,
+            summary=document.summary,
             source_section=chunk_data.metadata.get('source_section')
         )
+        
+        # [META-WRITE] Log ChunkMetadata creation
+        _meta_dict = chunk_metadata.dict()
+        _non_null = {k: v for k, v in _meta_dict.items() if v is not None and v != [] and v != ''}
+        print(f"[META-WRITE][ChunkMetadata][ChunkGenerator] resume_id={resume_id[:8]}  section={chunk_data.section}  keys={sorted(_meta_dict.keys())}  non_null={list(_non_null.keys())}")
         
         # Create and return Chunk object
         return Chunk(

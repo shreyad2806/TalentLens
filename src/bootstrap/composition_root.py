@@ -1,16 +1,3 @@
-"""src.bootstrap.composition_root
-
-Centralized composition root for retrieval dependencies.
-
-Goals:
-- Construct VectorStoreService, EmbeddingService, BM25Index, Dense/Sparse/Hybrid retrieval services exactly once.
-- Enforce dependency injection: retrieval classes must not instantiate other services internally.
-- Preserve backward compatibility: all public constructors keep working if dependencies are not provided.
-
-Note:
-This module does NOT change public search APIs.
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass

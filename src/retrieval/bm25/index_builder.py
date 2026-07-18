@@ -181,6 +181,12 @@ class IndexBuilder:
             token_count=len(normalized_tokens)
         )
         
+        # [META-WRITE] Log metadata keys being written into BM25Document
+        _meta_keys = sorted(metadata_dict.keys())
+        _non_null = {k: v for k, v in metadata_dict.items() if v is not None and v != [] and v != ''}
+        _sample = {k: (str(v)[:40] + '...' if len(str(v)) > 40 else v) for k, v in _non_null.items()}
+        print(f"[META-WRITE][BM25Document][bm25] chunk_id={chunk.chunk_id[:8]}  resume_id={chunk.resume_id[:8]}  keys={_meta_keys}  non_null={list(_non_null.keys())}  sample={_sample}")
+        
         return document, normalized_tokens
     
     def build_index(self, chunks: List[Chunk]) -> BM25Index:

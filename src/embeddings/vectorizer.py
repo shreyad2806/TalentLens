@@ -63,6 +63,27 @@ class Vectorizer:
             # Cache the result
             self.cache.set(chunk.text, vector)
         
+        # Build metadata dict — propagate all chunk metadata fields for downstream use
+        chunk_meta_dict = {}
+        if chunk.metadata:
+            if hasattr(chunk.metadata, 'model_dump'):
+                chunk_meta_dict = chunk.metadata.model_dump()
+            elif hasattr(chunk.metadata, 'dict'):
+                chunk_meta_dict = chunk.metadata.dict()
+            elif isinstance(chunk.metadata, dict):
+                chunk_meta_dict = dict(chunk.metadata)
+
+        # Merge chunk-level fields into metadata for vector store propagation
+        metadata = {
+            **chunk_meta_dict,
+            'chunk_order': chunk.chunk_order,
+            'source_section': chunk.metadata.source_section if chunk.metadata else None,
+            'text_length': len(chunk.text),
+            'candidate_name': chunk.candidate_name,
+            'resume_id': chunk.resume_id,
+            'section': chunk.section,
+        }
+
         # Create EmbeddingRecord
         embedding_record = EmbeddingRecord(
             chunk_id=chunk.chunk_id,
@@ -72,12 +93,14 @@ class Vectorizer:
             vector=vector,
             vector_dimension=len(vector),
             model_name=self.model_loader.get_model_name(),
-            metadata={
-                'chunk_order': chunk.chunk_order,
-                'source_section': chunk.metadata.source_section if chunk.metadata else None,
-                'text_length': len(chunk.text)
-            }
+            metadata=metadata
         )
+        
+        # [META-WRITE] Log metadata keys being written into EmbeddingRecord
+        _meta_keys = sorted(metadata.keys())
+        _non_null = {k: v for k, v in metadata.items() if v is not None and v != [] and v != ''}
+        _sample = {k: (str(v)[:40] + '...' if len(str(v)) > 40 else v) for k, v in _non_null.items()}
+        print(f"[META-WRITE][EmbeddingRecord] chunk_id={chunk.chunk_id[:8]}  resume_id={chunk.resume_id[:8]}  keys={_meta_keys}  non_null={list(_non_null.keys())}  sample={_sample}")
         
         return embedding_record
     

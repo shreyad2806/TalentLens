@@ -140,6 +140,16 @@ class IndexBuilder:
             tokens = self.tokenizer.tokenize_document(chunk.text)
             
             # Create BM25Document
+            # Propagate full chunk metadata into BM25Document metadata dict
+            _chunk_meta_dict = {}
+            if chunk.metadata:
+                if hasattr(chunk.metadata, 'model_dump'):
+                    _chunk_meta_dict = chunk.metadata.model_dump()
+                elif hasattr(chunk.metadata, 'dict'):
+                    _chunk_meta_dict = chunk.metadata.dict()
+                elif isinstance(chunk.metadata, dict):
+                    _chunk_meta_dict = dict(chunk.metadata)
+            
             document = BM25Document(
                 chunk_id=str(chunk.chunk_id),
                 resume_id=str(chunk.resume_id),
@@ -149,12 +159,18 @@ class IndexBuilder:
                 tokens=tokens,
                 document_length=len(tokens),
                 metadata={
+                    **_chunk_meta_dict,
                     'text_length': len(chunk.text),
                     'chunk_order': chunk.chunk_order,
                     'embedding_status': chunk.embedding_status.value,
                     'source_document': chunk.source_document
                 }
             )
+            
+            # [META-WRITE] Log BM25Document metadata keys
+            _meta_keys = sorted(document.metadata.keys())
+            _non_null = {k: v for k, v in document.metadata.items() if v is not None and v != [] and v != ''}
+            print(f"[META-WRITE][BM25Document][sparse] chunk_id={chunk.chunk_id[:8]}  resume_id={chunk.resume_id[:8]}  keys={_meta_keys}  non_null={list(_non_null.keys())}")
             
             return document
             

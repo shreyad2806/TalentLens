@@ -47,6 +47,7 @@ from .cache import RerankCache
 from .validator import RerankerValidator, ValidationError
 from .batch_processor import BatchProcessor
 from .scorer import CrossEncoderScorer
+from src.debug_logger import log_stage_start, log_stage_end, log_error
 
 logger = logging.getLogger(__name__)
 
@@ -165,8 +166,15 @@ class RerankerService:
             ValidationError: If input validation fails
             RuntimeError: If reranking pipeline fails
         """
+        # ── STAGE 10 — CROSS ENCODER RERANKER ─────────────────────────────────
+        log_stage_start(10, "CROSS ENCODER RERANKER",
+                        Query=query[:80],
+                        Candidates_Before=len(candidates),
+                        Top_K=top_k or "all",
+                        Model=self.model_loader.model_name)
+        
         # Track metrics
-        start_time = time.time()
+        start_time = time.perf_counter()
         cache_hits = 0
         cache_misses = 0
         
@@ -219,7 +227,7 @@ class RerankerService:
                 results.append(result)
             
             # Step 6: Log metrics
-            total_time = time.time() - start_time
+            total_time = time.perf_counter() - start_time
             self._log_metrics(
                 len(candidates),
                 len(results),
@@ -229,13 +237,35 @@ class RerankerService:
                 scores
             )
             
+            # Stage 10 END banner
+            top10_scores = [f"{r.rerank_score:.4f}" for r in results[:10]]
+            sample_result = None
+            if results:
+                sample_result = {
+                    "Top_1_ID": results[0].resume_id,
+                    "Top_1_Name": results[0].candidate_name,
+                    "Top_1_Rerank": f"{results[0].rerank_score:.4f}",
+                }
+            
+            log_stage_end(10, "CROSS ENCODER RERANKER", status="SUCCESS",
+                          time_ms=total_time * 1000,
+                          output_count=len(results),
+                          sample=sample_result,
+                          extra={
+                              "Candidates_Before": len(candidates),
+                              "Candidates_After": len(results),
+                              "Top_10_Scores": top10_scores,
+                          })
+            
             return results
             
         except ValidationError as e:
             logger.error(f"Validation error: {e}")
+            log_error(10, "CROSS ENCODER RERANKER", e, reraise=True)
             raise
         except Exception as e:
             logger.error(f"Reranking failed: {e}")
+            log_error(10, "CROSS ENCODER RERANKER", e, reraise=True)
             raise RuntimeError(f"Reranking failed: {e}")
     
     def _extract_matched_text(self, candidate: Any) -> str:

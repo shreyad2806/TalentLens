@@ -29,6 +29,7 @@ from .cache import QueryCache, TokenCache
 from .scorer import BM25Scorer
 from .bm25_index import BM25Index
 from .tokenizer import Tokenizer
+from src.debug_logger import log_stage_start, log_stage_end, log_error
 
 
 logger = logging.getLogger(__name__)
@@ -135,11 +136,6 @@ class SparseRetrievalService:
             ValidationError: If input validation fails
             RuntimeError: If retrieval pipeline fails
         """
-        print(f"------------------------------------")
-        print(f"STAGE: SparseRetrievalService.search()")
-        print(f"Input: query='{query}', top_k={top_k}, filters={filters}")
-        print(f"------------------------------------")
-        
         # Validate inputs
         self.validator.validate_query(query)
         self.validator.validate_index(self.index)
@@ -150,21 +146,24 @@ class SparseRetrievalService:
         if self.cache_enabled and self.query_cache:
             cached_results = self.query_cache.get(query, filters, top_k)
             if cached_results is not None:
-                print(f"CACHE HIT: Returning {len(cached_results)} cached results")
+                log_stage_end(7, "SPARSE RETRIEVAL", status="SUCCESS", time_ms=0,
+                              output_count=len(cached_results), sample={"source": "CACHE HIT"})
                 logger.info(f"Cache hit for query: {query[:50]}...")
                 return cached_results
         
-        print(f"Cache miss - proceeding with sparse search")
-        
         # Track metrics
-        start_time = time.time()
+        start_time = time.perf_counter()
         tokenization_latency = 0.0
         scoring_latency = 0.0
         filtering_latency = 0.0
         
         try:
+            # ── STAGE 7 — SPARSE RETRIEVAL ──────────────────────────────────────
+            log_stage_start(7, "SPARSE RETRIEVAL", Query=query[:80], Top_K=top_k,
+                            BM25_Docs=self.index.total_documents, Filters=filters)
+            
             # Step 1: Tokenize query
-            tokenization_start = time.time()
+            tokenization_start = time.perf_counter()
             if self.cache_enabled and self.token_cache:
                 query_tokens = self.token_cache.get(query)
                 if query_tokens is None:
@@ -172,47 +171,44 @@ class SparseRetrievalService:
                     self.token_cache.set(query, query_tokens)
             else:
                 query_tokens = self.tokenizer.tokenize_query(query)
-            tokenization_latency = time.time() - tokenization_start
+            tokenization_latency = time.perf_counter() - tokenization_start
             
-            print(f"Query tokens: {query_tokens}")
             logger.debug(f"Query tokenization completed in {tokenization_latency:.3f}s")
             
             # Step 2: BM25 scoring
-            scoring_start = time.time()
-            search_results = self.index.search(query_tokens, top_k * 3)  # Get more for filtering
-            scoring_latency = time.time() - scoring_start
+            scoring_start = time.perf_counter()
+            search_results = self.index.search(query_tokens, top_k * 3)
+            scoring_latency = time.perf_counter() - scoring_start
             
-            print(f"BM25 scoring: {len(search_results)} results")
-            if search_results:
-                # Handle both dict and object formats
-                if isinstance(search_results[0], dict):
-                    doc_id = search_results[0].get('document', {}).get('resume_id', 'N/A') if isinstance(search_results[0].get('document'), dict) else getattr(search_results[0].get('document'), 'resume_id', 'N/A')
-                    score = search_results[0].get('score', 0)
-                else:
-                    doc_id = getattr(search_results[0], 'doc_id', 'N/A')
-                    score = getattr(search_results[0], 'score', 0)
-                print(f"Example BM25 result: doc_id='{doc_id}', score={score}")
             logger.debug(f"BM25 scoring completed in {scoring_latency:.3f}s, returned {len(search_results)} results")
             
             # Step 3: Convert to SparseSearchResult
-            filtering_start = time.time()
+            filtering_start = time.perf_counter()
             search_results = self._convert_to_sparse_results(query, search_results, query_tokens)
-            print(f"Converted to SparseSearchResult: {len(search_results)} results")
             
             # Step 4: Apply metadata filters
+            before_filter = len(search_results)
             if filters:
-                before_filter = len(search_results)
+                # ── STAGE 8 — METADATA FILTERING ────────────────────────────────────
+                log_stage_start(8, "METADATA FILTERING", Candidates_Before=before_filter,
+                                Active_Filters=list(filters.keys()))
+                
                 search_results = self._apply_filters(search_results, filters)
                 after_filter = len(search_results)
-                print(f"Metadata filtering: {before_filter} -> {after_filter} results (removed {before_filter - after_filter})")
-                if before_filter > after_filter:
-                    print(f"Filter applied: {filters}")
+                
+                log_stage_end(8, "METADATA FILTERING", status="SUCCESS",
+                              time_ms=(time.perf_counter() - filtering_start) * 1000,
+                              output_count=after_filter,
+                              extra={
+                                  "Candidates_Removed": before_filter - after_filter,
+                              })
             else:
-                print(f"No metadata filters applied")
+                after_filter = before_filter
+            
+            filtering_latency = time.perf_counter() - filtering_start
             
             # Step 5: Sort by BM25 score
             search_results.sort(key=lambda x: x.bm25_score, reverse=True)
-            print(f"After sorting: {len(search_results)} results")
             
             # Step 6: Assign ranks
             search_results = [
@@ -232,21 +228,14 @@ class SparseRetrievalService:
             ]
             
             # Step 7: Limit to top_k
-            before_limit = len(search_results)
             search_results = search_results[:top_k]
-            print(f"Limited to top_k={top_k}: {before_limit} -> {len(search_results)} results")
-            
-            filtering_latency = time.time() - filtering_start
-            
-            if search_results:
-                print(f"Example: resume_id='{search_results[0].resume_id}', candidate_name='{search_results[0].candidate_name}', bm25_score={search_results[0].bm25_score}")
             
             # Cache results
             if self.cache_enabled and self.query_cache:
                 self.query_cache.set(query, search_results, filters, top_k)
             
             # Calculate total latency
-            total_latency = time.time() - start_time
+            total_latency = time.perf_counter() - start_time
             
             # Log metrics
             self._log_metrics(
@@ -265,15 +254,34 @@ class SparseRetrievalService:
                 f"returned {len(search_results)} results in {total_latency:.3f}s"
             )
             
-            print(f"Output: {len(search_results)} SparseSearchResult objects")
-            print(f"Unique candidates: {len(set(r.resume_id for r in search_results))}")
-            print(f"------------------------------------")
+            # Stage 7 END banner
+            top5_ids = [r.resume_id for r in search_results[:5]]
+            top5_scores = [f"{r.bm25_score:.4f}" for r in search_results[:5]]
+            sample_result = None
+            if search_results:
+                sample_result = {
+                    "Top_1_ID": search_results[0].resume_id,
+                    "Top_1_Name": search_results[0].candidate_name,
+                    "Top_1_BM25": f"{search_results[0].bm25_score:.4f}",
+                }
+            
+            log_stage_end(7, "SPARSE RETRIEVAL", status="SUCCESS",
+                          time_ms=total_latency * 1000,
+                          output_count=len(search_results),
+                          sample=sample_result,
+                          extra={
+                              "Query_Tokens": query_tokens,
+                              "Top_5_IDs": top5_ids,
+                              "Top_5_Scores": top5_scores,
+                              "Unique_Candidates": len(set(r.resume_id for r in search_results)),
+                          })
             
             return search_results
             
         except Exception as e:
-            total_latency = time.time() - start_time
+            total_latency = time.perf_counter() - start_time
             logger.error(f"Search failed for query: {query[:50]}... after {total_latency:.3f}s: {e}")
+            log_error(7, "SPARSE RETRIEVAL", e, reraise=True)
             raise RuntimeError(f"Search failed: {e}") from e
     
     def _convert_to_sparse_results(
@@ -297,7 +305,7 @@ class SparseRetrievalService:
         """
         sparse_results = []
         
-        for result in search_results:
+        for idx, result in enumerate(search_results):
             # Handle both dict and object formats
             if isinstance(result, dict):
                 # Dict format from BM25Index
@@ -338,6 +346,12 @@ class SparseRetrievalService:
                 else:
                     # Skip if no document
                     continue
+            
+            # Log metadata keys for first few results (meta trace)
+            if idx < 3:
+                meta_keys = list(metadata.keys()) if isinstance(metadata, dict) and metadata else '[]'
+                print(f"  [META TRACE] Sparse result[{idx}]: resume_id={resume_id}, "
+                      f"candidate_name={candidate_name}, meta_keys={meta_keys}")
             
             # Find matched terms
             matched_terms = []
@@ -403,34 +417,7 @@ class SparseRetrievalService:
         Returns:
             Filtered list of search results
         """
-        print(f"------------------------------------")
-        print(f"STAGE: _apply_filters")
-        print(f"Input: {len(results)} candidates, filters={filters}")
-        print(f"------------------------------------")
-        
-        # Print example candidate before filtering
-        if results:
-            example = results[0]
-            print(f"Example candidate BEFORE filtering:")
-            print(f"  resume_id: {example.resume_id}")
-            print(f"  candidate_name: {example.candidate_name}")
-            print(f"  chunk_id: {example.chunk_id}")
-            print(f"  section: {example.section}")
-            print(f"  metadata keys: {list(example.metadata.keys())}")
-            print(f"  metadata: {example.metadata}")
-            print(f"  bm25_score: {example.bm25_score}")
-            print(f"------------------------------------")
-        
         filtered_results = []
-        
-        # Rejection counters
-        rejection_reasons = {
-            'resume_id': 0,
-            'candidate_name': 0,
-            'section': 0,
-            'metadata_mismatch': 0,
-            'metadata_missing': 0
-        }
         
         for result in results:
             match = True
@@ -440,53 +427,32 @@ class SparseRetrievalService:
                 if key == 'resume_id':
                     if result.resume_id != value:
                         match = False
-                        rejection_reason = f"resume_id mismatch (expected '{value}', got '{result.resume_id}')"
-                        rejection_reasons['resume_id'] += 1
+                        rejection_reason = f"resume_id mismatch"
                         break
                 elif key == 'candidate_name':
                     if value.lower() not in result.candidate_name.lower():
                         match = False
-                        rejection_reason = f"candidate_name mismatch (expected '{value}', got '{result.candidate_name}')"
-                        rejection_reasons['candidate_name'] += 1
+                        rejection_reason = f"candidate_name mismatch"
                         break
                 elif key == 'section':
                     if value.lower() not in result.section.lower():
                         match = False
-                        rejection_reason = f"section mismatch (expected '{value}', got '{result.section}')"
-                        rejection_reasons['section'] += 1
+                        rejection_reason = f"section mismatch"
                         break
                 elif key in result.metadata:
                     if result.metadata[key] != value:
                         match = False
-                        rejection_reason = f"metadata '{key}' mismatch (expected '{value}', got '{result.metadata[key]}')"
-                        rejection_reasons['metadata_mismatch'] += 1
+                        rejection_reason = f"{key} mismatch"
                         break
                 else:
                     # Filter key not in metadata, skip
-                    rejection_reason = f"metadata key '{key}' missing from candidate metadata"
-                    rejection_reasons['metadata_missing'] += 1
-                    # Don't break, continue checking other filters
                     continue
             
             if match:
                 filtered_results.append(result)
             else:
-                print(f"Rejected candidate:")
-                print(f"  resume_id: {result.resume_id}")
-                print(f"  candidate_name: {result.candidate_name}")
-                print(f"  Reason: {rejection_reason}")
-                print(f"  Available metadata: {result.metadata}")
-        
-        print(f"------------------------------------")
-        print(f"Rejection Summary:")
-        print(f"  Rejected by resume_id: {rejection_reasons['resume_id']}")
-        print(f"  Rejected by candidate_name: {rejection_reasons['candidate_name']}")
-        print(f"  Rejected by section: {rejection_reasons['section']}")
-        print(f"  Rejected by metadata mismatch: {rejection_reasons['metadata_mismatch']}")
-        print(f"  Rejected by metadata missing: {rejection_reasons['metadata_missing']}")
-        print(f"  Total rejected: {len(results) - len(filtered_results)}")
-        print(f"  Total passed: {len(filtered_results)}")
-        print(f"------------------------------------")
+                # Concise rejection log — only ID, name, reason
+                print(f"  Rejected: {result.resume_id} ({result.candidate_name}) — {rejection_reason}")
         
         return filtered_results
     

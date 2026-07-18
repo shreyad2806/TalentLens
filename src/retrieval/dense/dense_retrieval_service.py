@@ -30,6 +30,7 @@ from .candidate_aggregator import CandidateAggregator
 from .query_embedder import QueryEmbedder
 from src.vector_store import VectorStoreService
 from src.embeddings.embedding_service import EmbeddingService
+from src.debug_logger import log_stage_start, log_stage_end, log_error
 
 
 logger = logging.getLogger(__name__)
@@ -141,11 +142,6 @@ class DenseRetrievalService:
             ValidationError: If input validation fails
             RuntimeError: If retrieval pipeline fails
         """
-        print(f"------------------------------------")
-        print(f"STAGE: DenseRetrievalService.search()")
-        print(f"Input: query='{query}', top_k={top_k}, filters={filters}")
-        print(f"------------------------------------")
-        
         # Validate inputs
         self.validator.validate_query(query)
         self.validator.validate_top_k(top_k)
@@ -155,54 +151,56 @@ class DenseRetrievalService:
         if self.cache_enabled and self.cache:
             cached_results = self.cache.get(query, filters, top_k)
             if cached_results is not None:
-                print(f"CACHE HIT: Returning {len(cached_results)} cached results")
+                log_stage_end(5, "EMBEDDING", status="SUCCESS", time_ms=0, output_count=len(cached_results),
+                              sample={"source": "CACHE HIT"})
+                log_stage_end(6, "DENSE RETRIEVAL", status="SUCCESS", time_ms=0, output_count=len(cached_results),
+                              sample={"source": "CACHE HIT"})
                 logger.info(f"Cache hit for query: {query[:50]}...")
                 return cached_results
         
-        print(f"Cache miss - proceeding with dense search")
-        
         # Track metrics
-        start_time = time.time()
+        start_time = time.perf_counter()
         embedding_latency = 0.0
         vector_latency = 0.0
         aggregation_latency = 0.0
         
         try:
-            # Step 1: Generate query embedding
-            embedding_start = time.time()
+            # ── STAGE 5 — EMBEDDING ─────────────────────────────────────────────
+            log_stage_start(5, "EMBEDDING", Query=query[:80], Model="BAAI/bge-small-en-v1.5",
+                            Embedding_Dimension=self.validator.vector_dimension)
+            
+            embedding_start = time.perf_counter()
             query_vector = self.query_embedder.embed_query(query)
-            embedding_latency = time.time() - embedding_start
+            embedding_latency = time.perf_counter() - embedding_start
             
-            print(f"Query embedding generated in {embedding_latency:.3f}s")
-            logger.debug(f"Query embedding generated in {embedding_latency:.3f}s")
+            log_stage_end(5, "EMBEDDING", status="SUCCESS",
+                          time_ms=embedding_latency * 1000,
+                          output_count=1,
+                          sample={
+                              "Vector_Shape": f"({len(query_vector)},)",
+                              "First_5_Values": f"[{', '.join(f'{v:.4f}' for v in query_vector[:5])}]",
+                          })
             
-            # Step 2: Query vector store
-            vector_start = time.time()
+            # ── STAGE 6 — DENSE RETRIEVAL ───────────────────────────────────────
+            log_stage_start(6, "DENSE RETRIEVAL", Top_K=top_k, Filters=filters)
+            
+            vector_start = time.perf_counter()
             vector_results = self.vector_store_service.query(query_vector, k=top_k, filters=filters)
-            vector_latency = time.time() - vector_start
+            vector_latency = time.perf_counter() - vector_start
             
-            print(f"Vector store query: {len(vector_results)} results")
-            if vector_results:
-                print(f"Example vector result: id='{vector_results[0].get('id', 'N/A')}', score={vector_results[0].get('score', 0)}")
-            logger.debug(f"Vector store query completed in {vector_latency:.3f}s, returned {len(vector_results)} results")
-            
-            # Step 3: Normalize scores
+            # Normalize scores
             raw_scores = [result['score'] for result in vector_results]
             normalized_scores = self.score_normalizer.normalize(raw_scores)
             
-            # Step 4: Convert to DenseSearchResult
-            aggregation_start = time.time()
+            # Convert to DenseSearchResult
+            aggregation_start = time.perf_counter()
             search_results = self._convert_to_dense_results(query, vector_results, normalized_scores)
-            aggregation_latency = time.time() - aggregation_start
+            aggregation_latency = time.perf_counter() - aggregation_start
             
-            print(f"Converted to DenseSearchResult: {len(search_results)} results")
-            
-            # Step 5: Sort by normalized score
+            # Sort by normalized score
             search_results.sort(key=lambda x: x.normalized_score, reverse=True)
-            print(f"After sorting: {len(search_results)} results")
             
-            # Step 6: Reassign ranks after sorting
-            # Since DenseSearchResult is frozen, we need to recreate with new ranks
+            # Reassign ranks after sorting (DenseSearchResult is frozen)
             search_results = [
                 DenseSearchResult(
                     query=result.query,
@@ -219,16 +217,12 @@ class DenseRetrievalService:
                 for i, result in enumerate(search_results)
             ]
             
-            print(f"After rank reassignment: {len(search_results)} results")
-            if search_results:
-                print(f"Example: resume_id='{search_results[0].resume_id}', candidate_name='{search_results[0].candidate_name}', normalized_score={search_results[0].normalized_score}")
-            
             # Cache results
             if self.cache_enabled and self.cache:
                 self.cache.set(query, search_results, filters, top_k)
             
             # Calculate total latency
-            total_latency = time.time() - start_time
+            total_latency = time.perf_counter() - start_time
             
             # Log metrics
             self._log_metrics(
@@ -247,15 +241,34 @@ class DenseRetrievalService:
                 f"returned {len(search_results)} results in {total_latency:.3f}s"
             )
             
-            print(f"Output: {len(search_results)} DenseSearchResult objects")
-            print(f"Unique candidates: {len(set(r.resume_id for r in search_results))}")
-            print(f"------------------------------------")
+            # Stage 6 END banner
+            top5_ids = [r.resume_id for r in search_results[:5]]
+            top5_scores = [f"{r.normalized_score:.4f}" for r in search_results[:5]]
+            sample_result = None
+            if search_results:
+                sample_result = {
+                    "Top_1_ID": search_results[0].resume_id,
+                    "Top_1_Name": search_results[0].candidate_name,
+                    "Top_1_Score": f"{search_results[0].normalized_score:.4f}",
+                }
+            
+            log_stage_end(6, "DENSE RETRIEVAL", status="SUCCESS",
+                          time_ms=total_latency * 1000,
+                          output_count=len(search_results),
+                          sample=sample_result,
+                          extra={
+                              "Top_5_IDs": top5_ids,
+                              "Top_5_Scores": top5_scores,
+                              "Unique_Candidates": len(set(r.resume_id for r in search_results)),
+                              "Vector_Search_Time_ms": f"{vector_latency * 1000:.1f}",
+                          })
             
             return search_results
             
         except Exception as e:
-            total_latency = time.time() - start_time
+            total_latency = time.perf_counter() - start_time
             logger.error(f"Search failed for query: {query[:50]}... after {total_latency:.3f}s: {e}")
+            log_error(6, "DENSE RETRIEVAL", e, reraise=True)
             raise RuntimeError(f"Search failed: {e}") from e
     
     def search_aggregated(self, query: str, top_k: int = 10, filters: Optional[Dict[str, Any]] = None) -> List[DenseSearchResult]:
