@@ -389,14 +389,14 @@ class CSVIngestionService:
                 print("BM25 index loaded from persistent storage")
 
                 
-                # Upsert cached vectors to vector store
+                # Upsert cached vectors to the shared vector store service
                 print("Upserting cached vectors to vector store...")
-                from src.vector_store.service import VectorStoreService
                 from src.vector_store.schema import VectorRecord
                 import uuid
                 
-                # Use a fresh adapter only if the caller didn't inject; CSV ingestion manages its own wiring.
-                vector_store_service = VectorStoreService()
+                vector_store_service = indexing_service._vector_store_service
+                if vector_store_service is None:
+                    print("WARNING: no vector store service injected; skipping cached vector upsert")
 
                 records = []
                 
@@ -416,14 +416,17 @@ class CSVIngestionService:
                     records.append(record)
                 
                 # Batch upsert
-                batch_size = 100
-                for i in range(0, len(records), batch_size):
-                    batch = records[i:i + batch_size]
-                    try:
-                        vector_store_service.upsert(batch)
-                    except Exception as e:
-                        print(f"  Warning: Batch upsert failed: {e}")
-                
+                if vector_store_service is not None:
+                    batch_size = 100
+                    for i in range(0, len(records), batch_size):
+                        batch = records[i:i+batch_size]
+                        try:
+                            vector_store_service.upsert(batch)
+                        except Exception as e:
+                            print(f"  Warning: Batch upsert failed: {e}")
+                else:
+                    print("  Skipping cached vector upsert: no vector store service injected")
+
                 # Update vector count in indexing service
                 indexing_service._vector_count = len(records)
                 print(f"Upserted {len(records)} vectors to vector store")
@@ -477,13 +480,15 @@ class CSVIngestionService:
         all_chunks = []
         all_embeddings = []
         
-        # Log vector store provider
-        if indexing_service._pinecone_available:
-            print("VECTOR STORE PROVIDER = pinecone")
-            print("USING PINECONE")
+        # Log vector store provider from the shared VectorStoreService
+        vector_store_service = indexing_service._vector_store_service
+        if vector_store_service is not None:
+            provider = vector_store_service.config.provider.value
+            print(f"VECTOR STORE PROVIDER = {provider}")
+            print(f"USING {provider.upper()}")
         else:
-            print("VECTOR STORE PROVIDER = memory")
-            print("USING MEMORY STORE")
+            print("VECTOR STORE PROVIDER = none")
+            print("WARNING: no vector store service injected")
         
         try:
             # Step 1: Load CSV records
@@ -565,12 +570,14 @@ class CSVIngestionService:
                         all_embeddings.extend(embedding_records)
                         
                         # Step 5: Store in vector store
-                        if indexing_service._pinecone_available:
+                        vector_store_service = indexing_service._vector_store_service
+                        if vector_store_service is not None:
                             try:
                                 vector_upsert_start = time.time()
-                                print(f"ENTERING _upsert_to_vector_store() for record {idx + 1}")
-                                indexing_service._upsert_to_vector_store(embedding_records)
-                                print(f"EXITING _upsert_to_vector_store() for record {idx + 1}")
+                                print(f"[BOOTSTRAP-TRACE][csv_ingestion.py] ENTERING vector_store upsert for record {idx + 1}")
+                                vector_records = indexing_service._embedding_records_to_vector_records(embedding_records)
+                                vector_store_service.upsert(vector_records)
+                                print(f"[BOOTSTRAP-TRACE][csv_ingestion.py] EXITING vector_store upsert for record {idx + 1}")
                                 vector_upsert_time = time.time() - vector_upsert_start
                                 total_vector_upsert_time += vector_upsert_time
                                 
@@ -584,6 +591,8 @@ class CSVIngestionService:
                                 error_msg = f"Vector store upsert failed for record {record_id}: {str(e)}"
                                 errors.append(error_msg)
                                 logger.error(error_msg)
+                        else:
+                            print(f"WARNING: no vector store service injected; skipping vector upsert for record {idx + 1}")
                     else:
                         logger.debug(f"Skipping embedding for record {idx + 1}")
                     

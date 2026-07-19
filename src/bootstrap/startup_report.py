@@ -69,15 +69,21 @@ class StartupReport:
             print(f"   Vector Count: {stats.get('vector_count', 0)}")
             print(f"   BM25 Count: {stats.get('bm25_count', 0)}")
             
-            # Add BM25 diagnostics
+            # Add BM25 diagnostics from the already-computed statistics
             try:
-                from ..indexing.pipeline import IndexingPipeline
-                pipeline = IndexingPipeline()
-                bm25_index = pipeline.indexing_service.get_bm25_index()
-                if bm25_index:
-                    print(f"   BM25 loaded documents: {bm25_index.num_documents}")
-                    print(f"   BM25 vocabulary size: {len(bm25_index.vocabulary)}")
-                    print(f"   BM25 avg doc length: {bm25_index.avg_doc_length:.2f}")
+                bm25_stats = stats.get('bm25_stats')
+                if bm25_stats:
+                    if hasattr(bm25_stats, 'num_documents'):
+                        bm25_docs = bm25_stats.num_documents
+                        bm25_vocab = bm25_stats.vocabulary_size
+                        bm25_avg = bm25_stats.average_document_length
+                    else:
+                        bm25_docs = bm25_stats.get('num_documents', 0)
+                        bm25_vocab = bm25_stats.get('vocabulary_size', len(bm25_stats.get('vocabulary', set())))
+                        bm25_avg = bm25_stats.get('avg_doc_length', bm25_stats.get('average_document_length', 0.0))
+                    print(f"   BM25 loaded documents: {bm25_docs}")
+                    print(f"   BM25 vocabulary size: {bm25_vocab}")
+                    print(f"   BM25 avg doc length: {bm25_avg:.2f}")
             except Exception as e:
                 print(f"   BM25 diagnostics unavailable: {e}")
         

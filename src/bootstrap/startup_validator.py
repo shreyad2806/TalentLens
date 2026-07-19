@@ -47,6 +47,8 @@ class StartupValidator:
         Returns:
             Dictionary with validation results
         """
+        print("[BOOTSTRAP-TRACE][startup_validator.py] StartupValidator.validate() invoked")
+        
         validation_result = {
             'is_valid': False,
             'checks': {},
@@ -58,22 +60,26 @@ class StartupValidator:
         # Get current statistics
         stats = self.indexing_pipeline.get_statistics()
         validation_result['statistics'] = stats
+        print(f"[BOOTSTRAP-TRACE][startup_validator.py] Statistics received: indexed_documents={stats.get('indexed_documents')}, vector_count={stats.get('vector_count')}, bm25_count={stats.get('bm25_count')}")
         
         # Check 1: Documents indexed
         docs_check = self._check_documents_indexed(stats)
         validation_result['checks']['documents_indexed'] = docs_check
+        print(f"[BOOTSTRAP-TRACE][startup_validator.py] Check documents_indexed: passed={docs_check.get('passed')}, count={docs_check.get('count')}")
         if not docs_check['passed']:
             validation_result['errors'].append(docs_check['message'])
         
         # Check 2: Vectors indexed
         vectors_check = self._check_vectors_indexed(stats)
         validation_result['checks']['vectors_indexed'] = vectors_check
+        print(f"[BOOTSTRAP-TRACE][startup_validator.py] Check vectors_indexed: passed={vectors_check.get('passed')}, count={vectors_check.get('count')}")
         if not vectors_check['passed']:
             validation_result['errors'].append(vectors_check['message'])
         
         # Check 3: BM25 documents indexed
         bm25_check = self._check_bm25_indexed(stats)
         validation_result['checks']['bm25_indexed'] = bm25_check
+        print(f"[BOOTSTRAP-TRACE][startup_validator.py] Check bm25_indexed: passed={bm25_check.get('passed')}, count={bm25_check.get('count')}")
         
         # Temporary identity logging
         try:
@@ -88,12 +94,14 @@ class StartupValidator:
         # Check 4: Retrieval services healthy
         services_check = self._check_services_healthy()
         validation_result['checks']['services_healthy'] = services_check
+        print(f"[BOOTSTRAP-TRACE][startup_validator.py] Check services_healthy: passed={services_check.get('passed')}, message={services_check.get('message')}")
         if not services_check['passed']:
             validation_result['errors'].append(services_check['message'])
         
         # Check 5: Consistency between counts
         consistency_check = self._check_consistency(stats)
         validation_result['checks']['consistency'] = consistency_check
+        print(f"[BOOTSTRAP-TRACE][startup_validator.py] Check consistency: passed={consistency_check.get('passed')}, message={consistency_check.get('message')}")
         if not consistency_check['passed']:
             validation_result['warnings'].append(consistency_check['message'])
         
@@ -109,8 +117,10 @@ class StartupValidator:
         
         if validation_result['is_valid']:
             logger.info("System validation passed - all checks successful")
+            print("[BOOTSTRAP-TRACE][startup_validator.py] Validation PASSED")
         else:
             logger.warning(f"System validation failed - {len(validation_result['errors'])} errors")
+            print(f"[BOOTSTRAP-TRACE][startup_validator.py] Validation FAILED with {len(validation_result['errors'])} errors: {validation_result['errors']}")
         
         return validation_result
     

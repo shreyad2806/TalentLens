@@ -60,14 +60,16 @@ class ChunkGenerator:
                 chunk_data=chunk_data,
                 resume_id=resume_id,
                 candidate_name=document.name,
-                chunk_order=chunk_data_list.index(chunk_data)
+                chunk_order=chunk_data_list.index(chunk_data),
+                document=document
             )
             chunks.append(chunk)
         
         return chunks
     
     def _create_chunk(self, chunk_data: ChunkData, resume_id: str, 
-                     candidate_name: str, chunk_order: int) -> Chunk:
+                     candidate_name: str, chunk_order: int,
+                     document: ResumeDocument = None) -> Chunk:
         """
         Create a Chunk object from ChunkData.
         
@@ -76,6 +78,7 @@ class ChunkGenerator:
             resume_id: Unique identifier for the resume
             candidate_name: Name of the candidate
             chunk_order: Order of this chunk within the resume
+            document: Original ResumeDocument for metadata propagation
             
         Returns:
             Chunk object
@@ -84,7 +87,10 @@ class ChunkGenerator:
         chunk_id = str(uuid.uuid4())
         
         # Create structured metadata — propagate all ResumeDocument fields
-        _skills = list(document.skills) if document.skills else []
+        _skills = list(document.skills) if document and document.skills else []
+        _email = document.email if document else None
+        _phone = document.phone if document else None
+        _summary = document.summary if document else None
         chunk_metadata = ChunkMetadata(
             candidate_name=candidate_name,
             experience=chunk_data.metadata.get('experience'),
@@ -92,9 +98,9 @@ class ChunkGenerator:
             role=chunk_data.metadata.get('role'),
             education=chunk_data.metadata.get('education'),
             skills=_skills,
-            email=document.email,
-            phone=document.phone,
-            summary=document.summary,
+            email=_email,
+            phone=_phone,
+            summary=_summary,
             source_section=chunk_data.metadata.get('source_section')
         )
         

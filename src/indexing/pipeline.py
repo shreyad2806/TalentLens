@@ -13,6 +13,8 @@ from pathlib import Path
 from .indexing_service import IndexingService
 from .resume_ingestor import ResumeIngestor, IngestionResult
 from ..config import EMBEDDING_DIM
+from ..embeddings.embedding_service import EmbeddingService
+from ..retrieval.sparse.bm25_index import BM25Index as SparseBM25Index
 
 logger = logging.getLogger(__name__)
 
@@ -33,8 +35,8 @@ class IndexingPipeline:
     
     def __init__(
         self,
-        embedding_dim: Optional[int] = None,
         *,
+        embedding_dim: Optional[int] = None,
         bm25_index=None,
         embedding_service=None,
         vector_store_service=None,
@@ -43,22 +45,30 @@ class IndexingPipeline:
 
         Dependency injection note:
         - bm25_index / embedding_service / vector_store_service are optional.
-        - If provided, IndexingService will reuse them instead of constructing new instances.
-        - Default behavior is preserved when dependencies are not provided.
+        - If provided, they are passed through to IndexingService.
+        - If not provided, the pipeline creates default BM25/sparse and
+          EmbeddingService instances so the service still receives fully
+          configured dependencies.
         """
         self.ingestor = ResumeIngestor()
+
+        bm25_passed = bm25_index is not None
+        emb_passed = embedding_service is not None
+        vec_passed = vector_store_service is not None
+
+        bm25_index = bm25_index or SparseBM25Index()
+        embedding_service = embedding_service or EmbeddingService(expected_dimension=embedding_dim or EMBEDDING_DIM)
+
         self.indexing_service = IndexingService(
-            embedding_dim=embedding_dim or EMBEDDING_DIM,
             bm25_index=bm25_index,
             embedding_service=embedding_service,
             vector_store_service=vector_store_service,
         )
         logger.info(
-            "IndexingPipeline initialized with embedding_dim=%s (bm25_injected=%s, embedding_injected=%s, vector_store_injected=%s)",
-            embedding_dim or EMBEDDING_DIM,
-            bm25_index is not None,
-            embedding_service is not None,
-            vector_store_service is not None,
+            "IndexingPipeline initialized (bm25_injected=%s, embedding_injected=%s, vector_store_injected=%s)",
+            bm25_passed,
+            emb_passed,
+            vec_passed,
         )
 
     
@@ -97,6 +107,8 @@ class IndexingPipeline:
             recursive=recursive
         )
         
+        print(f"[BOOTSTRAP-TRACE][indexing_pipeline.py] index_directory: discovered {ingestion_result.valid_files} valid files from {directory}")
+        
         if verbose:
             print(f"📄 Found {ingestion_result.valid_files} valid resume files")
             if ingestion_result.invalid_files > 0:
@@ -119,6 +131,7 @@ class IndexingPipeline:
         indexing_result = self.indexing_service.index_resumes(
             file_paths=ingestion_result.file_paths
         )
+        print(f"[BOOTSTRAP-TRACE][indexing_pipeline.py] index_directory: indexing complete - successful={indexing_result.get('successful')}, failed={indexing_result.get('failed')}, total_chunks={indexing_result.get('total_chunks')}, total_embeddings={indexing_result.get('total_embeddings')}")
         
         if verbose:
             print(f"✅ Indexing complete:")
@@ -129,6 +142,7 @@ class IndexingPipeline:
         
         # Step 3: Get final statistics
         statistics = self.indexing_service.get_statistics()
+        print(f"[BOOTSTRAP-TRACE][indexing_pipeline.py] index_directory final stats: indexed_documents={statistics.get('indexed_documents')}, vector_count={statistics.get('vector_count')}, bm25_count={statistics.get('bm25_count')}")
         
         if verbose:
             self._print_statistics(statistics)
@@ -159,6 +173,7 @@ class IndexingPipeline:
         
         # Step 1: Ingest files from list
         ingestion_result = self.ingestor.ingest_from_list(file_paths)
+        print(f"[BOOTSTRAP-TRACE][indexing_pipeline.py] index_files: validated {ingestion_result.valid_files} files from list of {len(file_paths)}")
         
         if verbose:
             print(f"📄 Validated {ingestion_result.valid_files} files")
@@ -180,6 +195,7 @@ class IndexingPipeline:
         indexing_result = self.indexing_service.index_resumes(
             file_paths=ingestion_result.file_paths
         )
+        print(f"[BOOTSTRAP-TRACE][indexing_pipeline.py] index_files: indexing complete - successful={indexing_result.get('successful')}, failed={indexing_result.get('failed')}, total_chunks={indexing_result.get('total_chunks')}, total_embeddings={indexing_result.get('total_embeddings')}")
         
         if verbose:
             print(f"✅ Indexing complete:")
@@ -190,6 +206,7 @@ class IndexingPipeline:
         
         # Step 3: Get final statistics
         statistics = self.indexing_service.get_statistics()
+        print(f"[BOOTSTRAP-TRACE][indexing_pipeline.py] index_files final stats: indexed_documents={statistics.get('indexed_documents')}, vector_count={statistics.get('vector_count')}, bm25_count={statistics.get('bm25_count')}")
         
         if verbose:
             self._print_statistics(statistics)

@@ -93,7 +93,9 @@ class DenseRetrievalService:
         """
         # Initialize components
         # Dependency injection: never instantiate dependent services here when provided.
-        self.vector_store_service = vector_store_service or VectorStoreService()
+        if vector_store_service is None:
+            raise ValueError("DenseRetrievalService requires an injected vector_store_service instance")
+        self.vector_store_service = vector_store_service
         self.validator = RetrievalValidator(vector_dimension=self.vector_store_service.config.dimension)
 
         # Query embedder depends on EmbeddingService
