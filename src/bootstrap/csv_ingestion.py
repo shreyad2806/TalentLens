@@ -15,7 +15,11 @@ import uuid
 from datetime import datetime
 import json
 import pickle
+import re
 import numpy as np
+
+from src.resume_parser.parser_service import ParserService
+from src.resume_parser.metadata_parser import MetadataParser
 
 logger = logging.getLogger(__name__)
 
@@ -132,7 +136,9 @@ class CSVIngestionService:
                       source_document: str, chunk_size: int = 1000, overlap: int = 100,
                       email: Optional[str] = None, phone: Optional[str] = None,
                       skills: Optional[List[str]] = None, location: Optional[str] = None,
-                      summary: Optional[str] = None) -> List:
+                      summary: Optional[str] = None, role: Optional[str] = None,
+                      experience: Optional[int] = None, education: Optional[str] = None,
+                      extraction_notes: Optional[str] = None) -> List:
         """
         Chunk raw text into smaller pieces for indexing.
         
@@ -162,15 +168,16 @@ class CSVIngestionService:
             if stripped_text:
                 chunk_metadata = ChunkMetadata(
                     candidate_name=candidate_name,
-                    role=None,
-                    experience=None,
+                    role=role,
+                    experience=experience,
                     location=location,
-                    education=None,
+                    education=education,
                     skills=skills or [],
                     email=email,
                     phone=phone,
                     summary=summary,
-                    source_section="raw_text"
+                    source_section="raw_text",
+                    extraction_notes=extraction_notes
                 )
                 
                 # [META-WRITE] Log ChunkMetadata creation
@@ -181,7 +188,7 @@ class CSVIngestionService:
                 chunk = Chunk(
                     chunk_id=str(uuid.uuid4()),
                     resume_id=resume_id,
-                    candidate_name=candidate_name or "Unknown",
+                    candidate_name=candidate_name or "NO_CANDIDATE_NAME_EXTRACTED",
                     section="raw_text_chunk_1",
                     text=stripped_text,
                     metadata=chunk_metadata,
@@ -212,15 +219,16 @@ class CSVIngestionService:
             # Create chunk metadata
             chunk_metadata = ChunkMetadata(
                 candidate_name=candidate_name,
-                role=None,
-                experience=None,
+                role=role,
+                experience=experience,
                 location=location,
-                education=None,
+                education=education,
                 skills=skills or [],
                 email=email,
                 phone=phone,
                 summary=summary,
-                source_section="raw_text"
+                source_section="raw_text",
+                extraction_notes=extraction_notes
             )
             
             # [META-WRITE] Log ChunkMetadata creation
@@ -232,7 +240,7 @@ class CSVIngestionService:
             chunk = Chunk(
                 chunk_id=str(uuid.uuid4()),
                 resume_id=resume_id,
-                candidate_name=candidate_name or "Unknown",
+                candidate_name=candidate_name or "NO_CANDIDATE_NAME_EXTRACTED",
                 section=f"raw_text_chunk_{chunk_order + 1}",
                 text=chunk_text,
                 metadata=chunk_metadata,
@@ -254,6 +262,346 @@ class CSVIngestionService:
         
         return chunks
     
+    _SECTION_HEADINGS = [
+        r"Professional Summary",
+        r"Summary",
+        r"Objective",
+        r"Profile",
+        r"About Me",
+        r"Highlights",
+        r"Accomplishments",
+        r"Skills",
+        r"Technical Skills",
+        r"Core Competencies",
+        r"Key Skills",
+        r"Technologies",
+        r"Experience",
+        r"Work Experience",
+        r"Professional Experience",
+        r"Employment History",
+        r"Work History",
+        r"Education",
+        r"Academic Background",
+        r"Educational Qualification",
+        r"Projects",
+        r"Personal Projects",
+        r"Project Experience",
+        r"Certifications",
+        r"Certificates",
+        r"Professional Certifications",
+        r"Languages",
+        r"Language Proficiency",
+    ]
+
+    _SECTION_HEADING_RE = re.compile(
+        r"(?:^|\s)(" + "|".join(re.escape(h) for h in _SECTION_HEADINGS) + r")(?=\s)",
+        re.IGNORECASE,
+    )
+
+    def _extract_candidate_name(self, raw_text: str, document, record: Dict[str, Any]) -> tuple:
+        """
+        Extract the best available candidate name from a CSV resume blob.
+
+        The parser's contact-info heuristic can mistake section headings for names
+        when the CSV `Resume_str` lacks explicit newlines.  We therefore prefer
+        explicit CSV fields and a short leading name/title phrase, falling back to
+        the parser result only when those are unavailable.
+
+        Returns:
+            Tuple of (candidate_name, reason) where reason explains the source.
+        """
+        section_headings = {h.lower() for h in self._SECTION_HEADINGS} | {"skill"}
+
+        # Heading regex that also catches the standalone word "Skill", which the
+        # parser sometimes mistakes for part of a candidate name.
+        heading_re = re.compile(
+            r"(?<!\w)(" + "|".join(re.escape(h) for h in section_headings) + r")(?!\w)",
+            re.IGNORECASE,
+        )
+
+        def _is_heading(text: str) -> bool:
+            return bool(heading_re.search(text))
+
+        raw_text = raw_text or ""
+        text = raw_text.strip()
+
+        # 0. Prefer explicit candidate-name CSV columns when present.
+        for csv_name_field in ("Candidate", "Name"):
+            csv_name = record.get(csv_name_field)
+            if csv_name:
+                csv_name = str(csv_name).strip()
+                if (len(csv_name) <= 80 and
+                    csv_name.lower() not in section_headings and
+                    not _is_heading(csv_name)):
+                    return csv_name, f"csv_{csv_name_field.lower()}"
+
+        # 1. Try the parser's detected name if it looks reasonable.
+        parser_name = document.name if document else None
+        if parser_name:
+            parser_name = parser_name.strip()
+            if (len(parser_name) <= 80 and
+                parser_name.lower() not in section_headings and
+                not _is_heading(parser_name)):
+                return parser_name, "parser_contact_info"
+
+        # 2. Extract a leading name/title phrase from the first non-empty line.
+        #    Real Resume_str text starts with a job title in all-caps; test/synthetic
+        #    rows often start with "First Last is a ...". Stop at the first lower-case
+        #    token after the initial capitalized run, or at a section heading word.
+        if text:
+            first_line = text.split("\n")[0].strip()
+            tokens = first_line.split()
+            phrase: List[str] = []
+            for token in tokens:
+                token = token.strip(".,;/|-—")
+                if not token:
+                    continue
+                lower = token.lower()
+                # If the very first token is a section heading, this line is not a name.
+                if not phrase and lower in section_headings:
+                    break
+                # Stop once we hit a heading word after collecting some text.
+                if phrase and lower in section_headings:
+                    break
+                # Accept capitalized or all-caps words as part of the name/title.
+                if token[0].isupper() or token.isupper():
+                    phrase.append(token)
+                else:
+                    # Lower-case word ends the name/title phrase.
+                    if phrase:
+                        break
+                    # Ignore lower-case lead-ins (e.g. "the", "a").
+                    continue
+                if len(phrase) >= 5:
+                    break
+            name_from_line = " ".join(phrase)
+            if (name_from_line and len(name_from_line) > 3 and len(name_from_line) <= 80
+                    and not _is_heading(name_from_line)):
+                return name_from_line, "leading_name_or_title"
+
+        # 3. The CSV Resume_str sometimes has a title followed by large whitespace
+        # gaps before section headings.  Some resumes prefix the title with an
+        # isolated initial (e.g. "Y        FREELANCE DESIGNER ...").  Split on
+        # double spaces/newlines and pick the first substantive, non-heading
+        # segment.
+        if text:
+            for segment in text.split("  "):
+                segment = segment.strip().split("\n")[0].strip()
+                if segment and len(segment) > 3 and len(segment) <= 80 and not _is_heading(segment):
+                    return segment, "leading_title_segment"
+
+        # 4. Fall back to the text before the first real section heading.
+        match = self._SECTION_HEADING_RE.search(text)
+        if match:
+            heading_start = match.start(1)
+            before_heading = text[:heading_start].split("\n")[0].strip()
+            # Drop trailing words that are section headings themselves (e.g.
+            # "HR MANAGER Skill" when "Skill" is a heading fragment).
+            parts = before_heading.split()
+            while parts and parts[-1].lower() in section_headings:
+                parts.pop()
+            if parts:
+                cleaned = " ".join(parts)
+                if cleaned and len(cleaned) > 3 and len(cleaned) <= 80:
+                    return cleaned, "text_before_heading"
+
+        # 5. Last resort: use the record ID as a stable, non-Unknown value.
+        record_id = str(record.get("ID", ""))
+        if record_id:
+            return f"NO_CANDIDATE_NAME_EXTRACTED (record ID: {record_id})", "fallback_record_id"
+        return "NO_CANDIDATE_NAME_EXTRACTED (no record ID)", "fallback_unavailable"
+
+    @staticmethod
+    def _html_to_text(html: str) -> str:
+        """Convert HTML resume content to plain text when Resume_str is empty."""
+        if not html:
+            return ""
+        text = re.sub(r"<script.*?</script>", " ", html, flags=re.S | re.I)
+        text = re.sub(r"<style.*?</style>", " ", text, flags=re.S | re.I)
+        text = re.sub(r"<[^>]+>", " ", text)
+        text = re.sub(r"\s+", " ", text).strip()
+        return text
+
+    def _normalize_resume_text(self, raw_text: str) -> str:
+        """Insert newlines around inline section headings so the parser can detect them."""
+        if not raw_text:
+            return raw_text
+        text = raw_text.strip()
+        # Insert newlines before and after known headings wherever they appear
+        normalized = self._SECTION_HEADING_RE.sub(r"\n\1\n", text)
+        # Collapse multiple consecutive newlines while keeping single ones
+        normalized = re.sub(r"\n{3,}", "\n\n", normalized)
+        return normalized
+
+    def _extract_resume_metadata(self, raw_text: str, record: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Extract structured metadata from a CSV resume text blob.
+
+        The CSV `Resume_str` column is a long, newline-collapsed text. We first
+        normalize it so the parser can find section headings, then run it through
+        ParserService/MetadataParser to recover candidate fields. Each field's
+        source or fallback reason is tracked so failures are visible instead of
+        silently becoming "Unknown".
+        """
+        parser = ParserService()
+        metadata_parser = MetadataParser()
+        extraction_log: Dict[str, str] = {}
+        fallbacks: Dict[str, str] = {}
+
+        normalized_text = self._normalize_resume_text(raw_text)
+        document = parser.parse_text(normalized_text)
+        record_id = str(record.get("ID", ""))
+
+        # 1. candidate_name
+        candidate_name, name_reason = self._extract_candidate_name(raw_text, document, record)
+        extraction_log["candidate_name"] = name_reason
+        if name_reason.startswith("fallback"):
+            fallbacks["candidate_name"] = name_reason
+
+        # 2. skills
+        skills = [s for s in document.skills if s and s.lower() != "unknown"] if document.skills else []
+        if skills:
+            extraction_log["skills"] = "parsed_skills_section"
+        else:
+            skills = metadata_parser.extract_skills_keywords(raw_text)
+            if skills:
+                extraction_log["skills"] = "keyword_match"
+            else:
+                category = record.get("Category")
+                if category:
+                    skills = [category.lower().strip()]
+                    extraction_log["skills"] = "csv_category_fallback"
+                    fallbacks["skills"] = "csv_category"
+                else:
+                    skills = ["NO_SKILLS_EXTRACTED"]
+                    extraction_log["skills"] = "none_found"
+
+        # 3. location
+        location = document.metadata.get("location") if document.metadata else None
+        if location and location != "Not specified":
+            extraction_log["location"] = "parser_metadata"
+        else:
+            location = metadata_parser.extract_location(raw_text)
+            if location and location != "Not specified":
+                extraction_log["location"] = "keyword_match"
+            else:
+                location = record.get("Location", "").strip() or None
+                if location:
+                    extraction_log["location"] = "csv_column_fallback"
+                    fallbacks["location"] = "csv_location"
+                else:
+                    location = "NO_LOCATION_EXTRACTED"
+                    extraction_log["location"] = "none_found"
+
+        # 4. summary
+        summary = document.summary
+        if summary:
+            extraction_log["summary"] = "parser_summary"
+        elif raw_text:
+            summary = raw_text[:200].strip()
+            extraction_log["summary"] = "raw_text_head_fallback"
+            fallbacks["summary"] = "raw_text_head"
+        else:
+            summary = "NO_SUMMARY_EXTRACTED"
+            extraction_log["summary"] = "none_found"
+
+        # 5. experience (numeric, kept None if unavailable)
+        experience_years = document.metadata.get("total_experience_years") if document.metadata else None
+        if experience_years:
+            extraction_log["experience"] = "parser_metadata"
+        else:
+            parsed_years = metadata_parser.extract_experience_years(raw_text)
+            if parsed_years:
+                experience_years = parsed_years
+                extraction_log["experience"] = "regex_extracted"
+                fallbacks["experience"] = "regex"
+            else:
+                experience_years = None
+                extraction_log["experience"] = "none_found"
+
+        # 6. role (primary source is CSV Category for this ingestion path)
+        role = record.get("Category")
+        if role:
+            extraction_log["role"] = "csv_category"
+        elif document.experience:
+            title = document.experience[0].title
+            if title and len(title) <= 60 and len(title.split()) <= 8:
+                role = title
+                extraction_log["role"] = "first_experience_title_fallback"
+                fallbacks["role"] = "first_experience_title"
+            else:
+                role = "NO_ROLE_EXTRACTED"
+                extraction_log["role"] = "none_found"
+        else:
+            role = "NO_ROLE_EXTRACTED"
+            extraction_log["role"] = "none_found"
+
+        # 7. email
+        email = document.email
+        if email:
+            extraction_log["email"] = "parser_email"
+        else:
+            email = record.get("Email", "").strip() or None
+            if email:
+                extraction_log["email"] = "csv_column_fallback"
+                fallbacks["email"] = "csv_email"
+            else:
+                email = "NO_EMAIL_EXTRACTED"
+                extraction_log["email"] = "none_found"
+
+        # 8. phone
+        phone = document.phone
+        if phone:
+            extraction_log["phone"] = "parser_phone"
+        else:
+            phone = record.get("Phone", "").strip() or None
+            if phone:
+                extraction_log["phone"] = "csv_column_fallback"
+                fallbacks["phone"] = "csv_phone"
+            else:
+                phone = "NO_PHONE_EXTRACTED"
+                extraction_log["phone"] = "none_found"
+
+        # 9. education
+        education = None
+        if document.education:
+            edu = document.education[0]
+            education = " ".join(p for p in [edu.degree, edu.institution, edu.field_of_study] if p).strip()
+        if education:
+            extraction_log["education"] = "parser_education"
+        else:
+            education = record.get("Education", "").strip() or None
+            if education:
+                extraction_log["education"] = "csv_column_fallback"
+                fallbacks["education"] = "csv_education"
+            else:
+                education = "NO_EDUCATION_EXTRACTED"
+                extraction_log["education"] = "none_found"
+
+        extracted = sorted([k for k, v in extraction_log.items() if v != "none_found"])
+        missing = sorted([k for k, v in extraction_log.items() if v == "none_found"])
+        extraction_notes = (
+            "; ".join(f"{k}={v}" for k, v in extraction_log.items() if v.endswith("_fallback") or v == "none_found")
+            or "all_fields_extracted"
+        )
+
+        print(f"[METADATA] Resume ID: {record_id}  Extracted: {extracted}  Missing: {missing}  Fallback Used: {fallbacks}")
+
+        return {
+            "candidate_name": candidate_name.strip() if candidate_name else None,
+            "email": email,
+            "phone": phone,
+            "skills": skills,
+            "location": location,
+            "summary": summary,
+            "role": role,
+            "experience": experience_years,
+            "education": education,
+            "extraction_log": extraction_log,
+            "fallbacks": fallbacks,
+            "extraction_notes": extraction_notes,
+        }
+
     def detect_csv_file(self, directory: Path) -> Optional[Path]:
         """
         Detect Resume.csv in the specified directory.
@@ -401,17 +749,25 @@ class CSVIngestionService:
                 records = []
                 
                 for chunk_data, embedding_vector in zip(chunks_data, embeddings_array):
+                    cached_metadata = chunk_data.get("metadata") or {}
+                    candidate_name = (
+                        chunk_data.get("candidate_name")
+                        or cached_metadata.get("candidate_name")
+                        or "NO_CANDIDATE_NAME_CACHED"
+                    )
+                    metadata = dict(cached_metadata)
+                    metadata.update({
+                        "text": chunk_data.get("text", ""),
+                        "chunk_order": chunk_data.get("chunk_order", 0)
+                    })
                     record = VectorRecord(
                         id=str(uuid.uuid4()),
                         resume_id=chunk_data.get("resume_id", ""),
                         chunk_id=chunk_data.get("chunk_id", ""),
-                        candidate_name=chunk_data.get("candidate_name") or "Unknown",
+                        candidate_name=candidate_name,
                         section=chunk_data.get("section", ""),
                         vector=embedding_vector.tolist(),
-                        metadata={
-                            "text": chunk_data.get("text", ""),
-                            "chunk_order": chunk_data.get("chunk_order", 0)
-                        }
+                        metadata=metadata
                     )
                     records.append(record)
                 
@@ -499,31 +855,24 @@ class CSVIngestionService:
             
             # Step 2: Process each record through the pipeline
             for idx, record in enumerate(records):
-                record_id = f"csv-{uuid.uuid4()}"
+                record_id = str(record.get('ID', f"csv-{uuid.uuid4()}"))
                 
                 # Progress logging every 100 resumes
                 if (idx + 1) % 100 == 0:
                     print(f"Processing resume {idx + 1}/{csv_rows_loaded}")
                 
                 try:
+                    raw_text = record.get('Resume_str') or self._html_to_text(record.get('Resume_html'))
+                    raw_text = raw_text or ""
+                    
                     # Parse timing
                     parse_start = time.time()
-                    # Convert to ResumeDocument
-                    document_dict = self.convert_to_resume_document(record, record_id)
+                    # Extract structured metadata from the resume text blob
+                    meta = self._extract_resume_metadata(raw_text, record)
                     parse_time = time.time() - parse_start
                     total_parse_time += parse_time
                     
-                    # Extract raw text and candidate name
-                    raw_text = document_dict['raw_text']
-                    candidate_name = document_dict.get('name')
-                    
-                    # Extract enriched metadata from CSV record
-                    _email = document_dict.get('email')
-                    _phone = document_dict.get('phone')
-                    _location = document_dict.get('metadata', {}).get('Location')
-                    _skills_raw = document_dict.get('metadata', {}).get('Skills', '')
-                    _skills_list = [s.strip() for s in _skills_raw.split(',') if s.strip()] if _skills_raw else []
-                    _summary_raw = record.get('Resume_str', '')[:200] if record.get('Resume_str') else None
+                    candidate_name = meta['candidate_name']
                     
                     # Chunk timing
                     chunk_start = time.time()
@@ -533,11 +882,15 @@ class CSVIngestionService:
                         resume_id=record_id,
                         candidate_name=candidate_name,
                         source_document=str(csv_path),
-                        email=_email,
-                        phone=_phone,
-                        skills=_skills_list,
-                        location=_location,
-                        summary=_summary_raw
+                        email=meta['email'],
+                        phone=meta['phone'],
+                        skills=meta['skills'],
+                        location=meta['location'],
+                        summary=meta['summary'],
+                        role=meta['role'],
+                        experience=meta['experience'],
+                        education=meta['education'],
+                        extraction_notes=meta.get('extraction_notes')
                     )
                     chunk_time = time.time() - chunk_start
                     total_chunk_time += chunk_time
@@ -629,8 +982,14 @@ class CSVIngestionService:
                     indexing_service._indexed_documents[record_id] = {
                         'source': 'csv',
                         'csv_path': str(csv_path),
-                        'candidate_name': candidate_name or "Unknown",
+                        'candidate_name': candidate_name,
                         'chunks_count': chunks_count,
+                        'role': meta['role'],
+                        'skills': meta['skills'],
+                        'location': meta['location'],
+                        'experience': meta['experience'],
+                        'education': meta['education'],
+                        'extraction_notes': meta.get('extraction_notes'),
                         'indexed_at': datetime.now().isoformat()
                     }
                     

@@ -30,6 +30,13 @@ def _get_retrieval_bundle():
     from src.bootstrap.composition_root import create_retrieval_bundle
     return create_retrieval_bundle()
 
+@st.cache_resource(show_spinner=False)
+def _run_bootstrap():
+    """Run BootstrapService exactly once to load or build indexes."""
+    from src.bootstrap.bootstrap_service import BootstrapService
+    bs = BootstrapService(verbose=True)
+    return bs.bootstrap()
+
 # ── STAGE 1 — APPLICATION STARTUP (runs once per session) ──────────────────
 
 _t_startup_total = time.perf_counter()
@@ -40,6 +47,10 @@ if "_stage1_done" not in st.session_state:
 
     _t_config = time.perf_counter()
     _t_config_end = _t_config
+
+    # [BOOTSTRAP-TRACE] App startup entry point
+    print("[BOOTSTRAP-TRACE][app.py] Stage 1 startup beginning")
+    print("[BOOTSTRAP-TRACE][app.py] BootstrapService will be invoked during Streamlit startup")
 
     log_stage_start(1, "APPLICATION STARTUP",
         Python_Version=sys.version.split()[0],
@@ -86,6 +97,21 @@ AI-powered candidate discovery using Retrieval Augmented Generation.
 
 This dashboard helps recruiters ask role-based questions and quickly surface matched candidates with explainability.
 """)
+
+# ── BOOTSTRAP GUARD ────────────────────────────────────────────────────────
+print("[BOOTSTRAP] App startup")
+
+if "bootstrap_complete" not in st.session_state:
+    st.session_state.bootstrap_complete = False
+
+if not st.session_state.bootstrap_complete:
+    with st.spinner("Initializing TalentLens indexes..."):
+        bootstrap_result = _run_bootstrap()
+        st.session_state.bootstrap_complete = True
+        st.session_state.bootstrap_result = bootstrap_result
+    st.rerun()
+
+# ── Search UI is only available after bootstrap completes ──────────────────
 
 # Tabs: Resume Search and Upload & Rank
 tab_search, tab_upload = st.tabs(["Resume Search", "Upload & Rank"]) 
@@ -534,8 +560,19 @@ with tab_search:
 
         with st.spinner("Searching candidates and generating answer..."):
             try:
+                # [BOOTSTRAP-TRACE] Lazy retrieval bundle creation triggered by search
+                print("[BOOTSTRAP-TRACE][app.py] Search submitted - calling _get_retrieval_bundle() (lazy, cached)")
                 # Use cached retrieval bundle (built once, reused on every search)
                 bundle = _get_retrieval_bundle()
+                _bundle_stats = bundle.bm25_index.get_statistics()
+                if hasattr(_bundle_stats, 'num_documents'):
+                    _bundle_num_docs = _bundle_stats.num_documents
+                elif hasattr(_bundle_stats, 'total_documents'):
+                    _bundle_num_docs = _bundle_stats.total_documents
+                else:
+                    _bundle_num_docs = _bundle_stats.get('num_documents', 0) if isinstance(_bundle_stats, dict) else 0
+                print(f"[BOOTSTRAP-TRACE][app.py] Retrieval bundle returned: bm25_index has {_bundle_num_docs} docs")
+                print(f"[BOOTSTRAP-TRACE][app.py] Retrieval bundle returned: vector_store_service type={type(bundle.vector_store_service).__name__}")
 
                 # ✅ FIXED: Extract skills from user query as fallback
                 jd_skills = extract_jd_skills(user_query)
@@ -943,3 +980,4 @@ with tab_upload:
         if st.button("Close Resume", key="close_upload_resume"):
             st.session_state.selected_candidate = None
             st.rerun()
+

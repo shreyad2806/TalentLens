@@ -38,6 +38,7 @@ class ChunkMetadata(BaseModel):
     phone: Optional[str] = Field(None, description="Phone number")
     summary: Optional[str] = Field(None, description="Professional summary / objective")
     source_section: Optional[str] = Field(None, description="Original section name")
+    extraction_notes: Optional[str] = Field(None, description="Per-resume extraction log: sources, fallbacks, and missing fields")
 
 
 class Chunk(BaseModel):

@@ -14,6 +14,7 @@ from unittest.mock import Mock, patch, MagicMock
 from src.indexing.pipeline import IndexingPipeline
 from src.indexing.resume_ingestor import ResumeIngestor, IngestionResult
 from src.indexing.indexing_service import IndexingService
+from src.retrieval.sparse.bm25_index import BM25Index as SparseBM25Index
 
 
 class TestResumeIngestor:
@@ -157,7 +158,10 @@ class TestIndexingService:
     @patch.dict('sys.modules', {'pinecone': MagicMock()})
     def test_init(self):
         """Test initialization of IndexingService."""
-        service = IndexingService(embedding_dim=1024)
+        service = IndexingService(
+            bm25_index=SparseBM25Index(),
+            embedding_service=MagicMock(),
+        )
         
         assert service.parser is not None
         assert service.chunk_service is not None
@@ -170,7 +174,10 @@ class TestIndexingService:
     @patch.dict('sys.modules', {'pinecone': MagicMock()})
     def test_document_count(self):
         """Test document count tracking."""
-        service = IndexingService()
+        service = IndexingService(
+            bm25_index=SparseBM25Index(),
+            embedding_service=MagicMock(),
+        )
         assert service.document_count() == 0
         
         # Simulate adding a document
@@ -180,7 +187,10 @@ class TestIndexingService:
     @patch.dict('sys.modules', {'pinecone': MagicMock()})
     def test_vector_count(self):
         """Test vector count tracking."""
-        service = IndexingService()
+        service = IndexingService(
+            bm25_index=SparseBM25Index(),
+            embedding_service=MagicMock(),
+        )
         assert service.vector_count() == 0
         
         service._vector_count = 10
@@ -189,20 +199,23 @@ class TestIndexingService:
     @patch.dict('sys.modules', {'pinecone': MagicMock()})
     def test_bm25_count(self):
         """Test BM25 count tracking."""
-        service = IndexingService()
+        service = IndexingService(
+            bm25_index=SparseBM25Index(),
+            embedding_service=MagicMock(),
+        )
         assert service.bm25_count() == 0
         
-        # BM25 index is None initially
-        assert service.get_bm25_index() is None
-        
-        # After indexing, BM25 index should be created
+        # After assigning a built (empty) BM25 index, count is still 0
         service._bm25_index = service.index_builder.build_index([])
         assert service.bm25_count() == 0  # Empty index
     
     @patch.dict('sys.modules', {'pinecone': MagicMock()})
     def test_get_statistics(self):
         """Test getting comprehensive statistics."""
-        service = IndexingService()
+        service = IndexingService(
+            bm25_index=SparseBM25Index(),
+            embedding_service=MagicMock(),
+        )
         service._indexed_documents = {"doc1": {}, "doc2": {}}
         service._vector_count = 20
         service._bm25_index = service.index_builder.build_index([])
@@ -217,7 +230,10 @@ class TestIndexingService:
     @patch.dict('sys.modules', {'pinecone': MagicMock()})
     def test_rebuild_index(self):
         """Test rebuilding the index."""
-        service = IndexingService()
+        service = IndexingService(
+            bm25_index=SparseBM25Index(),
+            embedding_service=MagicMock(),
+        )
         service._indexed_documents = {"doc1": {}}
         service._vector_count = 10
         service._bm25_index = service.index_builder.build_index([])

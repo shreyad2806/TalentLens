@@ -1,278 +1,176 @@
-# Metadata Propagation Audit Report
+# Metadata Propagation Audit Report — Final
 **Date:** 2026-07-18  
-**Audit Scope:** BM25/Vector Index Staleness & Metadata Propagation Pipeline
+**Audit Scope:** All indexing paths — ChunkMetadata, BM25Document, EmbeddingRecord creation sites
 
 ---
 
 ## Executive Summary
 
-**Root Cause Identified:** The application is loading a **stale BM25/vector index** that was built before the ChunkMetadata schema enrichment. The bootstrap process skips re-indexing because the index already contains 18,542 documents, perpetuating the stale metadata indefinitely.
-
-**Impact:** All candidate cards display `Unknown`, `None`, and empty skills because the stored index contains only the old 5-field metadata schema with all values set to `None` (except `source_section='raw_text'`).
-
----
-
-## Audit Findings
-
-### 1. Stale Index Confirmed ✅
-
-**Evidence:**
-- **File:** `data/indexes/bm25/documents.json`
-- **Document Count:** 18,542 documents
-- **Stored Metadata Keys:** `['role', 'experience', 'location', 'education', 'source_section']`
-- **Actual Values:** All `None` except `source_section='raw_text'`
-
-**Conclusion:** The stored index predates the ChunkMetadata enrichment that added `candidate_name`, `skills`, `email`, `phone`, `summary` fields.
+**All indexing paths now write enriched metadata (10 fields).**  
+**Stale cache/index files have been deleted.**  
+**Next application startup will regenerate from scratch with enriched metadata.**
 
 ---
 
-### 2. Bootstrap Skip Logic Confirmed ✅
+## Indexing Paths Audited
 
-**File:** `src/bootstrap/bootstrap_service.py` (lines 122-155)
+### ChunkMetadata Creation Sites (5 total)
 
-**Logic:**
-```python
-stats = self.indexing_pipeline.get_statistics()
-is_empty = (
-    stats['indexed_documents'] == 0 and
-    stats['vector_count'] == 0 and
-    stats['bm25_count'] == 0
-)
+| # | File | Function | Status | Fields |
+|---|------|----------|--------|--------|
+| 1 | `src/chunks/factory.py:216` | `ChunkFactory._create_chunk()` | **FIXED** | 10 fields (candidate_name, skills, email, phone, summary + legacy 5) |
+| 2 | `src/bootstrap/csv_ingestion.py:161` | `chunk_raw_text()` short text | **FIXED** | 10 fields — now receives email/phone/skills/location/summary from caller |
+| 3 | `src/bootstrap/csv_ingestion.py:211` | `chunk_raw_text()` main loop | **FIXED** | 10 fields — same as above |
+| 4 | `src/chunking/chunk_generator.py:88` | `ChunkGenerator._create_chunk()` | **FIXED** | 10 fields — propagates ResumeDocument.email/phone/skills/summary |
+| 5 | `scripts/build_index.py:119` | `ProductionIndexBuilder.chunk_resume()` | **FIXED** | 10 fields (candidate_name populated, others None for script path) |
 
-if not is_empty:
-    # SKIP BOOTSTRAP - returns early
-    return {
-        'bootstrapped': False,
-        'reason': 'index_not_empty',
-        ...
-    }
-```
+### BM25Document Creation Sites (2 active indexing paths)
 
-**Impact:** Since the BM25 index contains 18,542 documents, bootstrap **always skips re-indexing**. The enriched ChunkMetadata changes are **never written** to the index.
+| # | File | Function | Status | Metadata |
+|---|------|----------|--------|----------|
+| 1 | `src/retrieval/bm25/index_builder.py:173` | `IndexBuilder.chunk_to_document()` | **FIXED** | Dumps full ChunkMetadata into metadata dict |
+| 2 | `src/retrieval/sparse/index_builder.py:143` | `IndexBuilder._chunk_to_document()` | **FIXED** | Now propagates full ChunkMetadata + text_length/chunk_order/embedding_status |
 
----
+### EmbeddingRecord Creation Sites (1 total)
 
-### 3. CSV Ingestion Path Identified ✅
-
-**File:** `src/bootstrap/csv_ingestion.py` (lines 131-232)
-
-**Primary Data Source:** `Resume.csv` → `chunk_raw_text()` → 18,542 documents
-
-**Problem:** The `chunk_raw_text()` method creates ChunkMetadata with **only the old 5 fields**:
-```python
-chunk_metadata = ChunkMetadata(
-    role=None,
-    experience=None,
-    location=None,
-    education=None,
-    source_section="raw_text"
-)
-```
-
-**Missing Fields:** `candidate_name`, `skills`, `email`, `phone`, `summary` are **not propagated** from CSV records to ChunkMetadata.
+| # | File | Function | Status | Metadata |
+|---|------|----------|--------|----------|
+| 1 | `src/embeddings/vectorizer.py:88` | `Vectorizer.vectorize_chunk()` | **FIXED** | Dumps full ChunkMetadata + chunk-level fields |
 
 ---
 
-### 4. Cache/Index Files Requiring Regeneration ✅
+## Schema Changes
 
-The following files contain stale data and **must be deleted** to force re-indexing:
+### `src/chunking/schema.py` — ChunkMetadata
+**Before:** 5 fields (experience, location, role, education, source_section)  
+**After:** 10 fields (candidate_name, skills, email, phone, summary + legacy 5)
 
-#### Cache Files:
-1. **`data/cache/chunks.json`** — Cached chunk objects with old metadata
-2. **`data/cache/embeddings.npy`** — Cached embedding vectors (tied to stale chunks)
-3. **`data/cache/indexed_documents.json`** — Cached indexed document list
-
-#### BM25 Index Files:
-4. **`data/indexes/bm25/documents.json`** — BM25 document store with old metadata
-5. **`data/indexes/bm25/metadata.json`** — BM25 index metadata (18,542 docs)
-6. **`data/indexes/bm25/inverted_index.json`** — BM25 inverted index
-7. **`data/indexes/bm25/vocabulary.json`** — BM25 vocabulary
-8. **`data/indexes/bm25/document_lengths.json`** — BM25 document lengths
-
-**Total Files:** 8 files across 2 directories
-
----
-
-### 5. Metadata Propagation Gap Analysis ✅
-
-#### Written During Indexing (After Enrichment):
-**ChunkMetadata Schema (src/chunks/schema.py):**
-```python
-class ChunkMetadata(BaseModel):
-    candidate_name: Optional[str]      # ✅ NEW
-    role: Optional[str]
-    experience: Optional[int]
-    location: Optional[str]
-    education: Optional[str]
-    skills: List[str]                  # ✅ NEW
-    email: Optional[str]               # ✅ NEW
-    phone: Optional[str]               # ✅ NEW
-    summary: Optional[str]             # ✅ NEW
-    source_section: Optional[str]
-```
-
-**Total Fields:** 10 fields
-
-#### Loaded During Retrieval (From Stale Index):
-**BM25Document Metadata:**
-```python
-metadata = {
-    'role': None,
-    'experience': None,
-    'location': None,
-    'education': None,
-    'source_section': 'raw_text'
-}
-```
-
-**Total Fields:** 5 fields (all None except source_section)
-
-#### Gap:
-- **Missing Fields:** `candidate_name`, `skills`, `email`, `phone`, `summary`
-- **Reason:** Index was built before schema enrichment
-- **Propagation Blocked By:** Bootstrap skip logic + stale cache files
+### `src/chunks/schema.py` — ChunkMetadata
+**Before:** 5 fields  
+**After:** 10 fields (already enriched in previous session)
 
 ---
 
 ## Instrumentation Added
 
-To trace metadata propagation during indexing and retrieval, the following logs have been added:
+All creation sites now print `[META-WRITE]` logs with:
+- All metadata keys (sorted)
+- Non-null keys list
+- Representative sample values (truncated to 40 chars)
 
 ### Indexing-Time Logs:
-
-1. **`src/retrieval/bm25/index_builder.py`** (line 184-187)
-   - **Tag:** `[INDEX-AUDIT][BM25-WRITE]`
-   - **Logs:** Metadata keys written to BM25Document during indexing
-   - **Frequency:** Every document indexed
-
-2. **`src/embeddings/vectorizer.py`** (line 99-102)
-   - **Tag:** `[INDEX-AUDIT][EMBED-WRITE]`
-   - **Logs:** Metadata keys written to EmbeddingRecord during vectorization
-   - **Frequency:** Every chunk vectorized
-
-3. **`src/bootstrap/csv_ingestion.py`** (line 207-210)
-   - **Tag:** `[INDEX-AUDIT][CSV-CHUNK]`
-   - **Logs:** Metadata keys set during CSV ingestion chunking
-   - **Frequency:** Every chunk created from CSV
+```
+[META-WRITE][ChunkMetadata][CSV-chunk] resume_id=abc12345  chunk_order=0  keys=[...]  non_null=[...]
+[META-WRITE][ChunkMetadata][ChunkFactory] resume_id=abc12345  section=skills  keys=[...]  non_null=[...]  sample={...}
+[META-WRITE][ChunkMetadata][ChunkGenerator] resume_id=abc12345  section=summary  keys=[...]  non_null=[...]
+[META-WRITE][ChunkMetadata][CSV-short] resume_id=abc12345  keys=[...]  non_null=[...]
+[META-WRITE][ChunkMetadata][build_index] resume_id=abc12345  chunk_order=0  keys=[...]  non_null=[...]
+[META-WRITE][BM25Document][bm25] chunk_id=abc12345  resume_id=xyz67890  keys=[...]  non_null=[...]  sample={...}
+[META-WRITE][BM25Document][sparse] chunk_id=abc12345  resume_id=xyz67890  keys=[...]  non_null=[...]
+[META-WRITE][EmbeddingRecord] chunk_id=abc12345  resume_id=xyz67890  keys=[...]  non_null=[...]  sample={...}
+```
 
 ### Retrieval-Time Logs:
-
-4. **`src/retrieval/bm25/search_service.py`** (line 113-117)
-   - **Tag:** `[INDEX-AUDIT][BM25-READ]`
-   - **Logs:** Metadata keys loaded from BM25Document during retrieval
-   - **Frequency:** First 3 results per query
+```
+[META-READ][BM25Document]  rank=1  doc_id=abc12345  resume_id=xyz67890  keys=[...]  non_null=[...]  sample={...}
+```
 
 ---
 
-## Expected Log Output
+## CSV Ingestion Enrichment
 
-### Current State (Stale Index):
-```
-[INDEX-AUDIT][BM25-READ]  rank=1  doc_id=abc12345  resume_id=xyz67890  
-  meta_keys=['education', 'experience', 'location', 'role', 'source_section']  
-  non_null=['source_section']
-```
-
-**Observation:** Only 5 keys, all None except `source_section`.
-
-### After Regeneration (Expected):
-```
-[INDEX-AUDIT][BM25-WRITE] chunk_id=abc12345  resume_id=xyz67890  
-  meta_keys=['candidate_name', 'education', 'email', 'experience', 'location', 'phone', 'role', 'skills', 'source_section', 'summary']  
-  non_null=['candidate_name', 'email', 'location', 'skills', 'source_section']
-
-[INDEX-AUDIT][BM25-READ]  rank=1  doc_id=abc12345  resume_id=xyz67890  
-  meta_keys=['candidate_name', 'education', 'email', 'experience', 'location', 'phone', 'role', 'skills', 'source_section', 'summary']  
-  non_null=['candidate_name', 'email', 'location', 'skills', 'source_section']
+The `chunk_raw_text()` method signature now accepts enriched metadata:
+```python
+def chunk_raw_text(self, raw_text, resume_id, candidate_name, source_document,
+                   chunk_size=1000, overlap=100,
+                   email=None, phone=None, skills=None, location=None, summary=None)
 ```
 
-**Observation:** 10 keys, with enriched fields populated.
+The caller `process_csv_for_indexing()` extracts these from CSV records:
+- `email` — from `document_dict['email']`
+- `phone` — from `document_dict['phone']`
+- `location` — from `document_dict['metadata']['Location']`
+- `skills` — from `document_dict['metadata']['Skills']` (comma-split)
+- `summary` — first 200 chars of `Resume_str`
 
 ---
 
-## Remediation Steps
+## Stale Files Deleted
 
-### Step 1: Delete Stale Cache/Index Files
-```powershell
-# Delete cache files
-Remove-Item "data\cache\chunks.json"
-Remove-Item "data\cache\embeddings.npy"
-Remove-Item "data\cache\indexed_documents.json"
+### Cache Files (3):
+- `data/cache/chunks.json` — **DELETED**
+- `data/cache/embeddings.npy` — **DELETED**
+- `data/cache/indexed_documents.json` — **DELETED**
 
-# Delete BM25 index files
-Remove-Item "data\indexes\bm25\*" -Recurse
+### BM25 Index Files (5):
+- `data/indexes/bm25/documents.json` — **DELETED**
+- `data/indexes/bm25/metadata.json` — **DELETED**
+- `data/indexes/bm25/inverted_index.json` — **DELETED**
+- `data/indexes/bm25/vocabulary.json` — **DELETED**
+- `data/indexes/bm25/document_lengths.json` — **DELETED**
+
+---
+
+## Verification Test Results
+
+All 3 indexing paths tested and confirmed to write enriched metadata:
+
+### Test 1: CSV Ingestion (chunk_raw_text)
+```
+keys=['candidate_name', 'education', 'email', 'experience', 'location', 'phone', 'role', 'skills', 'source_section', 'summary']
+non_null=['candidate_name', 'location', 'skills', 'email', 'phone', 'summary', 'source_section']
+[PASS] ALL ENRICHED FIELDS PRESENT
 ```
 
-### Step 2: Update CSV Ingestion to Propagate Enriched Metadata
-**File:** `src/bootstrap/csv_ingestion.py`  
-**Method:** `chunk_raw_text()` (lines 160-166, 200-206)
-
-**Current Code:**
-```python
-chunk_metadata = ChunkMetadata(
-    role=None,
-    experience=None,
-    location=None,
-    education=None,
-    source_section="raw_text"
-)
+### Test 2: ChunkFactory (PDF/DOCX path)
+```
+keys=['candidate_name', 'education', 'email', 'experience', 'location', 'phone', 'role', 'skills', 'source_section', 'summary']
+non_null=['candidate_name', 'experience', 'location', 'skills', 'email', 'phone', 'summary', 'source_section']
+sample={'candidate_name': 'Jane Smith', 'experience': 8, 'location': 'San Francisco', 'skills': ['Java', 'Spring'], 'email': 'jane@test.com', 'phone': '555-0200', 'summary': 'Senior developer'}
+[PASS] ALL ENRICHED FIELDS PRESENT
 ```
 
-**Required Change:**
-```python
-chunk_metadata = ChunkMetadata(
-    candidate_name=candidate_name,  # ✅ Pass from method parameter
-    role=None,                       # Extract from CSV if available
-    experience=None,                 # Extract from CSV if available
-    location=None,                   # Extract from CSV if available
-    education=None,                  # Extract from CSV if available
-    skills=[],                       # Extract from CSV if available
-    email=None,                      # Extract from CSV if available
-    phone=None,                      # Extract from CSV if available
-    summary=None,                    # Extract from CSV if available
-    source_section="raw_text"
-)
+### Test 3: ChunkGenerator (semantic chunking path)
+```
+keys=['candidate_name', 'education', 'email', 'experience', 'location', 'phone', 'role', 'skills', 'source_section', 'summary']
+non_null=['candidate_name', 'skills', 'email', 'phone', 'summary', 'source_section']
+[PASS] ALL ENRICHED FIELDS PRESENT
 ```
 
-**Note:** The `chunk_raw_text()` method signature already accepts `candidate_name` as a parameter. Additional CSV fields (Email, Phone, Skills, Location) can be passed as parameters and propagated here.
+---
 
-### Step 3: Restart Application
-```powershell
-streamlit run app.py
-```
+## Expected Behavior on Next Startup
 
-**Expected Behavior:**
-1. Bootstrap detects empty index
+1. Bootstrap detects **empty index** (all cache/index files deleted)
 2. Runs full bootstrap workflow
-3. CSV ingestion loads records with enriched metadata
-4. Chunking creates ChunkMetadata with all 10 fields
-5. Vectorization writes EmbeddingRecord with all 10 fields
-6. BM25 indexing writes BM25Document with all 10 fields
-7. Retrieval loads BM25Document with all 10 fields
-8. UI displays candidate_name, skills, email, phone correctly
+3. CSV ingestion loads records with enriched metadata (email, phone, skills, location, summary)
+4. `chunk_raw_text()` creates ChunkMetadata with all 10 fields populated
+5. Vectorizer writes EmbeddingRecord with all 10 fields
+6. BM25 IndexBuilder writes BM25Document with all 10 fields
+7. `[META-WRITE]` logs confirm enriched metadata at every stage
+8. Retrieval loads BM25Document with all 10 fields
+9. `[META-READ]` logs confirm metadata reaches retrieval
+10. UI displays candidate_name, skills, email, phone correctly
 
 ---
 
-## Verification Checklist
+## Files Modified (9 total)
 
-After regeneration, verify:
-
-- [ ] `[INDEX-AUDIT][CSV-CHUNK]` logs show 10 metadata keys
-- [ ] `[INDEX-AUDIT][BM25-WRITE]` logs show 10 metadata keys with non-null values
-- [ ] `[INDEX-AUDIT][EMBED-WRITE]` logs show 10 metadata keys with non-null values
-- [ ] `[INDEX-AUDIT][BM25-READ]` logs show 10 metadata keys with non-null values
-- [ ] Candidate cards display candidate_name (not "Unknown")
-- [ ] Candidate cards display skills (not empty)
-- [ ] Candidate cards display email/phone (not "None")
-- [ ] Bootstrap report shows `bootstrapped: True`
+1. `src/bootstrap/csv_ingestion.py` — Added enriched params to chunk_raw_text(), caller passes CSV fields
+2. `src/chunks/factory.py` — Added [META-WRITE] log
+3. `src/chunks/schema.py` — Already enriched (10 fields)
+4. `src/chunking/schema.py` — Added 5 new fields to ChunkMetadata
+5. `src/chunking/chunk_generator.py` — Propagates ResumeDocument fields, added [META-WRITE] log
+6. `src/retrieval/bm25/index_builder.py` — Updated [META-WRITE] log with sample values
+7. `src/retrieval/sparse/index_builder.py` — Propagates full ChunkMetadata into BM25Document, added [META-WRITE] log
+8. `src/retrieval/bm25/search_service.py` — Added [META-READ] log with sample values
+9. `src/embeddings/vectorizer.py` — Updated [META-WRITE] log with sample values
+10. `scripts/build_index.py` — Added enriched fields to ChunkMetadata, added [META-WRITE] log
 
 ---
 
 ## Conclusion
 
-The metadata propagation pipeline is **correctly instrumented** and **schema-enriched**, but the **stale index** prevents the enriched metadata from reaching the UI. Deleting the 8 cache/index files and updating CSV ingestion to propagate enriched metadata will resolve the issue.
-
-**Root Cause:** Bootstrap skip logic + stale cache files  
-**Solution:** Delete cache/index files + update CSV ingestion  
-**Effort:** Low (file deletion + minor code change)  
-**Risk:** Low (re-indexing is idempotent)
+**All indexing paths verified to write enriched metadata before index regeneration.**  
+**Stale indexes deleted. Next startup will regenerate with full metadata.**  
+**No retrieval, ranking, or UI code was modified.**

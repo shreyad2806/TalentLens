@@ -49,6 +49,26 @@ class MetadataParser:
     ]
     
     @staticmethod
+    def _skill_word_re(skill: str) -> re.Pattern:
+        """Return a regex that matches a skill as a whole phrase, not a substring."""
+        escaped = re.escape(skill)
+        # Use lookarounds so punctuation/slashes/plus signs at skill boundaries
+        # don't break the match (e.g. "c++" or "ci/cd").
+        return re.compile(r'(?<!\w)' + escaped + r'(?!\w)', re.IGNORECASE)
+
+    @staticmethod
+    def extract_skills_keywords(text: Optional[str]) -> List[str]:
+        """Extract only known skills from arbitrary text using keyword matching."""
+        if not text:
+            return []
+
+        skills = []
+        for skill in MetadataParser.SKILL_DATABASE:
+            if MetadataParser._skill_word_re(skill).search(text):
+                skills.append(skill)
+        return list(set(skills))
+
+    @staticmethod
     def parse_skills(skills_text: Optional[str]) -> List[str]:
         """
         Parse skills from skills section text.
@@ -65,21 +85,33 @@ class MetadataParser:
         skills = []
         text_lower = skills_text.lower()
         
-        # Match skills from database
+        # Match skills from database using whole-phrase matching to avoid
+        # false positives (e.g. "ai" matching "detail", "r" matching "for").
         for skill in MetadataParser.SKILL_DATABASE:
-            if skill in text_lower:
+            if MetadataParser._skill_word_re(skill).search(skills_text):
                 skills.append(skill)
         
-        # Also extract comma-separated or bullet-point skills
-        # Split by common delimiters
-        for delimiter in [',', '\n', '•', '-', '*']:
+        # Also extract comma-separated or bullet-point skills.
+        # Split by common delimiters and keep short, single-line phrases that
+        # look like skills. This prevents entire sentences from being treated as
+        # one skill when a resume is comma-heavy.
+        delimiters = [',', ';', '\n', '•', '-', '*', '|']
+        for delimiter in delimiters:
             if delimiter in skills_text:
                 parts = skills_text.split(delimiter)
                 for part in parts:
                     part_clean = part.strip().lower()
+                    # Normalize internal whitespace/newlines
+                    part_clean = re.sub(r'\s+', ' ', part_clean).strip()
                     if part_clean and len(part_clean) > 2 and part_clean not in skills:
-                        # Check if it looks like a skill (alphanumeric with possible spaces)
-                        if re.match(r'^[a-z0-9\s\+\#\.]+$', part_clean):
+                        # Skip obviously long sentence fragments
+                        if len(part_clean) > 60:
+                            continue
+                        if len(part_clean.split()) > 6:
+                            continue
+                        # Check it looks like a skill (alphanumeric with spaces
+                        # and common separators used in skill names).
+                        if re.match(r'^[a-z0-9\s\+\#\.\-/\(\)&]+$', part_clean):
                             skills.append(part_clean)
         
         return list(set(skills))  # Remove duplicates
