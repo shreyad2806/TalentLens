@@ -25,6 +25,17 @@ from pathlib import Path
 import time
 import psutil
 
+
+try:
+    from sentence_transformers import SentenceTransformer
+except Exception:
+    SentenceTransformer = None
+
+
+class ModelLoadingError(RuntimeError):
+    """Raised when a model cannot be loaded, with a caller-friendly message."""
+    pass
+
 logger = logging.getLogger(__name__)
 
 # Optional streamlit import for Streamlit-specific caching
@@ -68,11 +79,12 @@ class ModelLoader:
     _load_time: float = 0.0
     _device: str = "cpu"
     _memory_usage_mb: float = 0.0
+    _last_error: Optional[str] = None
     
     def __new__(cls) -> 'ModelLoader':
         """
         Create or return the singleton instance.
-        
+
         Returns:
             The singleton ModelLoader instance
         """
@@ -82,6 +94,23 @@ class ModelLoader:
                     cls._instance = super().__new__(cls)
         return cls._instance
     
+    def _detect_device(self) -> str:
+        """Pick the best available compute device (GPU, MPS, or CPU)."""
+        use_gpu = os.getenv('USE_GPU', 'auto').lower()
+        if use_gpu == 'false':
+            return 'cpu'
+        try:
+            import torch
+            if use_gpu == 'cuda' and torch.cuda.is_available():
+                return 'cuda'
+            if torch.cuda.is_available():
+                return 'cuda'
+            if torch.backends.mps.is_available():
+                return 'mps'
+        except Exception:
+            pass
+        return 'cpu'
+
     def __init__(self):
         """
         Initialize the model loader (no-op if already initialized).
@@ -95,10 +124,19 @@ class ModelLoader:
         self._offline_mode = os.getenv('OFFLINE_MODE', 'false').lower() == 'true'
         self._model_path = os.getenv('BGE_MODEL_PATH', './models')
         self._max_retries = int(os.getenv('MODEL_DOWNLOAD_RETRIES', '3'))
+        self._device = self._detect_device()
         
         # Build full model path
         self._full_model_path = os.path.join(self._model_path, self._model_name.replace('/', '-'))
-        
+
+        # Reset load state so repeated `ModelLoader()` calls in tests/CLI pick up a
+        # fresh state each time while the underlying singleton remains the same.
+        self._is_loaded = False
+        self._model = None
+        self._last_error = None
+        self._load_time = 0.0
+        self._memory_usage_mb = 0.0
+
         logger.info(f"ModelLoader initialized with model: {self._model_name}")
         logger.info(f"Model cache path: {self._full_model_path}")
         logger.info(f"Offline mode: {self._offline_mode}")
@@ -113,6 +151,17 @@ class ModelLoader:
         model_path = Path(self._full_model_path)
         return model_path.exists() and model_path.is_dir()
     
+    def _sentence_transformer_class(self):
+        """Return a usable SentenceTransformer class, re-attempting the import if needed."""
+        if SentenceTransformer is not None:
+            return SentenceTransformer
+        try:
+            from sentence_transformers import SentenceTransformer as _st
+            return _st
+        except Exception as e:
+            logger.warning(f"sentence-transformers import failed at runtime: {e}")
+            return None
+
     def _load_from_local(self) -> bool:
         """
         Attempt to load the model from local cache.
@@ -120,13 +169,24 @@ class ModelLoader:
         Returns:
             True if successful, False otherwise
         """
+        st = self._sentence_transformer_class()
+        if st is None:
+            self._last_error = "sentence-transformers is not installed or failed to import"
+            logger.error(self._last_error)
+            return False
+
+        self._is_loaded = False
+        self._model = None
+
         try:
-            from sentence_transformers import SentenceTransformer
-            
             start_time = time.time()
             logger.info(f"Loading cached model from {self._full_model_path}...")
             
-            self._model = SentenceTransformer(self._full_model_path)
+            self._model = st(
+                self._full_model_path,
+                device=self._device,
+                trust_remote_code=True,
+            )
             
             # Track load time
             self._load_time = time.time() - start_time
@@ -139,12 +199,14 @@ class ModelLoader:
             self._memory_usage_mb = process.memory_info().rss / (1024 * 1024)
             
             self._is_loaded = True
+            self._last_error = None
             logger.info(f"Model loaded successfully from local cache in {self._load_time:.2f}s")
             logger.info(f"Device: {self._device}")
             logger.info(f"Memory usage: {self._memory_usage_mb:.2f} MB")
             return True
         except Exception as e:
-            logger.warning(f"Failed to load model from local cache: {str(e)}")
+            self._last_error = f"Failed to load model from local cache: {e}"
+            logger.warning(self._last_error)
             return False
     
     def _download_model(self) -> bool:
@@ -155,19 +217,30 @@ class ModelLoader:
             True if successful, False otherwise
         """
         if self._offline_mode:
-            logger.info("Offline mode enabled. Skipping download.")
+            self._last_error = "Offline mode enabled; download skipped"
+            logger.info(self._last_error)
             return False
-        
+
+        st = self._sentence_transformer_class()
+        if st is None:
+            self._last_error = "sentence-transformers is not installed or failed to import; cannot download"
+            logger.error(self._last_error)
+            return False
+
+        self._is_loaded = False
+        self._model = None
+
         for attempt in range(self._max_retries):
             try:
                 start_time = time.time()
                 logger.info(f"Downloading model {self._model_name} (attempt {attempt + 1}/{self._max_retries})...")
-                from sentence_transformers import SentenceTransformer
-                
+
                 # Download to local cache path
-                self._model = SentenceTransformer(
+                self._model = st(
                     self._model_name,
-                    cache_folder=self._model_path
+                    cache_folder=self._model_path,
+                    device=self._device,
+                    trust_remote_code=True,
                 )
                 
                 # Track load time
@@ -181,60 +254,67 @@ class ModelLoader:
                 self._memory_usage_mb = process.memory_info().rss / (1024 * 1024)
                 
                 self._is_loaded = True
+                self._last_error = None
                 logger.info(f"Model downloaded and loaded successfully in {self._load_time:.2f}s")
                 logger.info(f"Device: {self._device}")
                 logger.info(f"Memory usage: {self._memory_usage_mb:.2f} MB")
                 return True
             except Exception as e:
-                logger.warning(f"Download attempt {attempt + 1} failed: {str(e)}")
+                self._last_error = f"Download attempt {attempt + 1} failed: {e}"
+                logger.warning(self._last_error)
                 if attempt < self._max_retries - 1:
                     wait_time = (attempt + 1) * 2  # Exponential backoff
                     logger.info(f"Retrying in {wait_time} seconds...")
                     time.sleep(wait_time)
                 else:
-                    logger.error("All download attempts failed")
+                    self._last_error = f"All {self._max_retries} download attempts failed for {self._model_name}"
+                    logger.error(self._last_error)
                     return False
         return False
     
-    def load_model(self) -> None:
+    def load_model(self) -> bool:
         """
         Load the embedding model.
-        
-        This method attempts to load the model from local cache first.
-        If not available and offline mode is disabled, it downloads from HuggingFace.
-        
+
+        Attempts to load the model from local cache first. If not available and
+        offline mode is disabled, it downloads from HuggingFace. Returns True if
+        the model is loaded and False if the loader has recorded a last error but
+        did not raise.
+
         Raises:
-            Exception: If model loading fails and no local cache is available
+            ModelLoadingError: If all load paths fail and raise_on_error was True.
         """
         if self._is_loaded:
             logger.info("Model already loaded")
-            return
-        
+            return True
+
         # Try local cache first
         if self._check_local_cache():
             logger.info("Local cache found")
             if self._load_from_local():
-                return
+                return True
             else:
                 logger.warning("Local cache exists but failed to load")
-        
+
         # Try downloading if not in offline mode
         if not self._offline_mode:
             if self._download_model():
-                return
-        
+                return True
+
         # If we get here, all attempts failed
         if self._offline_mode:
-            raise Exception(
+            self._last_error = (
                 f"Offline mode enabled and model not found at {self._full_model_path}. "
                 "Please run 'python scripts/preload_models.py' to download the model locally."
             )
         else:
-            raise Exception(
+            self._last_error = (
                 f"Failed to load model {self._model_name}. "
                 f"Please check your internet connection or run 'python scripts/preload_models.py' "
                 f"to download the model locally."
             )
+
+        raise ModelLoadingError(self._last_error)
     
     def get_model(self):
         """
@@ -270,7 +350,7 @@ class ModelLoader:
     def get_diagnostics(self) -> Dict[str, Any]:
         """
         Get diagnostic information about the model loader.
-        
+
         Returns:
             Dictionary with diagnostic information including:
                 - model_name: Name of the model
@@ -280,6 +360,7 @@ class ModelLoader:
                 - cache_path: Path to the model cache
                 - memory_usage_mb: Memory usage in MB
                 - offline_mode: Whether offline mode is enabled
+                - last_error: The most recent loading error message, if any
         """
         return {
             'model_name': self._model_name,
@@ -288,7 +369,8 @@ class ModelLoader:
             'device': self._device,
             'cache_path': self._full_model_path,
             'memory_usage_mb': self._memory_usage_mb,
-            'offline_mode': self._offline_mode
+            'offline_mode': self._offline_mode,
+            'last_error': self._last_error,
         }
     
     def print_diagnostics(self) -> None:

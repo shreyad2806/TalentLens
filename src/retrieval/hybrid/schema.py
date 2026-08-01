@@ -18,8 +18,10 @@ SOLID Principles Applied:
 """
 
 from typing import List, Dict, Any, Optional
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, computed_field, field_validator
 from enum import Enum
+
+from src.models import ResumeMetadata
 
 
 class RetrievalSource(str, Enum):
@@ -47,6 +49,7 @@ class MatchedChunk(BaseModel):
     section: str = Field(..., description="Section of the resume")
     matched_text: str = Field(..., description="Text that matched the query")
     score: float = Field(..., description="Score from the retrieval system")
+    offset: int = Field(default=0, ge=0, description="Character offset of matched_text in the original chunk text")
     retrieval_source: RetrievalSource = Field(
         ...,
         description="Source of the retrieval (dense, sparse, or hybrid)"
@@ -58,57 +61,33 @@ class MatchedChunk(BaseModel):
 
 
 class HybridSearchResult(BaseModel):
-    """
-    Hybrid search result combining dense and sparse retrieval.
-    
-    This class represents a hybrid search result that combines information
-    from both dense and sparse retrieval systems using Reciprocal Rank Fusion (RRF).
-    It preserves matched chunks, metadata, and evidence from both systems.
-    
-    Fields:
-        query: The search query
-        candidate_name: Name of the candidate
-        resume_id: Unique identifier for the resume
-        chunk_id: Unique identifier for the chunk
-        section: Section of the resume
-        dense_rank: Rank from dense retrieval (None if not in dense results)
-        sparse_rank: Rank from sparse retrieval (None if not in sparse results)
-        rrf_score: Reciprocal Rank Fusion score
-        metadata: Additional metadata about the result
-        matched_chunks: List of matched chunks from both retrieval systems
-        rank: Final rank after fusion and sorting
-    """
+    """Hybrid search result carrying the canonical ResumeMetadata unchanged."""
+
     query: str = Field(..., description="The search query")
-    candidate_name: str = Field(..., description="Name of the candidate")
-    resume_id: str = Field(..., description="Unique identifier for the resume")
-    chunk_id: str = Field(..., description="Unique identifier for the chunk")
+    chunk_id: str = Field(..., description="Unique chunk identifier")
     section: str = Field(..., description="Section of the resume")
-    dense_rank: Optional[int] = Field(
-        default=None,
-        description="Rank from dense retrieval (None if not in dense results)"
-    )
-    sparse_rank: Optional[int] = Field(
-        default=None,
-        description="Rank from sparse retrieval (None if not in sparse results)"
-    )
-    rrf_score: float = Field(
-        default=0.0,
-        ge=0.0,
-        description="Reciprocal Rank Fusion score"
-    )
-    metadata: Dict[str, Any] = Field(
-        default_factory=dict,
-        description="Additional metadata about the result"
-    )
-    matched_chunks: List[MatchedChunk] = Field(
-        default_factory=list,
-        description="List of matched chunks from both retrieval systems"
-    )
-    rank: int = Field(
-        default=0,
-        ge=0,
-        description="Final rank after fusion and sorting"
-    )
+    dense_rank: Optional[int] = Field(default=None, description="Rank from dense retrieval")
+    sparse_rank: Optional[int] = Field(default=None, description="Rank from sparse retrieval")
+    rrf_score: float = Field(default=0.0, ge=0.0, description="Reciprocal Rank Fusion score")
+    resume_metadata: ResumeMetadata = Field(..., description="Canonical resume metadata")
+    matched_chunks: List[MatchedChunk] = Field(default_factory=list, description="Matched chunks")
+    rank: int = Field(default=0, ge=0, description="Final rank")
+
+    @computed_field
+    @property
+    def resume_id(self) -> str:
+        return self.resume_metadata.resume_id
+
+    @computed_field
+    @property
+    def candidate_name(self) -> Optional[str]:
+        return self.resume_metadata.candidate_name
+
+    @computed_field
+    @property
+    def metadata(self) -> Dict[str, Any]:
+        """Legacy compatibility: expose resume metadata as a flat dict."""
+        return self.resume_metadata.model_dump(mode="json")
     
     @field_validator('rrf_score')
     @classmethod

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Dict, Any
@@ -7,7 +8,7 @@ import logging
 
 from src.vector_store import VectorStoreService
 from src.embeddings.embedding_service import EmbeddingService
-from src.retrieval.sparse.bm25_index import BM25Index
+from src.retrieval.sparse.bm25_index import BM25Index, IncompatibleIndexError
 from src.retrieval.dense.dense_retrieval_service import DenseRetrievalService
 from src.retrieval.sparse.sparse_retrieval_service import SparseRetrievalService
 from src.retrieval.hybrid.hybrid_retrieval_service import HybridRetrievalService
@@ -32,15 +33,20 @@ def _maybe_load_bm25_index(bm25_index: BM25Index, bm25_index_path: Path) -> None
     if (bm25_index_path / "metadata.json").exists():
         print(f"[BOOTSTRAP-TRACE][composition_root.py] BM25 metadata.json found at {bm25_index_path} - loading persisted index")
         logger.info(f"Loading BM25 index from {bm25_index_path}")
-        bm25_index.load_from_disk(bm25_index_path)
-        post_stats = bm25_index.get_statistics()
-        if hasattr(post_stats, 'num_documents'):
-            num_docs = post_stats.num_documents
-        elif hasattr(post_stats, 'total_documents'):
-            num_docs = post_stats.total_documents
-        else:
-            num_docs = post_stats.get('num_documents', 0) if isinstance(post_stats, dict) else 0
-        print(f"[BOOTSTRAP-TRACE][composition_root.py] BM25 loaded: num_documents={num_docs}")
+        try:
+            bm25_index.load_from_disk(bm25_index_path)
+            post_stats = bm25_index.get_statistics()
+            if hasattr(post_stats, 'num_documents'):
+                num_docs = post_stats.num_documents
+            elif hasattr(post_stats, 'total_documents'):
+                num_docs = post_stats.total_documents
+            else:
+                num_docs = post_stats.get('num_documents', 0) if isinstance(post_stats, dict) else 0
+            print(f"[BOOTSTRAP-TRACE][composition_root.py] BM25 loaded: num_documents={num_docs}")
+        except IncompatibleIndexError as e:
+            logger.error(f"Incompatible persisted BM25 index at {bm25_index_path}: {e}")
+            print(f"[BOOTSTRAP-TRACE][composition_root.py] Incompatible persisted index; discarding and starting fresh")
+            shutil.rmtree(bm25_index_path, ignore_errors=True)
     else:
         print(f"[BOOTSTRAP-TRACE][composition_root.py] BM25 metadata.json NOT found at {bm25_index_path} - using EMPTY BM25 index")
         logger.info(f"BM25 index path not found ({bm25_index_path}); using empty BM25 index")

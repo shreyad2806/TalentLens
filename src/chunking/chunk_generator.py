@@ -9,6 +9,7 @@ import uuid
 from typing import List
 
 from ..resume_parser.schema import ResumeDocument
+from ..models import ResumeMetadata
 from .semantic_chunker import SemanticChunker, ChunkData
 from .schema import Chunk, ChunkMetadata
 import logging
@@ -108,7 +109,23 @@ class ChunkGenerator:
         _meta_dict = chunk_metadata.dict()
         _non_null = {k: v for k, v in _meta_dict.items() if v is not None and v != [] and v != ''}
         print(f"[META-WRITE][ChunkMetadata][ChunkGenerator] resume_id={resume_id[:8]}  section={chunk_data.section}  keys={sorted(_meta_dict.keys())}  non_null={list(_non_null.keys())}")
-        
+
+        # Build canonical ResumeMetadata from the same fields
+        resume_metadata = ResumeMetadata(
+            resume_id=resume_id,
+            candidate_name=candidate_name,
+            role=chunk_metadata.role,
+            skills=chunk_metadata.skills,
+            location=chunk_metadata.location,
+            experience_years=float(chunk_metadata.experience) if chunk_metadata.experience is not None else None,
+            education=[chunk_metadata.education] if chunk_metadata.education else [],
+            projects=chunk_metadata.projects,
+            certifications=chunk_metadata.certifications,
+            email=chunk_metadata.email,
+            phone=chunk_metadata.phone,
+            summary=chunk_metadata.summary,
+        )
+
         # Create and return Chunk object
         return Chunk(
             chunk_id=chunk_id,
@@ -117,5 +134,6 @@ class ChunkGenerator:
             section=chunk_data.section,
             text=chunk_data.text,
             metadata=chunk_metadata,
+            resume_metadata=resume_metadata,
             chunk_order=chunk_order
         )

@@ -151,32 +151,37 @@ class IndexBuilder:
                     _chunk_meta_dict = dict(chunk.metadata)
             
             document = BM25Document(
+                document_id=str(chunk.chunk_id),
                 chunk_id=str(chunk.chunk_id),
-                resume_id=str(chunk.resume_id),
                 section=chunk.section,
-                candidate_name=chunk.candidate_name or "Unknown",
                 text=chunk.text,
                 tokens=tokens,
                 document_length=len(tokens),
-                metadata={
-                    **_chunk_meta_dict,
-                    'text_length': len(chunk.text),
-                    'chunk_order': chunk.chunk_order,
-                    'embedding_status': chunk.embedding_status.value,
-                    'source_document': chunk.source_document
-                }
+                resume_metadata=chunk.resume_metadata
             )
-            
-            # [META-WRITE] Log BM25Document metadata keys
-            _meta_keys = sorted(document.metadata.keys())
-            _non_null = {k: v for k, v in document.metadata.items() if v is not None and v != [] and v != ''}
-            print(f"[META-WRITE][BM25Document][sparse] chunk_id={chunk.chunk_id[:8]}  resume_id={chunk.resume_id[:8]}  keys={_meta_keys}  non_null={list(_non_null.keys())}")
+
+            m = document.resume_metadata
+            print(f"[META-WRITE][BM25Document][sparse] chunk_id={chunk.chunk_id[:8]}  resume_id={m.resume_id[:8]}  candidate_name={m.candidate_name}  skills_count={len(m.skills)}  location={m.location}  experience={m.experience_years}  role={m.role}")
             
             return document
             
         except Exception as e:
             logger.error(f"Failed to convert chunk {chunk.chunk_id} to document: {e}")
             return None
+
+    def chunk_to_document(self, chunk: Chunk) -> tuple:
+        """
+        Public compatibility wrapper returning (BM25Document, tokens).
+
+        Callers such as CSV ingestion and build_index scripts expect the
+        bm25-style API `bm25_doc, tokens = builder.chunk_to_document(chunk)`
+        and then access `bm25_doc.document_id`.  This wrapper bridges the
+        sparse builder to that contract.
+        """
+        document = self._chunk_to_document(chunk)
+        if not document:
+            raise ValueError(f"Failed to convert chunk {chunk.chunk_id} to BM25Document")
+        return document, document.tokens
     
     def build_index_incremental(
         self,

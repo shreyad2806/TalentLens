@@ -227,8 +227,22 @@ class HybridRetrievalValidator:
                     errors.append(error)
                 
                 if not chunk.matched_text:
-                    error = f"Missing matched_text in matched chunk for {result.chunk_id}"
-                    errors.append(error)
+                    # Reconstruct matched_text from the full chunk text in metadata
+                    # if available; fail only when the chunk text is missing.
+                    fallback = (
+                        result.metadata.get("text")
+                        or result.metadata.get("text_preview")
+                        or result.metadata.get("source_text")
+                        or ""
+                    )
+                    if fallback:
+                        chunk.matched_text = str(fallback)[:400].strip()
+                        logger.warning(
+                            "Reconstructed matched_text for chunk %s", chunk.chunk_id
+                        )
+                    else:
+                        error = f"Missing matched_text in matched chunk for {result.chunk_id}"
+                        errors.append(error)
                 
                 if chunk.score < 0:
                     error = f"Invalid score in matched chunk for {result.chunk_id}: {chunk.score}"

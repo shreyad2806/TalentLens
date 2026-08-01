@@ -58,7 +58,8 @@ class QdrantAdapter(VectorStore):
         self.config = config or VectorStoreConfig()
         
         # Get Qdrant configuration
-        qdrant_url = os.getenv("QDRANT_URL", "http://localhost:6333")
+        qdrant_url = os.getenv("QDRANT_URL")
+        qdrant_path = os.getenv("QDRANT_PATH", "data/vector_store/qdrant")
         qdrant_api_key = os.getenv("QDRANT_API_KEY")
         qdrant_collection = os.getenv("QDRANT_COLLECTION", "talentlens_candidates")
         
@@ -67,6 +68,7 @@ class QdrantAdapter(VectorStore):
         
         self._adapter = ProductionQdrantAdapter(
             url=qdrant_url,
+            path=qdrant_path,
             api_key=qdrant_api_key,
             collection_name=qdrant_collection,
             vector_size=self.config.dimension,

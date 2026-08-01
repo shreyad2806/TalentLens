@@ -17,6 +17,7 @@ from typing import List, Dict, Any, Optional
 from ..interface import VectorStore, VectorStoreError
 from ..schema import VectorRecord
 from ..config import VectorStoreConfig
+from ...models import ResumeMetadata
 
 
 class MemoryVectorStore(VectorStore):
@@ -75,13 +76,9 @@ class MemoryVectorStore(VectorStore):
             try:
                 self._store[record.id] = {
                     "vector": record.vector,
-                    "metadata": {
-                        "resume_id": record.resume_id,
-                        "chunk_id": record.chunk_id,
-                        "candidate_name": record.candidate_name,
-                        "section": record.section,
-                        **record.metadata
-                    }
+                    "chunk_id": record.chunk_id,
+                    "section": record.section,
+                    "resume_metadata": record.resume_metadata.model_dump(mode="json")
                 }
                 upserted_count += 1
             except Exception as e:
@@ -124,23 +121,23 @@ class MemoryVectorStore(VectorStore):
         for record_id, data in self._store.items():
             # Apply filters if provided
             if filters:
-                if not self._apply_filters(data["metadata"], filters):
+                if not self._apply_filters(data["resume_metadata"], filters):
                     continue
-            
+
             # Calculate cosine similarity
             stored_vector = data["vector"]
             stored_norm = math.sqrt(sum(x * x for x in stored_vector))
-            
+
             if stored_norm == 0:
                 continue
-            
+
             dot_product = sum(x * y for x, y in zip(vector, stored_vector))
             cosine_similarity = dot_product / (query_norm * stored_norm)
-            
+
             results.append({
                 "id": record_id,
                 "score": cosine_similarity,
-                "metadata": data["metadata"]
+                "metadata": {**data["resume_metadata"], "chunk_id": data["chunk_id"], "section": data["section"]}
             })
         
         # Sort by score descending and return top k
@@ -199,7 +196,7 @@ class MemoryVectorStore(VectorStore):
         ids_to_delete = []
         
         for record_id, data in self._store.items():
-            if data["metadata"].get("resume_id") == resume_id:
+            if data["resume_metadata"].get("resume_id") == resume_id:
                 ids_to_delete.append(record_id)
         
         for record_id in ids_to_delete:
@@ -232,19 +229,14 @@ class MemoryVectorStore(VectorStore):
             return None
         
         data = self._store[id]
-        metadata = data["metadata"]
-        
-        # Extract metadata back to VectorRecord format
-        record_metadata = {k: v for k, v in metadata.items() if k not in ["resume_id", "chunk_id", "candidate_name", "section"]}
-        
+        resume_metadata = ResumeMetadata.model_validate(data["resume_metadata"])
+
         return VectorRecord(
             id=id,
-            resume_id=metadata.get("resume_id", ""),
-            chunk_id=metadata.get("chunk_id", ""),
-            candidate_name=metadata.get("candidate_name", ""),
-            section=metadata.get("section", ""),
+            chunk_id=data["chunk_id"],
+            section=data["section"],
             vector=data["vector"],
-            metadata=record_metadata
+            resume_metadata=resume_metadata
         )
     
     def fetch_resume(self, resume_id: str) -> List[VectorRecord]:
@@ -266,20 +258,15 @@ class MemoryVectorStore(VectorStore):
         records = []
         
         for record_id, data in self._store.items():
-            if data["metadata"].get("resume_id") == resume_id:
-                metadata = data["metadata"]
-                record_metadata = {k: v for k, v in metadata.items() if k not in ["resume_id", "chunk_id", "candidate_name", "section"]}
-                
+            if data["resume_metadata"].get("resume_id") == resume_id:
                 records.append(VectorRecord(
                     id=record_id,
-                    resume_id=metadata.get("resume_id", ""),
-                    chunk_id=metadata.get("chunk_id", ""),
-                    candidate_name=metadata.get("candidate_name", ""),
-                    section=metadata.get("section", ""),
+                    chunk_id=data["chunk_id"],
+                    section=data["section"],
                     vector=data["vector"],
-                    metadata=record_metadata
+                    resume_metadata=ResumeMetadata.model_validate(data["resume_metadata"])
                 ))
-        
+
         return records
     
     def count(self) -> int:
@@ -345,18 +332,46 @@ class MemoryVectorStore(VectorStore):
     
     def _apply_filters(self, metadata: Dict[str, Any], filters: Dict[str, Any]) -> bool:
         """
-        Apply filters to metadata.
-        
-        Args:
-            metadata: Metadata dictionary
-            filters: Filter criteria
-            
-        Returns:
-            True if metadata passes all filters, False otherwise
+        Apply metadata filters before similarity search.
+
+        Supports the same filter keys used by the Qdrant adapter:
+        - skills: list intersection (candidate has at least one required skill)
+        - location: case-insensitive exact/substring match
+        - experience_min/experience_max: numeric range against metadata experience_years/experience
+        - unknown keys are ignored so callers do not break the search
         """
+        def _normalize(value: Any) -> str:
+            return str(value).strip().lower()
+
         for key, value in filters.items():
-            if key not in metadata:
-                return False
-            if metadata[key] != value:
-                return False
+            if key == "skills":
+                candidate_skills = metadata.get("skills", [])
+                if not candidate_skills:
+                    return False
+                required = {_normalize(s) for s in value}
+                candidate = {_normalize(s) for s in candidate_skills}
+                if not (required & candidate):
+                    return False
+
+            elif key == "location":
+                candidate_location = metadata.get("location")
+                if not candidate_location:
+                    return False
+                if _normalize(value) not in _normalize(candidate_location):
+                    return False
+
+            elif key == "experience_min":
+                exp = metadata.get("experience_years") or metadata.get("experience")
+                if exp is None or float(exp) < float(value):
+                    return False
+
+            elif key == "experience_max":
+                exp = metadata.get("experience_years") or metadata.get("experience")
+                if exp is None or float(exp) > float(value):
+                    return False
+
+            elif key in metadata:
+                if metadata[key] != value:
+                    return False
+
         return True

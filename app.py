@@ -13,6 +13,7 @@ import io
 import docx
 
 from src.debug_logger import log_stage_start, log_stage_end, log_error
+from src.cards import build_candidate_card
 
 st.set_page_config(page_title="Talentlens", page_icon="🎯", layout="wide")
 
@@ -454,68 +455,64 @@ SKILL_POOL = [
 
 
 def render_candidate_card(candidate, idx):
-    """Render clean candidate card"""
-    name = candidate.get("name", f"Candidate {idx+1}")
-    role = candidate.get("role", "Software Developer")
-    location = candidate.get("location", "Not specified")
-    experience = candidate.get("experience", "Not specified")
-    skills = candidate.get("skills", [])[:6]
-    score = candidate.get("score", 0)          # rrf_score (retrieval ranking)
-    match_pct = candidate.get("match_pct", 0)  # skill-match % (supplementary)
-    matched_skills = candidate.get("matched_skills", [])
-    email = candidate.get("email")
-    phone = candidate.get("phone")
-    
+    """Render a ResumeDocument-backed candidate card (no frontend heuristics)."""
     st.markdown("---")
-    st.markdown(f"### 👤 {name}")
-    
+    st.markdown(f"### 👤 {candidate['name']}")
+
     col1, col2 = st.columns([4, 1])
-    
+
     with col1:
-        st.caption(f"{role} • {location}")
-        # Show contact info if available
-        contact_parts = []
-        if email:
-            contact_parts.append(f"📧 {email}")
-        if phone:
-            contact_parts.append(f"📞 {phone}")
-        if contact_parts:
-            st.caption(" • ".join(contact_parts))
+        st.caption(f"{candidate['role']} • {candidate['location']}")
+        contact = []
+        if candidate.get('email'):
+            contact.append(f"📧 {candidate['email']}")
+        if candidate.get('phone'):
+            contact.append(f"📞 {candidate['phone']}")
+        if contact:
+            st.caption(" • ".join(contact))
+
     with col2:
-        # Show retrieval score (rrf_score) as primary ranking signal
-        st.markdown(f"### {score:.4f}")
-        st.caption("RRF score")
-    
-    if skills:
-        st.markdown("🧠 " + " ".join([f"`{s}`" for s in skills]))
-    
-    st.write(f"📅 {experience}")
-    
-    # 🔥 HIGHLIGHT: Show matched skills prominently
-    if matched_skills:
-        st.markdown("🎯 **Match Skills:** " + " ".join([f"`{s}`" for s in matched_skills]))
-        st.success(f"✅ {len(matched_skills)} skill match{'es' if len(matched_skills) != 1 else ''}")
+        st.markdown(f"### {candidate['match_pct']:.0f}%")
+        st.caption("Match Score")
+        st.markdown(f"**{candidate['confidence']*100:.0f}%**")
+        st.caption("Confidence")
+
+    cols = st.columns(3)
+    with cols[0]:
+        st.write(f"📅 Experience: {candidate['experience']}")
+    with cols[1]:
+        if candidate.get('education'):
+            st.write(f"🎓 {candidate['education'][0]}")
+            if len(candidate['education']) > 1:
+                st.caption(f"+ {len(candidate['education']) - 1} more")
+    with cols[2]:
+        if candidate.get('projects'):
+            st.write(f"🚀 {len(candidate['projects'])} project(s)")
+
+    if candidate.get('top_skills'):
+        st.markdown("🧠 " + " ".join([f"`{s}`" for s in candidate['top_skills']]))
+
+    if candidate.get('matched_skills'):
+        st.markdown("🎯 **Matched Skills:** " + " ".join([f"`{s}`" for s in candidate['matched_skills']]))
+        st.success(f"✅ {len(candidate['matched_skills'])} skill match{'es' if len(candidate['matched_skills']) != 1 else ''}")
     else:
         st.caption("❌ No skill matches")
-    
-    # Match reasons
-    reasons = candidate.get("reasons", [])
-    if reasons:
-        st.caption("💡 " + " | ".join(reasons[:3]))
-    
-    # Action buttons (fixed to not reset page)
+
+    with st.expander("📝 Resume Preview"):
+        st.caption(f"Matched section: {candidate['section']} | offset {candidate['evidence_offset']}")
+        if candidate.get('matched_text'):
+            st.info(candidate['matched_text'])
+        st.write(candidate['resume_preview'])
+
+    # Action buttons
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("📄 View", key=f"view_{candidate['id']}"):
+        if st.button("📄 View", key=f"view_{candidate['id']}_{idx}"):
             st.session_state.selected_candidate = candidate
             st.rerun()
     with col2:
-        if st.button("⭐ Shortlist", key=f"short_{candidate['id']}"):
-            if candidate not in st.session_state.shortlist:
-                st.session_state.shortlist.append(candidate)
-                st.success("Added to shortlist!")
-            else:
-                st.warning("Already in shortlist")
+        if st.button("⭐ Shortlist", key=f"short_{candidate['id']}_{idx}"):
+            add_to_shortlist(candidate)
             st.rerun()
 
 
@@ -548,9 +545,9 @@ with tab_search:
         with col1:
             num_candidates = st.selectbox("Number of Candidates", [5, 10, 15, 20], index=1)
         with col2:
-            exp_range = st.slider("Experience (Years)", 0, 20, (2, 6))
+            exp_range = st.slider("Experience (Years)", 0, 20, (0, 20))
         with col3:
-            location = st.text_input("Preferred Location", "India")
+            location = st.text_input("Preferred Location", "")
 
         submitted = st.form_submit_button("Search 🚀")
 
@@ -574,51 +571,59 @@ with tab_search:
                 print(f"[BOOTSTRAP-TRACE][app.py] Retrieval bundle returned: bm25_index has {_bundle_num_docs} docs")
                 print(f"[BOOTSTRAP-TRACE][app.py] Retrieval bundle returned: vector_store_service type={type(bundle.vector_store_service).__name__}")
 
-                # ✅ FIXED: Extract skills from user query as fallback
+                # Extract skills from the query; never fall back to default skills.
                 jd_skills = extract_jd_skills(user_query)
-                
-                # Ensure JD skills are never empty
-                if not jd_skills:
-                    st.warning("⚠️ No skills detected. Using default tech skills.")
-                    jd_skills = ["python", "sql", "aws"]
-                
+
                 # Debug info (important for troubleshooting)
                 with st.expander("🔍 Debug: Skill Matching"):
                     st.write("**JD Skills:**", jd_skills)
                     st.write("**User Query:**", user_query)
-                
+
+                # Build a clean SearchFilters object; only non-empty/explicit values are retained.
+                from src.search import SearchFilters
+                _clean_skills = jd_skills if jd_skills else None
+                _clean_location = location.strip() if location and location.strip() else None
+                _clean_exp_min = exp_range[0] if exp_range[0] > 0 else None
+                _clean_exp_max = exp_range[1] if exp_range[1] < 20 else None
+
                 refined_query = {
                     "text": user_query,
-                    "skills": jd_skills,
-                    "experience_min": exp_range[0],
-                    "experience_max": exp_range[1],
-                    "location": location,
                     "num_candidates": num_candidates
                 }
-                
+
                 # ── STAGE 4 — METADATA FILTER PARSING ────────────────────────────
                 _s4_start = time.perf_counter()
                 log_stage_start(4, "METADATA FILTER PARSING",
-                    Extracted_Skills=jd_skills,
-                    Experience_Range=f"{exp_range[0]}-{exp_range[1]} years",
-                    Location=location,
+                    Extracted_Skills=_clean_skills,
+                    Experience_Range=f"{_clean_exp_min}-{_clean_exp_max}" if _clean_exp_min or _clean_exp_max else "(not set)",
+                    Location=_clean_location or "(not set)",
                     Education="(not extracted)",
                     Company="(not extracted)",
                     Role="(not extracted)",
                 )
+
+                filters = SearchFilters(
+                    skills=_clean_skills,
+                    location=_clean_location,
+                    experience_min=_clean_exp_min,
+                    experience_max=_clean_exp_max,
+                )
+                filters_dict = filters.model_dump(exclude_none=True)
+
                 log_stage_end(4, "METADATA FILTER PARSING",
                     status="SUCCESS",
                     time_ms=(time.perf_counter() - _s4_start) * 1000,
-                    output_count=len(jd_skills),
-                    sample={"Skills": jd_skills, "Location": location, "Exp": f"{exp_range[0]}-{exp_range[1]}"},
-                    extra={"Note": "Filters extracted in UI layer; not passed to retrieval pipeline"},
+                    output_count=len(_clean_skills) if _clean_skills else 0,
+                    sample=filters_dict,
+                    extra={"Note": "Filters extracted in UI layer; passed to retrieval pipeline"},
                 )
-                
+
                 # Use cached bundle for hybrid search (no re-creation)
                 _t_retrieve = time.perf_counter()
                 hybrid_results = bundle.hybrid_service.search(
                     query=refined_query["text"],
                     top_k=refined_query.get("num_candidates", 10),
+                    filters=filters_dict if filters_dict else None,
                 )
                 _t_retrieve_ms = (time.perf_counter() - _t_retrieve) * 1000
 
@@ -647,10 +652,25 @@ with tab_search:
                     enriched_meta.setdefault("resume_id", r.resume_id)
                     enriched_meta.setdefault("section", r.section)
 
+                    # Extract highlighted evidence snippet and offset from matched chunks
+                    matched_text = ""
+                    offset = 0
+                    if r.matched_chunks:
+                        matched_text = r.matched_chunks[0].matched_text or matched_text
+                        offset = r.matched_chunks[0].offset or 0
+                    # Fallback: reconstruct snippet from full chunk text if necessary
+                    if not matched_text:
+                        full_text = enriched_meta.get("text") or enriched_meta.get("text_preview") or ""
+                        matched_text = str(full_text)[:400]
+                        offset = 0
+
                     docs.append({
                         "id": r.resume_id,
                         "text": enriched_meta.get("text", ""),
                         "resume": enriched_meta.get("text", ""),
+                        "matched_text": matched_text,
+                        "evidence": matched_text,
+                        "offset": offset,
                         "score": r.rrf_score,
                         "section": r.section,
                         "candidate_name": r.candidate_name,
@@ -658,10 +678,14 @@ with tab_search:
                         "metadata": enriched_meta,
                     })
 
+                # Deduplicate by resume_id before rendering; keep the highest-scored entry.
+                seen_ids: set[str] = set()
+                docs = [d for d in docs if d.get("id") and d.get("id") not in seen_ids and not seen_ids.add(d.get("id"))]
+
                 if docs:
                     print(f"  AFTER:  {len(docs)} docs, top score = {docs[0]['score']:.6f}")
                     print(f"  AFTER META: keys={list(docs[0]['metadata'].keys())}")
-                
+
                 # ── Score mapping: docs[] → scored_results ─────────────────────
                 print()
                 print("[SCORE TRACE] Mapping docs[] → scored_results")
@@ -675,48 +699,31 @@ with tab_search:
                     if i < 3:  # log first 3 for meta trace
                         print(f"  [{i}] meta keys = {list(meta.keys())}")
                     
-                    # Extract candidate info from metadata (all fields now propagated)
-                    candidate = {
-                        "id": str(i),
-                        "resume_id": d.get("id", ""),
-                        "name": meta.get("candidate_name") or d.get("candidate_name", f"Candidate {i+1}"),
-                        "role": meta.get("role") or "Software Developer",
-                        "location": meta.get("location") or "Not specified",
-                        "experience": meta.get("experience") or "Not specified",
-                        "skills": meta.get("skills") or [],
-                        "email": meta.get("email"),
-                        "phone": meta.get("phone"),
-                        "summary": meta.get("summary"),
-                        "text": doc_text,
-                    }
-                    
-                    # Extract skills from resume text if metadata had none
-                    if not candidate["skills"]:
-                        candidate["skills"] = extract_skills_from_text(doc_text)
-                    if not candidate["skills"]:
-                        candidate["skills"] = ["unknown"]
-                    
+                    # Build candidate card directly from ResumeDocument metadata
+                    # No frontend heuristics — all fields come from the production dataset.
+                    candidate = build_candidate_card(
+                        resume_id=d.get("id", ""),
+                        rrf_score=rrf_score,
+                        jd_skills=jd_skills,
+                        matched_text=d.get("matched_text", ""),
+                        evidence_offset=d.get("offset", 0),
+                        section=d.get("section") or meta.get("section") or "unknown",
+                    )
+
+                    if not candidate:
+                        print(f"  [{i}] No ResumeDocument found for resume_id={d.get('id', '')}; skipping")
+                        continue
+
                     if i < 3:  # log first 3 for meta trace
                         print(f"  [{i}] name={candidate['name']}, role={candidate['role']}, "
-                              f"location={candidate['location']}, skills={candidate['skills'][:3]}, "
+                              f"location={candidate['location']}, skills={candidate['top_skills'][:3]}, "
                               f"email={candidate.get('email')}")
-                    
-                    # Skill overlap (supplementary — used for matched_skills display)
-                    _skill_match_pct, matched_skills = compute_match_score(
-                        candidate["skills"],
-                        jd_skills,
-                    )
-                    
-                    # PRESERVE rrf_score as the primary ranking score
-                    candidate["score"] = rrf_score
-                    candidate["match_pct"] = _skill_match_pct
-                    candidate["matched_skills"] = matched_skills
-                    
+
                     if i < 5:  # log first 5 for trace
                         print(f"  [{i}] {candidate['name']:<25}  rrf={rrf_score:.6f}  "
-                              f"skill_match={_skill_match_pct:.1f}%  "
-                              f"matched={matched_skills}")
-                    
+                              f"skill_match={candidate['match_pct']:.1f}%  "
+                              f"matched={candidate['matched_skills']}")
+
                     scored_results.append(candidate)
                 
                 # Sort by retrieval score (descending)
@@ -808,8 +815,8 @@ with tab_search:
             "role": r["role"],
             "matched_skills": ", ".join(r["matched_skills"])
         } for r in results])
-        st.download_button("📁 Export Results", df.to_csv(index=False), "candidates.csv")
-        
+        st.download_button("📁 Export Results", df.to_csv(index=False), "candidates.csv", key="export_search")
+
         # Display candidate cards
         for i, candidate in enumerate(results):
             render_candidate_card(candidate, i)
@@ -965,8 +972,8 @@ with tab_upload:
             "role": r["role"],
             "matched_skills": ", ".join(r["matched_skills"])
         } for r in results])
-        st.download_button("📁 Export Results", df.to_csv(index=False), "ranked_candidates.csv")
-        
+        st.download_button("📁 Export Results", df.to_csv(index=False), "ranked_candidates.csv", key="export_upload")
+
         # Display clean candidate cards
         for i, candidate in enumerate(results):
             render_candidate_card(candidate, i)

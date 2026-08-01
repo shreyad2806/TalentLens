@@ -140,7 +140,8 @@ class HybridRetrievalService:
                 return cached_results[:top_k]
         
         # ── STAGE 9 — HYBRID FUSION ──────────────────────────────────────────
-        log_stage_start(9, "HYBRID FUSION", Query=query[:80], Top_K=top_k, Strategy="RRF")
+        logger.info(f"Incoming Filters: {filters}")
+        log_stage_start(9, "HYBRID FUSION", Query=query[:80], Top_K=top_k, Strategy="RRF", Filters=filters)
         
         # Dense retrieval
         dense_start = time.perf_counter()
@@ -191,6 +192,7 @@ class HybridRetrievalService:
         
         # Return top-k results
         final_results = fused_results[:top_k]
+        logger.info(f"Remaining Candidates: {len(final_results)}")
         
         # Stage 9 END banner
         top10_fused = []
@@ -251,6 +253,7 @@ class HybridRetrievalService:
                     "rank": idx,
                     "score": result.score,
                     "matched_text": result.matched_text,
+                    "offset": result.offset,
                     "metadata": result.metadata
                 })
             
@@ -300,6 +303,7 @@ class HybridRetrievalService:
                     "rank": idx,
                     "bm25_score": result.bm25_score,
                     "matched_text": result.matched_text,
+                    "offset": result.offset,
                     "metadata": result.metadata
                 })
             

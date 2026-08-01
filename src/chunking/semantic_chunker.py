@@ -132,6 +132,15 @@ class SemanticChunker:
                 text=lang_text,
                 metadata={**base_metadata, "source_section": "languages"}
             ))
+
+        # Combined chunk with all fields for dense retrieval
+        combined_text = self._format_combined_text(document, base_metadata)
+        if combined_text:
+            chunks.append(self._create_chunk_data(
+                section="combined",
+                text=combined_text,
+                metadata={**base_metadata, "source_section": "combined"}
+            ))
         
         return chunks
     
@@ -145,9 +154,9 @@ class SemanticChunker:
         Returns:
             Dictionary with base metadata
         """
-        # Determine role from experience
-        role = None
-        if document.experience:
+        # Determine role from explicit field, metadata, or first experience title
+        role = getattr(document, 'role', None) or document.metadata.get('role')
+        if not role and document.experience:
             role = document.experience[0].title
         
         # Get location from metadata
@@ -167,6 +176,50 @@ class SemanticChunker:
             "role": role,
             "education": education,
         }
+
+    def _format_combined_text(self, document: ResumeDocument, metadata: Dict[str, Any]) -> str:
+        """Build a rich embedding text from structured resume fields + raw text."""
+        parts = []
+
+        # Role
+        role = metadata.get('role') or getattr(document, 'role', None)
+        if role:
+            parts.append(f"Role: {role}")
+
+        # Summary
+        if document.summary:
+            parts.append(f"Summary: {document.summary}")
+
+        # Skills
+        if document.skills:
+            parts.append(f"Skills: {', '.join(str(s) for s in document.skills)}")
+
+        # Experience
+        if document.experience:
+            exp_texts = [self._format_experience_entry(e) for e in document.experience]
+            if any(exp_texts):
+                parts.append("Experience:\n" + "\n".join(t for t in exp_texts if t))
+
+        # Projects
+        if document.projects:
+            project_texts = [self._format_project_entry(p) for p in document.projects]
+            if any(project_texts):
+                parts.append("Projects:\n" + "\n".join(t for t in project_texts if t))
+
+        # Education
+        if document.education:
+            edu_texts = [self._format_education_entry(e) for e in document.education]
+            if any(edu_texts):
+                parts.append("Education:\n" + "\n".join(t for t in edu_texts if t))
+
+        # Resume text
+        resume_text = getattr(document, 'resume_text', None) or document.raw_text
+        if resume_text:
+            # Truncate raw text to keep combined chunk tokenizable
+            resume_text = resume_text[:500]
+            parts.append(f"Resume Text: {resume_text}")
+
+        return "\n\n".join(parts)
     
     def _create_chunk_data(self, section: str, text: str, metadata: Dict[str, Any]) -> ChunkData:
         """
@@ -218,17 +271,20 @@ class SemanticChunker:
         Format a project entry as text.
         
         Args:
-            project: Project object
+            project: Project object or string
             
         Returns:
             Formatted text string
         """
+        if isinstance(project, str):
+            return project
         parts = []
-        if project.name:
+        if getattr(project, 'name', None):
             parts.append(f"Project: {project.name}")
-        if project.technologies:
-            parts.append(f"Technologies: {', '.join(project.technologies)}")
-        if project.description:
+        technologies = getattr(project, 'technologies', None)
+        if technologies:
+            parts.append(f"Technologies: {', '.join(technologies)}")
+        if getattr(project, 'description', None):
             parts.append(f"Description: {project.description}")
         
         return "\n".join(parts)

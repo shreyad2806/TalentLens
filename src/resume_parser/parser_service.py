@@ -12,6 +12,7 @@ from datetime import datetime
 from .extractor import TextExtractor
 from .section_parser import SectionParser
 from .metadata_parser import MetadataParser
+from .quality_extractor import QualityMetadataExtractor
 from .schema import ResumeDocument
 
 
@@ -36,6 +37,7 @@ class ParserService:
         self.text_extractor = TextExtractor()
         self.section_parser = SectionParser()
         self.metadata_parser = MetadataParser()
+        self.quality_extractor = QualityMetadataExtractor()
     
     def parse_file(self, file_path: Union[str, Path]) -> ResumeDocument:
         """
@@ -83,90 +85,46 @@ class ParserService:
         # Step 2: Parse the extracted text
         return self.parse_text(raw_text)
     
-    def parse_text(self, text: str) -> ResumeDocument:
+    def parse_text(self, text: str, record: dict = None) -> ResumeDocument:
         """
         Parse resume text (already extracted).
-        
+
         This method is useful when text is already extracted from another source
-        (e.g., database, API, or pre-processing).
-        
+        (e.g., database, API, or pre-processing). If a CSV record is provided,
+        its columns (Location, Education, Email, Phone) are used as trusted
+        fallback sources.
+
         Args:
             text: Resume text (already extracted from document)
-            
+            record: Optional CSV record dict with known candidate fields.
+
         Returns:
             ResumeDocument object containing all extracted information
         """
-        # Step 1: Detect sections
-        sections = self.section_parser.detect_sections(text)
-        
-        # Step 2: Extract contact information from header
-        contact_info = self.section_parser.extract_contact_info(text)
-        
-        # Step 3: Extract section content
-        summary_text = self.section_parser.extract_summary(text)
-        skills_text = self.section_parser.extract_skills_section(text)
-        experience_text = self.section_parser.extract_experience_section(text)
-        education_text = self.section_parser.extract_education_section(text)
-        projects_text = self.section_parser.extract_projects_section(text)
-        certifications_text = self.section_parser.extract_certifications_section(text)
-        languages_text = self.section_parser.extract_languages_section(text)
-        
-        # Step 4: Parse structured metadata from sections
-        skills = self.metadata_parser.parse_skills(skills_text)
-        experience = self.metadata_parser.parse_experience(experience_text)
-        education = self.metadata_parser.parse_education(education_text)
-        projects = self.metadata_parser.parse_projects(projects_text)
-        certifications = self.metadata_parser.parse_certifications(certifications_text)
-        languages = self.metadata_parser.parse_languages(languages_text)
-        
-        # Step 5: Extract additional metadata
-        location = self.metadata_parser.extract_location(text)
-        experience_years = self.metadata_parser.extract_experience_years(text)
-        
-        # Step 6: Build unified ResumeDocument
-        document = ResumeDocument(
-            name=contact_info.get('name'),
-            email=contact_info.get('email'),
-            phone=contact_info.get('phone'),
-            summary=summary_text,
-            skills=skills,
-            experience=experience,
-            projects=projects,
-            education=education,
-            certifications=certifications,
-            languages=languages,
-            raw_text=text,
-            metadata={
-                'parsed_at': datetime.now().isoformat(),
-                'location': location,
-                'total_experience_years': experience_years,
-                'sections_detected': list(sections.keys()),
-            }
-        )
-        
-        return document
+        return self.quality_extractor.extract(text, record)
     
-    def parse_resume_text_only(self, text: str) -> dict:
+    def parse_resume_text_only(self, text: str, record: dict = None) -> dict:
         """
         Parse resume text and return a simple dictionary (legacy compatibility).
-        
+
         This method provides backward compatibility with the old parser interface.
         It returns a simple dictionary with basic fields instead of the full
         ResumeDocument schema.
-        
+
         Args:
             text: Resume text
-            
+            record: Optional CSV record dict with known candidate fields.
+
         Returns:
             Dictionary with basic extracted fields
         """
         # Use the new parser but convert to legacy format
-        document = self.parse_text(text)
-        
+        document = self.parse_text(text, record)
+
         return {
             'skills': document.skills,
-            'experience': document.metadata.get('total_experience_years', 0),
-            'location': document.metadata.get('location', 'Not specified'),
-            'role': document.experience[0].title if document.experience else 'Software Developer',
+            'experience': document.metadata.get('total_experience_years'),
+            'location': document.metadata.get('location'),
+            'role': document.experience[0].title if document.experience else None,
             'text': text
         }

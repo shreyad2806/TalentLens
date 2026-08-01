@@ -20,9 +20,12 @@ from .resume_loader import ResumeLoader, LoadResult
 from .startup_validator import StartupValidator
 from .startup_report import StartupReport
 from .csv_ingestion import CSVIngestionService, CSVIngestionResult
+from .dataset_hash import DatasetHashManager
+from .index_recovery_service import IndexRecoveryService
 
 # Import existing indexing pipeline
 from ..indexing.pipeline import IndexingPipeline
+from ..retrieval.sparse.bm25_index import IncompatibleIndexError
 from ..debug_logger import log_stage_start, log_stage_end, log_error
 
 logger = logging.getLogger(__name__)
@@ -77,6 +80,9 @@ class BootstrapService:
         
         # Initialize CSV ingestion service
         self.csv_ingestion_service = CSVIngestionService()
+        
+        # Initialize dataset hash manager for cache-invalidation decisions
+        self.dataset_hash_manager = DatasetHashManager()
 
         # Store bundle references for temporary identity logging
         self._bm25_id = id(bundle.bm25_index)
@@ -86,6 +92,9 @@ class BootstrapService:
             print(f"[IDENTITY] BootstrapService bm25_id={self._bm25_id} embedding_id={self._emb_id} vector_store_id={self._vec_id}")
 
         
+        # Initialize index recovery service (bootstrap-only)
+        self.index_recovery_service = IndexRecoveryService(self.indexing_pipeline.indexing_service)
+
         # Initialize validator and reporter
         self.validator = StartupValidator(self.indexing_pipeline)
         self.reporter = StartupReport()
@@ -120,6 +129,10 @@ class BootstrapService:
                 print(f"[BOOTSTRAP-TRACE][bootstrap_service.py] BM25 index loaded from {bm25_index_path}")
             else:
                 result['errors'].append("BM25 index instance not available")
+        except IncompatibleIndexError as e:
+            logger.error(f"Incompatible persisted BM25 index detected: {e}")
+            result['errors'].append(f"Incompatible persisted index: {str(e)}")
+            self._delete_persisted_indexes()
         except Exception as e:
             result['errors'].append(f"BM25 load failed: {str(e)}")
             logger.error(f"BM25 load failed: {e}")
@@ -163,6 +176,15 @@ class BootstrapService:
             print("🔄 Production Bootstrap System")
             print("="*70)
         
+        # Discover the current dataset and compute its content hash
+        load_result = self.resume_loader.load_resumes(self.base_path)
+        current_hash = self.dataset_hash_manager.compute_hash(load_result.file_paths, load_result.csv_path)
+        cached_hash = self.dataset_hash_manager.load_hash()
+        hash_unchanged = cached_hash is not None and cached_hash == current_hash
+        
+        print(f"[BOOTSTRAP] Dataset hash: current={current_hash[:16]}... cached={'(none)' if cached_hash is None else cached_hash[:16] + '...'}")
+        print(f"[BOOTSTRAP-TRACE][bootstrap_service.py] hash_unchanged={hash_unchanged}")
+        
         # Validate current state before deciding load vs build
         pre_validation = self.validator.validate()
         pre_stats = self.indexing_pipeline.get_statistics()
@@ -173,61 +195,89 @@ class BootstrapService:
         print(f"[BOOTSTRAP] Indexes exist? {indexes_exist}")
         print(f"[BOOTSTRAP-TRACE][bootstrap_service.py] _indexes_exist_on_disk()={indexes_exist}")
         
-        if indexes_exist:
-            print("[BOOTSTRAP] Loading indexes")
-            load_result = self._load_indexes()
-            result = {
-                'bootstrapped': True,
-                'reason': 'loaded_existing_indexes',
-                'loaded': load_result,
-                'statistics': self.indexing_pipeline.get_statistics(),
-                'bootstrap_time_seconds': 0.0
-            }
+        # Reuse persisted indexes only if they exist AND the dataset hash is unchanged
+        if indexes_exist and hash_unchanged:
+            print("[BOOTSTRAP] Loading persisted indexes")
+            load_result_dict = self._load_indexes()
+            post_stats = self.indexing_pipeline.get_statistics()
+            print(f"[BOOTSTRAP-TRACE][bootstrap_service.py] Post-load stats: indexed_documents={post_stats['indexed_documents']}, vector_count={post_stats['vector_count']}, bm25_count={post_stats['bm25_count']}")
+            
+            if post_stats['bm25_count'] > 0:
+                result = {
+                    'bootstrapped': True,
+                    'reason': 'loaded_existing_indexes',
+                    'hash_unchanged': True,
+                    'loaded': load_result_dict,
+                    'statistics': post_stats,
+                }
+                self.dataset_hash_manager.save_hash(current_hash)
+            else:
+                print("[BOOTSTRAP] Persisted indexes empty, rebuilding")
+                print("[BOOTSTRAP-TRACE][bootstrap_service.py] DECISION: REBUILD - persisted indexes contained no data")
+                
+                if self.verbose:
+                    print("📋 Persisted indexes empty - starting bootstrap workflow")
+                    print()
+                
+                result = self._run_bootstrap_workflow(load_result=load_result)
+                self.dataset_hash_manager.save_hash(current_hash)
         else:
-            print("[BOOTSTRAP] Building indexes")
-            print("[BOOTSTRAP-TRACE][bootstrap_service.py] DECISION: RUN bootstrap workflow - indexes do not exist on disk")
+            if not indexes_exist:
+                print("[BOOTSTRAP] Building indexes - no persisted indexes found")
+            else:
+                print("[BOOTSTRAP] Building indexes - dataset changed")
+            print("[BOOTSTRAP-TRACE][bootstrap_service.py] DECISION: RUN bootstrap workflow")
             
             if self.verbose:
-                print("📋 Indexes not found on disk - starting bootstrap workflow")
+                print("📋 Starting bootstrap workflow")
                 print()
             
             # Run bootstrap workflow
-            result = self._run_bootstrap_workflow()
-            
-            bootstrap_time = time.perf_counter() - start_time
-            result['bootstrap_time_seconds'] = bootstrap_time
-            self._last_bootstrap_time = bootstrap_time
-            self._last_bootstrap_result = result
-            
-            # Print startup report
-            if self.verbose:
-                self.reporter.print_report(result)
-            
-            logger.info(f"Bootstrap complete in {bootstrap_time:.2f}s")
-            
-            # Stage 2 END banner
-            final_stats = self.indexing_pipeline.get_statistics()
-            log_stage_end(2, "BOOTSTRAP", status="SUCCESS",
-                          time_ms=bootstrap_time * 1000,
-                          sample={
-                              "Indexed_Documents": final_stats.get('indexed_documents', 0),
-                              "Vector_Count": final_stats.get('vector_count', 0),
-                              "BM25_Count": final_stats.get('bm25_count', 0),
-                              "Skipped": "No",
-                              "Success": result.get('success', False),
-                          })
+            result = self._run_bootstrap_workflow(load_result=load_result)
+            self.dataset_hash_manager.save_hash(current_hash)
+        
+        bootstrap_time = time.perf_counter() - start_time
+        result['bootstrap_time_seconds'] = bootstrap_time
+        self._last_bootstrap_time = bootstrap_time
+        self._last_bootstrap_result = result
+        
+        # Print startup report
+        if self.verbose:
+            self.reporter.print_report(result)
+        
+        logger.info(f"Bootstrap complete in {bootstrap_time:.2f}s")
+        
+        # Stage 2 END banner
+        final_stats = self.indexing_pipeline.get_statistics()
+        log_stage_end(2, "BOOTSTRAP", status="SUCCESS",
+                      time_ms=bootstrap_time * 1000,
+                      sample={
+                          "Indexed_Documents": final_stats.get('indexed_documents', 0),
+                          "Vector_Count": final_stats.get('vector_count', 0),
+                          "BM25_Count": final_stats.get('bm25_count', 0),
+                          "Skipped": "No",
+                          "Success": result.get('success', result.get('reason') == 'loaded_existing_indexes'),
+                      })
         
         # Final validation after load/build
         post_validation = self.validator.validate()
         post_stats = self.indexing_pipeline.get_statistics()
         print(f"[BOOTSTRAP-TRACE][bootstrap_service.py] Post-bootstrap stats: indexed_documents={post_stats['indexed_documents']}, vector_count={post_stats['vector_count']}, bm25_count={post_stats['bm25_count']}")
+
+        if post_stats.get('bm25_count', 0) == 0:
+            raise RuntimeError(
+                f"Startup failed: BM25 Count is 0. "
+                f"Indexed documents={post_stats.get('indexed_documents', 0)}, "
+                f"vectors={post_stats.get('vector_count', 0)}. "
+                f"Sparse indexing did not produce any BM25 documents."
+            )
         
         print("[BOOTSTRAP] Ready")
         print("[BOOTSTRAP-TRACE][bootstrap_service.py] BootstrapService.bootstrap() returning")
         
         return result
     
-    def _run_bootstrap_workflow(self) -> Dict[str, Any]:
+    def _run_bootstrap_workflow(self, load_result: Optional[LoadResult] = None) -> Dict[str, Any]:
         """
         Run the complete bootstrap workflow.
         
@@ -237,17 +287,22 @@ class BootstrapService:
         3. Index individual files via IndexingPipeline
         4. Validate results
         
+        Args:
+            load_result: Optional pre-computed LoadResult (avoids double loading)
+        
         Returns:
             Dictionary with workflow results
         """
         workflow_start = time.time()
         print("[BOOTSTRAP-TRACE][bootstrap_service.py] _run_bootstrap_workflow() started")
         
-        # Step 1: Load resumes
-        if self.verbose:
-            print("📂 Step 1: Loading Resumes")
-        
-        load_result = self.resume_loader.load_resumes(self.base_path)
+        # Step 1: Load resumes (or reuse if provided)
+        if load_result is None:
+            if self.verbose:
+                print("📂 Step 1: Loading Resumes")
+            load_result = self.resume_loader.load_resumes(self.base_path)
+        elif self.verbose:
+            print("📂 Step 1: Resumes (already loaded)")
         print(f"[BOOTSTRAP-TRACE][bootstrap_service.py] ResumeLoader found files={load_result.total_files_found}, valid={load_result.valid_files}, csv_detected={load_result.csv_detected}")
         
         if self.verbose:
@@ -340,10 +395,21 @@ class BootstrapService:
                 'validation_result': None
             }
         
-        # Step 4: Validate
+        # Step 4: Index recovery (bootstrap-only)
+        print("[BOOTSTRAP-TRACE][bootstrap_service.py] Running IndexRecoveryService.recover_indexes()")
+        if self.verbose:
+            print("🔄 Step 4: Index Recovery")
+        
+        recovery_result = self.index_recovery_service.recover_indexes()
+        if recovery_result["status"] == "recovered":
+            print(f"[BOOTSTRAP-TRACE][bootstrap_service.py] Index recovery rebuilt BM25: pre={recovery_result['pre_recovery']['bm25_count']} -> post={recovery_result['post_recovery']['bm25_count']}")
+        else:
+            print(f"[BOOTSTRAP-TRACE][bootstrap_service.py] Index recovery not needed: {recovery_result['pre_recovery']}")
+        
+        # Step 5: Validate
         print("[BOOTSTRAP-TRACE][bootstrap_service.py] Running StartupValidator.validate()")
         if self.verbose:
-            print("✅ Step 4: Validation")
+            print("✅ Step 5: Validation")
         
         validation_result = self.validator.validate()
         print(f"[BOOTSTRAP-TRACE][bootstrap_service.py] Validation result: is_valid={validation_result.get('is_valid')}, errors={len(validation_result.get('errors', []))}")
@@ -391,6 +457,12 @@ class BootstrapService:
         result = self._run_bootstrap_workflow()
         result['rebuild'] = True
         result['rebuild_result'] = rebuild_result
+        
+        # Persist the new dataset hash
+        if result.get('load_result'):
+            lr = result['load_result']
+            new_hash = self.dataset_hash_manager.compute_hash(lr.file_paths, lr.csv_path)
+            self.dataset_hash_manager.save_hash(new_hash)
         
         bootstrap_time = time.time() - start_time
         result['bootstrap_time_seconds'] = bootstrap_time
@@ -473,6 +545,10 @@ class BootstrapService:
                 print(f"[BOOTSTRAP-TRACE][bootstrap_service.py] BM25 index loaded from {bm25_index_path}")
             else:
                 result['errors'].append("BM25 index instance not available")
+        except IncompatibleIndexError as e:
+            logger.error(f"Incompatible persisted BM25 index detected: {e}")
+            result['errors'].append(f"Incompatible persisted index: {str(e)}")
+            self._delete_persisted_indexes()
         except Exception as e:
             result['errors'].append(f"BM25 load failed: {str(e)}")
             logger.error(f"BM25 load failed: {e}")
@@ -492,8 +568,26 @@ class BootstrapService:
         # Refresh vector count from statistics
         stats = self.indexing_pipeline.get_statistics()
         result['vector_count'] = stats.get('vector_count', 0)
-        
+
         return result
+
+    def _delete_persisted_indexes(self) -> None:
+        """Delete persisted BM25 index and vector cache to force a clean rebuild."""
+        import shutil
+        paths = [
+            Path("data/indexes/bm25"),
+            Path("data/cache"),
+        ]
+        for p in paths:
+            if p.exists():
+                try:
+                    if p.is_dir():
+                        shutil.rmtree(p)
+                    else:
+                        p.unlink()
+                    print(f"[BOOTSTRAP-TRACE][bootstrap_service.py] Deleted incompatible persisted data: {p}")
+                except Exception as e:
+                    logger.error(f"Failed to delete {p}: {e}")
         """
         Run the complete bootstrap workflow.
         
@@ -606,10 +700,21 @@ class BootstrapService:
                 'validation_result': None
             }
         
-        # Step 4: Validate
+        # Step 4: Index recovery (bootstrap-only)
+        print("[BOOTSTRAP-TRACE][bootstrap_service.py] Running IndexRecoveryService.recover_indexes()")
+        if self.verbose:
+            print("🔄 Step 4: Index Recovery")
+        
+        recovery_result = self.index_recovery_service.recover_indexes()
+        if recovery_result["status"] == "recovered":
+            print(f"[BOOTSTRAP-TRACE][bootstrap_service.py] Index recovery rebuilt BM25: pre={recovery_result['pre_recovery']['bm25_count']} -> post={recovery_result['post_recovery']['bm25_count']}")
+        else:
+            print(f"[BOOTSTRAP-TRACE][bootstrap_service.py] Index recovery not needed: {recovery_result['pre_recovery']}")
+        
+        # Step 5: Validate
         print("[BOOTSTRAP-TRACE][bootstrap_service.py] Running StartupValidator.validate()")
         if self.verbose:
-            print("✅ Step 4: Validation")
+            print("✅ Step 5: Validation")
         
         validation_result = self.validator.validate()
         print(f"[BOOTSTRAP-TRACE][bootstrap_service.py] Validation result: is_valid={validation_result.get('is_valid')}, errors={len(validation_result.get('errors', []))}")

@@ -328,9 +328,17 @@ class IndexingService:
         """
         Get the number of vectors in the vector store.
         
+        Prefer the live count from the persisted vector store so that
+        startup loads reflect the actual indexed vectors.
+        
         Returns:
             Number of embedding vectors stored
         """
+        if self._vector_store_service is not None:
+            try:
+                return self._vector_store_service.count()
+            except Exception:
+                logger.warning("Vector store count unavailable, falling back to in-memory counter")
         return self._vector_count
     
     def bm25_count(self) -> int:
@@ -395,26 +403,16 @@ class IndexingService:
         return stats
     
     def _embedding_records_to_vector_records(self, embedding_records: List) -> List:
-        """Convert EmbeddingRecord objects to VectorRecord objects for generic vector stores."""
+        """Convert EmbeddingRecord objects to VectorRecord objects."""
         from ..vector_store.schema import VectorRecord
         vector_records = []
         for record in embedding_records:
-            metadata = dict(record.metadata) if record.metadata else {}
-            metadata.update({
-                'resume_id': record.resume_id,
-                'candidate_name': record.candidate_name,
-                'section': record.section,
-                'embedding_id': str(record.embedding_id),
-                'chunk_id': str(record.chunk_id),
-            })
             vector_records.append(VectorRecord(
                 id=str(record.embedding_id),
-                resume_id=record.resume_id,
                 chunk_id=str(record.chunk_id),
-                candidate_name=record.candidate_name,
                 section=record.section,
                 vector=record.vector,
-                metadata=metadata
+                resume_metadata=record.resume_metadata
             ))
         return vector_records
     

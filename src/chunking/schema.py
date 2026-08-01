@@ -8,6 +8,8 @@ These models provide type safety, validation, and serialization capabilities.
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 
+from src.models import ResumeMetadata
+
 
 class ChunkMetadata(BaseModel):
     """
@@ -64,8 +66,9 @@ class Chunk(BaseModel):
     section: str = Field(..., description="Section name (e.g., 'experience_1', 'skills')")
     text: str = Field(..., description="Chunk text content")
     metadata: ChunkMetadata = Field(..., description="Chunk metadata")
+    resume_metadata: ResumeMetadata = Field(..., description="Canonical resume metadata")
     chunk_order: int = Field(..., description="Order within resume")
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """
         Convert the Chunk to a dictionary.

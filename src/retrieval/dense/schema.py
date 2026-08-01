@@ -12,46 +12,40 @@ Architecture Notes:
 """
 
 from typing import Optional, Dict, Any, List
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, computed_field, field_validator
 from datetime import datetime
+
+from src.models import ResumeMetadata
 
 
 class DenseSearchResult(BaseModel):
-    """
-    Schema for a single dense search result.
-    
-    This schema represents a search result from the dense retrieval service,
-    including the query, candidate information, normalized scores, and evidence.
-    
-    Architecture Pattern: Data Transfer Object (DTO)
-    - Immutable data structure
-    - Type-safe field definitions
-    - Validation through Pydantic
-    - Clear field semantics
-    
-    Fields:
-        query: The original search query
-        candidate_name: Name of the candidate
-        resume_id: Unique identifier for the resume
-        chunk_id: Unique identifier for the chunk
-        section: Section of the resume (e.g., skills, experience)
-        score: Raw similarity score from vector search
-        normalized_score: Normalized score (0.0 - 1.0)
-        metadata: Additional metadata about the result
-        matched_text: Text content that matched the query
-        rank: Rank position in the results
-    """
-    
+    """Dense search result carrying the canonical ResumeMetadata."""
+
     query: str = Field(..., description="The original search query")
-    candidate_name: str = Field(..., description="Name of the candidate")
-    resume_id: str = Field(..., description="Unique identifier for the resume")
-    chunk_id: str = Field(..., description="Unique identifier for the chunk")
+    chunk_id: str = Field(..., description="Unique chunk identifier")
     section: str = Field(..., description="Section of the resume")
     score: float = Field(..., ge=0.0, le=1.0, description="Raw similarity score")
     normalized_score: float = Field(..., ge=0.0, le=1.0, description="Normalized score (0.0 - 1.0)")
-    metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
+    resume_metadata: ResumeMetadata = Field(..., description="Canonical resume metadata")
     matched_text: str = Field(..., description="Text content that matched the query")
-    rank: int = Field(..., ge=0, description="Rank position in the results")
+    offset: int = Field(default=0, ge=0, description="Character offset of matched_text")
+    rank: int = Field(..., ge=0, description="Rank position")
+
+    @computed_field
+    @property
+    def resume_id(self) -> str:
+        return self.resume_metadata.resume_id
+
+    @computed_field
+    @property
+    def candidate_name(self) -> Optional[str]:
+        return self.resume_metadata.candidate_name
+
+    @computed_field
+    @property
+    def metadata(self) -> Dict[str, Any]:
+        """Legacy compatibility: expose resume metadata as a flat dict."""
+        return self.resume_metadata.model_dump(mode="json")
     
     @field_validator('normalized_score')
     @classmethod

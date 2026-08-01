@@ -11,6 +11,7 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 
 from ..resume_parser.schema import ResumeDocument
+from ..models import ResumeMetadata
 from .schema import Chunk, ChunkMetadata, EmbeddingStatus
 
 
@@ -179,6 +180,10 @@ class ChunkFactory:
         if document.education:
             education = document.education[0].institution
         
+        # Get certifications and projects
+        certifications = [c.name for c in document.certifications if c.name] if document.certifications else []
+        projects = [p.name for p in document.projects if p.name] if document.projects else []
+
         return {
             "candidate_name": document.name,
             "role": role,
@@ -186,6 +191,8 @@ class ChunkFactory:
             "location": location,
             "education": education,
             "skills": list(document.skills) if document.skills else [],
+            "certifications": certifications,
+            "projects": projects,
             "email": document.email,
             "phone": document.phone,
             "summary": document.summary,
@@ -220,6 +227,8 @@ class ChunkFactory:
             location=metadata.get('location'),
             education=metadata.get('education'),
             skills=metadata.get('skills', []),
+            certifications=metadata.get('certifications', []),
+            projects=metadata.get('projects', []),
             email=metadata.get('email'),
             phone=metadata.get('phone'),
             summary=metadata.get('summary'),
@@ -231,7 +240,22 @@ class ChunkFactory:
         _non_null = {k: v for k, v in _meta_dict.items() if v is not None and v != [] and v != ''}
         _sample = {k: (str(v)[:40] + '...' if len(str(v)) > 40 else v) for k, v in _non_null.items()}
         print(f"[META-WRITE][ChunkMetadata][ChunkFactory] resume_id={resume_id[:8]}  section={section}  keys={sorted(_meta_dict.keys())}  non_null={list(_non_null.keys())}  sample={_sample}")
-        
+
+        resume_metadata = ResumeMetadata(
+            resume_id=resume_id,
+            candidate_name=candidate_name,
+            role=chunk_metadata.role,
+            skills=chunk_metadata.skills,
+            location=chunk_metadata.location,
+            experience_years=float(chunk_metadata.experience) if chunk_metadata.experience is not None else None,
+            education=[chunk_metadata.education] if chunk_metadata.education else [],
+            projects=chunk_metadata.projects,
+            certifications=chunk_metadata.certifications,
+            email=chunk_metadata.email,
+            phone=chunk_metadata.phone,
+            summary=chunk_metadata.summary,
+        )
+
         return Chunk(
             chunk_id=chunk_id,
             resume_id=resume_id,
@@ -239,6 +263,7 @@ class ChunkFactory:
             section=section,
             text=text,
             metadata=chunk_metadata,
+            resume_metadata=resume_metadata,
             chunk_order=chunk_order,
             created_at=datetime.now(),
             embedding_status=EmbeddingStatus.PENDING,

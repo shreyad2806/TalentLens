@@ -26,8 +26,15 @@ from collections import defaultdict
 from pathlib import Path
 import math
 
+from pydantic import ValidationError
+
 from .schema import BM25Document, BM25IndexStats
 from .scorer import BM25Scorer
+
+
+class IncompatibleIndexError(Exception):
+    """Raised when a persisted index cannot be loaded under the current schema."""
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -75,18 +82,13 @@ class BM25Index:
         
         logger.info("BM25Index initialized")
     
-    def add_document(self, document: BM25Document) -> None:
+    def add_document(self, document: BM25Document = None, *, document_id: str = None, tokens: List[str] = None, **kwargs) -> None:
         """
         Add a document to the index incrementally.
         
-        This method adds a document to the index by:
-        1. Checking for duplicate document IDs
-        2. Storing the document in the document store
-        3. Updating vocabulary with document tokens
-        4. Updating document frequency for each term
-        5. Adding document ID to posting lists
-        6. Recalculating average document length
-        7. Logging the update operation
+        Supports both the sparse API `add_document(BM25Document)` and the
+        bm25-style API `add_document(document_id=..., tokens=..., document=...)`
+        used by callers that build documents with `chunk_to_document()`.
         
         Consistency Guarantees:
         - Vocabulary: Updated with new terms from document
@@ -96,8 +98,17 @@ class BM25Index:
         
         Args:
             document: BM25Document to add to index
+            document_id: Optional document ID passed by keyword callers
+            tokens: Optional token list passed by keyword callers (ignored when document is provided)
         """
-        doc_id = document.chunk_id
+        # Normalize calls: prefer the BM25Document payload.
+        if document is None and kwargs.get("document") is not None:
+            document = kwargs.pop("document")
+
+        if document is None:
+            raise ValueError("add_document requires a BM25Document (provide as positional or document=... keyword)")
+
+        doc_id = document.document_id or document.chunk_id
         
         # Check for duplicate document
         if doc_id in self.document_store:
@@ -624,31 +635,15 @@ class BM25Index:
                 docs_dict = json.load(f)
                 self.document_store = {}
                 for doc_id, doc_data in docs_dict.items():
-                    # Check if this is legacy format (missing 'tokens' field)
-                    if 'tokens' not in doc_data:
-                        # Convert legacy format to new format
-                        # Legacy format: document_id, chunk_id, resume_id, candidate_name, section, text, metadata, token_count, created_at
-                        # New format: chunk_id, resume_id, section, candidate_name, text, tokens, document_length, metadata
-                        
-                        # Tokenize the text to generate tokens
-                        from .tokenizer import Tokenizer
-                        tokenizer = Tokenizer()
-                        tokens = tokenizer.tokenize_document(doc_data.get('text', ''))
-                        
-                        converted_doc = BM25Document(
-                            chunk_id=doc_data.get('chunk_id', doc_data.get('document_id', doc_id)),
-                            resume_id=doc_data.get('resume_id', ''),
-                            section=doc_data.get('section', ''),
-                            candidate_name=doc_data.get('candidate_name', '') or 'Unknown',
-                            text=doc_data.get('text', ''),
-                            tokens=tokens,
-                            document_length=len(tokens),
-                            metadata=doc_data.get('metadata', {})
-                        )
-                        self.document_store[doc_id] = converted_doc
-                    else:
-                        # New format - load directly
+                    try:
                         self.document_store[doc_id] = BM25Document(**doc_data)
+                    except ValidationError as e:
+                        # Any validation error for a persisted document means the
+                        # stored index was produced by an incompatible schema.
+                        # The canonical ResumeMetadata is a breaking change; we
+                        # never migrate legacy documents.
+                        logger.error("Persisted BM25 index is incompatible with current schema.")
+                        raise IncompatibleIndexError("Persisted BM25 index is incompatible with current schema.") from e
             
             # Load metadata
             metadata_path = index_path / "metadata.json"

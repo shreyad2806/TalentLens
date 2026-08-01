@@ -30,7 +30,8 @@ class ChunkValidator:
         'project_1', 'project_2', 'project_3', 'project_4', 'project_5',
         'education_1', 'education_2', 'education_3', 'education_4', 'education_5',
         'certifications',
-        'languages'
+        'languages',
+        'combined',
     }
     
     # Maximum chunk length (characters)

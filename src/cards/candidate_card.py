@@ -1,0 +1,172 @@
+"""CandidateCard builder that consumes ResumeDocument metadata directly."""
+
+from __future__ import annotations
+
+import json
+import os
+import sys
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.models import ResumeDocument
+from src.preview import ResumePreviewGenerator
+from src.search import SearchResult
+
+# Lazy load cache
+_RESUME_CACHE: Optional[Dict[str, ResumeDocument]] = None
+
+
+def _load_resume_cache() -> Dict[str, ResumeDocument]:
+    """Load the unified production dataset and index by candidate_id."""
+    global _RESUME_CACHE
+    if _RESUME_CACHE is not None:
+        return _RESUME_CACHE
+
+    dataset_path = PROJECT_ROOT / "combined" / "production_dataset.json"
+    cache: Dict[str, ResumeDocument] = {}
+
+    if dataset_path.exists():
+        with open(dataset_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        for raw in data:
+            try:
+                doc = ResumeDocument.model_validate(raw)
+                cache[doc.candidate_id] = doc
+            except Exception:
+                continue
+
+    _RESUME_CACHE = cache
+    return _RESUME_CACHE
+
+
+def _compute_match_score(resume_skills: List[str], jd_skills: List[str]) -> tuple[float, List[str]]:
+    """Compute skill-match percentage and matched skills."""
+    if not jd_skills:
+        return 0.0, []
+
+    resume_set = {s.lower().strip() for s in resume_skills if s}
+    jd_set = {s.lower().strip() for s in jd_skills if s}
+    matched = sorted(resume_set & jd_set)
+    score = min((len(matched) / len(jd_set)) * 100, 100.0) if jd_set else 0.0
+    return round(score, 2), matched
+
+
+def _format_education(edu) -> str:
+    """Format a single education entry (handles both string and Education objects)."""
+    if isinstance(edu, str):
+        return edu
+    parts = [
+        p for p in [
+            getattr(edu, 'degree', None),
+            getattr(edu, 'field', None),
+            getattr(edu, 'field_of_study', None),
+            getattr(edu, 'university', None),
+            getattr(edu, 'institution', None),
+        ] if p
+    ]
+    return " ".join(parts) if parts else "Education"
+
+
+def _format_project(proj: Any) -> str:
+    """Format a single project entry (handles both string and Project objects)."""
+    if isinstance(proj, str):
+        return proj
+    parts = [proj.name] if getattr(proj, "name", None) else []
+    if getattr(proj, "technologies", None):
+        parts.append(f"({', '.join(proj.technologies)})")
+    return " ".join(parts) if parts else "Project"
+
+
+def _compute_confidence(resume: ResumeDocument) -> float:
+    """Aggregate per-field confidence into a single score."""
+    conf = resume.metadata_confidence or {}
+    values = [v for v in conf.values() if isinstance(v, (int, float))]
+    if values:
+        return round(sum(values) / len(values), 2)
+    return 1.0
+
+
+def build_candidate_card(
+    resume_id: str,
+    rrf_score: float,
+    jd_skills: List[str],
+    matched_text: str = "",
+    evidence_offset: int = 0,
+    section: str = "unknown",
+    dense_score: float = 0.0,
+    bm25_score: float = 0.0,
+) -> Optional[Dict[str, Any]]:
+    """
+    Build a complete frontend candidate card from ResumeDocument metadata.
+
+    The result is assembled into the canonical SearchResult schema and then
+    converted to the existing frontend dict. No candidate assembly or lookup
+    happens in the UI.
+    """
+    cache = _load_resume_cache()
+    resume = cache.get(resume_id)
+    if not resume:
+        return None
+
+    query_terms = {s.lower().strip() for s in jd_skills if s}
+
+    # Skill matches
+    resume_skills = [s.strip() for s in (resume.skills or []) if s]
+    matched_skills = sorted({
+        s for s in resume_skills
+        if any(t in s.lower() for t in query_terms)
+    })
+
+    # Derived matches from query terms
+    matched_projects = [
+        p for p in (resume.projects or [])
+        if any(t in p.lower() for t in query_terms)
+    ][:3]
+
+    matched_certifications = [
+        c for c in (resume.certifications or [])
+        if any(t in c.lower() for t in query_terms)
+    ][:3]
+
+    # Matched sections
+    matched_sections: List[str] = []
+    if section and section.lower() != "unknown":
+        matched_sections.append(section.capitalize())
+    if matched_skills:
+        matched_sections.append("Skills")
+    if matched_projects:
+        matched_sections.append("Projects")
+    if matched_certifications:
+        matched_sections.append("Certifications")
+    if resume.education:
+        matched_sections.append("Education")
+    if resume.experience_years is not None and resume.experience_years > 0:
+        matched_sections.append("Experience")
+    matched_sections = list(dict.fromkeys(matched_sections))  # dedupe
+
+    # Resume preview generated by the backend preview generator
+    preview = ResumePreviewGenerator().generate(resume)
+
+    result = SearchResult(
+        resume_metadata=resume.resume_metadata,
+        preview=preview,
+        matched_skills=matched_skills,
+        matched_projects=matched_projects,
+        matched_certifications=matched_certifications,
+        matched_keywords=sorted(query_terms),
+        matched_sections=matched_sections,
+        matched_text=matched_text or "",
+        dense_score=round(dense_score, 4),
+        bm25_score=round(bm25_score, 4),
+        rrf_score=round(rrf_score, 4),
+        rerank_score=round(rrf_score, 4),
+        final_score=round(rrf_score, 4),
+        metadata_confidence=resume.metadata_confidence or {},
+        source_dataset=resume.source_dataset or "unknown",
+    )
+
+    return result.to_frontend_dict(evidence_offset=evidence_offset)

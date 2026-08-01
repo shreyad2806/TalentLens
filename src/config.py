@@ -50,11 +50,7 @@ CATEGORIES = [
 def get_env(key: str, default: str = None, required: bool = False) -> str:
     value = os.getenv(key, default)
     if required and not value:
-        # Fallback for testing - remove this in production
-        if key == "PINECONE_API_KEY":
-            value = "pcsk_4ZMhL6_BStBEJw4wYUdhYtSFHbVFidAs3jaWjEVXLAPYiHYouuAvknZKAPPuEF8nPZjTjx"
-        else:
-            raise RuntimeError(f"Missing required env var: {key}")
+        raise RuntimeError(f"Missing required env var: {key}")
     return value
 
 

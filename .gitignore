@@ -26,8 +26,8 @@ Thumbs.db
 data/cache/
 data/indexes/
 
-# AI / ML model weights and binaries
-models/
+# AI / ML model weights and binaries (root only; allow src/models/ package)
+/models/
 
 # Temporary / generated audit files
 tmp_lines.txt
@@ -35,3 +35,27 @@ scripts/ents.txty.txtpyd
 audit_output.json
 repo_file_summary.txt
 repo_files.csv
+# --- Generated artifacts & caches ---
+logs/*
+!logs/.gitkeep
+
+.pytest_cache/
+cache/
+combined/
+synthetic/
+data/vector_store/
+
+# Compiled Python
+*.pyc
+*.pyo
+*.pyd
+
+# OS artifacts
+ehthumbs.db
+
+# Generated reports (kept only if explicitly added via exception)
+docs/reports/**
+!docs/reports/README.md
+
+# Type checker cache
+.mypy_cache/

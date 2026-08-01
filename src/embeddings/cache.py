@@ -12,13 +12,20 @@ the embedding vector as the value.
 from typing import List, Optional
 from threading import Lock
 import hashlib
+import json
+import os
+from pathlib import Path
+
+
+def _default_cache_path() -> Path:
+    return Path(os.getenv("EMBEDDING_CACHE_PATH", "cache/embeddings_cache.json"))
 
 
 class EmbeddingCache:
     """
     In-memory cache for embedding results.
     
-    This class provides a thread-safe in-memory cache to store embedding results
+    This class provides a thread-safe in-memory and disk-backed cache to store embedding results
     keyed by the text content. When the same text is requested again, the cached
     embedding is returned, avoiding duplicate model inference.
     
@@ -28,14 +35,39 @@ class EmbeddingCache:
     - Reducing computational costs
     """
     
-    def __init__(self):
+    def __init__(self, cache_path: Optional[Path] = None):
         """
-        Initialize the embedding cache.
+        Initialize the embedding cache and load any persisted entries.
         """
         self._cache: dict = {}
         self._lock: Lock = Lock()
         self._hits: int = 0
         self._misses: int = 0
+        self._dirty: bool = False
+        self.cache_path = cache_path or _default_cache_path()
+        self.load()
+    
+    def load(self) -> None:
+        """Load cached embeddings from disk."""
+        if not self.cache_path or not self.cache_path.exists():
+            return
+        try:
+            with open(self.cache_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            with self._lock:
+                self._cache = data
+        except Exception:
+            self._cache = {}
+    
+    def save(self) -> None:
+        """Persist the in-memory cache to disk if it has changed."""
+        if not self.cache_path or not self._dirty:
+            return
+        self.cache_path.parent.mkdir(parents=True, exist_ok=True)
+        with self._lock:
+            with open(self.cache_path, "w", encoding="utf-8") as f:
+                json.dump(self._cache, f)
+        self._dirty = False
     
     def _generate_key(self, text: str) -> str:
         """
@@ -83,6 +115,7 @@ class EmbeddingCache:
         
         with self._lock:
             self._cache[key] = embedding
+            self._dirty = True
     
     def has(self, text: str) -> bool:
         """

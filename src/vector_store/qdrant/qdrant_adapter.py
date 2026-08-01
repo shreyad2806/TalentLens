@@ -65,6 +65,7 @@ class QdrantAdapter:
     def __init__(
         self,
         url: Optional[str] = None,
+        path: Optional[str] = None,
         api_key: Optional[str] = None,
         collection_name: Optional[str] = None,
         vector_size: Optional[int] = None,
@@ -75,6 +76,7 @@ class QdrantAdapter:
         
         Args:
             url: Qdrant server URL (from QDRANT_URL env var if None)
+            path: Local persisted Qdrant path (from QDRANT_PATH env var if None)
             api_key: Qdrant API key (from QDRANT_API_KEY env var if None)
             collection_name: Collection name (from QDRANT_COLLECTION env var if None)
             vector_size: Vector dimension size (default: from config EMBEDDING_DIM)
@@ -84,7 +86,8 @@ class QdrantAdapter:
         if vector_size is None:
             vector_size = EMBEDDING_DIM
         # Get configuration from environment variables
-        self.url = url or os.getenv("QDRANT_URL", "http://localhost:6333")
+        self.url = url or os.getenv("QDRANT_URL")
+        self.path = path or os.getenv("QDRANT_PATH", "data/vector_store/qdrant")
         self.api_key = api_key or os.getenv("QDRANT_API_KEY")
         self.collection_name = collection_name or os.getenv("QDRANT_COLLECTION", "talentlens_candidates")
         
@@ -104,11 +107,15 @@ class QdrantAdapter:
             distance=distance_enum
         )
         
-        # Initialize Qdrant client
-        if self.api_key:
-            self.client = QdrantClient(url=self.url, api_key=self.api_key)
+        # Initialize Qdrant client: prefer remote URL, fallback to local persisted path
+        if self.url:
+            if self.api_key:
+                self.client = QdrantClient(url=self.url, api_key=self.api_key)
+            else:
+                self.client = QdrantClient(url=self.url)
         else:
-            self.client = QdrantClient(url=self.url)
+            Path(self.path).parent.mkdir(parents=True, exist_ok=True)
+            self.client = QdrantClient(path=self.path)
         
         # Initialize collection manager and health check
         self.collection_manager = CollectionManager(self.client, self.config)

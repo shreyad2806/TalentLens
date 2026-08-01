@@ -101,7 +101,7 @@ class VectorStoreValidator:
         self._validate_id(record.id)
         self._validate_vector(record.vector)
         self._validate_dimension(record.vector)
-        self._validate_metadata(record.metadata)
+        self._validate_metadata(record.resume_metadata.model_dump(mode="json"))
     
     def validate_records(self, records: List[VectorRecord]) -> Dict[str, Any]:
         """

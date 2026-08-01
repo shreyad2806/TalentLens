@@ -357,6 +357,18 @@ class FusionService:
             f"FusionService initialized with strategy={self.strategy_name}"
         )
     
+    def _reconstruct_matched_text(
+        self,
+        matched_text: str,
+        metadata: Dict[str, Any],
+        max_length: int = 400
+    ) -> str:
+        """Return the provided matched text, or reconstruct it from metadata text."""
+        if matched_text and matched_text.strip():
+            return matched_text.strip()
+        text = metadata.get("text") or metadata.get("text_preview") or metadata.get("source_text") or ""
+        return str(text)[:max_length].strip()
+
     def fuse_results(
         self,
         dense_results: List[Dict[str, Any]],
@@ -432,11 +444,15 @@ class FusionService:
                 candidates[chunk_id]["dense_score"] = result.get("score", 0.0)
             
             # Add matched chunk from dense retrieval (preserve dense evidence)
+            dense_matched_text = self._reconstruct_matched_text(
+                result.get("matched_text", ""), result.get("metadata", {})
+            )
             matched_chunk = MatchedChunk(
                 chunk_id=chunk_id,
                 section=result.get("section", ""),
-                matched_text=result.get("matched_text", ""),
+                matched_text=dense_matched_text,
                 score=result.get("score", 0.0),
+                offset=result.get("offset", 0),
                 retrieval_source=RetrievalSource.DENSE
             )
             candidates[chunk_id]["matched_chunks"].append(matched_chunk)
@@ -478,11 +494,15 @@ class FusionService:
                 candidates[chunk_id]["sparse_score"] = result.get("bm25_score", 0.0)
             
             # Add matched chunk from sparse retrieval (preserve sparse evidence)
+            sparse_matched_text = self._reconstruct_matched_text(
+                result.get("matched_text", ""), result.get("metadata", {})
+            )
             matched_chunk = MatchedChunk(
                 chunk_id=chunk_id,
                 section=result.get("section", ""),
-                matched_text=result.get("matched_text", ""),
+                matched_text=sparse_matched_text,
                 score=result.get("bm25_score", 0.0),
+                offset=result.get("offset", 0),
                 retrieval_source=RetrievalSource.SPARSE
             )
             candidates[chunk_id]["matched_chunks"].append(matched_chunk)
@@ -504,19 +524,20 @@ class FusionService:
                 sparse_score=candidate["sparse_score"]
             )
             
+            from src.models import ResumeMetadata
+            resume_metadata = ResumeMetadata.model_validate(candidate["metadata"])
+
             # Create hybrid result with fusion score
             hybrid_result = HybridSearchResult(
                 query=query,
-                candidate_name=candidate["candidate_name"],
-                resume_id=candidate["resume_id"],
                 chunk_id=chunk_id,
                 section=candidate["section"],
                 dense_rank=candidate["dense_rank"],
                 sparse_rank=candidate["sparse_rank"],
-                rrf_score=fusion_score,  # Using rrf_score field for fusion score
-                metadata=candidate["metadata"],
+                rrf_score=fusion_score,
+                resume_metadata=resume_metadata,
                 matched_chunks=candidate["matched_chunks"],
-                rank=0  # Will be assigned after sorting
+                rank=0
             )
             
             fused_results.append(hybrid_result)

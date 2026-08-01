@@ -95,7 +95,7 @@ class EmbeddingService:
         
         return embedding_record
     
-    def embed_chunks(self, chunks: List) -> List[EmbeddingRecord]:
+    def embed_chunks(self, chunks: List, batch_size: int = 32) -> List[EmbeddingRecord]:
         """
         Generate embeddings for multiple Chunk objects.
         
@@ -104,25 +104,26 @@ class EmbeddingService:
         2. Generates embeddings for all chunks using the vectorizer
         3. Validates all resulting embedding records
         4. Filters out duplicates
-        5. Returns only valid, unique embedding records
+        5. Persists the cache and returns valid, unique embedding records
         
         Args:
             chunks: List of Chunk objects to embed
+            batch_size: Number of chunks to encode per model forward pass
             
         Returns:
             List of valid, unique EmbeddingRecord objects
         """
-        # Generate embedding records for all chunks
-        embedding_records: List[EmbeddingRecord] = []
+        # Filter out invalid chunks before vectorization
+        valid_chunks = [
+            chunk for chunk in chunks
+            if self.validator.validate_text_not_empty(chunk.text)
+        ]
         
-        for chunk in chunks:
-            # Validate chunk text is not empty
-            if not self.validator.validate_text_not_empty(chunk.text):
-                continue
-            
-            # Generate embedding record
-            embedding_record = self.vectorizer.vectorize_chunk(chunk)
-            embedding_records.append(embedding_record)
+        # Generate embedding records in batches
+        embedding_records = self.vectorizer.vectorize_chunks(valid_chunks, batch_size=batch_size)
+        
+        # Persist cache to avoid rebuilding unchanged embeddings later
+        self.vectorizer.save_cache()
         
         # Validate and filter records
         valid_records = self.validator.validate_and_filter(embedding_records)

@@ -101,14 +101,16 @@ class QueryEmbedder:
         # Create a mock chunk object for the query
         # The embedding service expects a Chunk object, so we create a minimal one
         from src.chunks.schema import Chunk, ChunkMetadata
-        
+        from src.models.resume_metadata import ResumeMetadata
+
         query_chunk = Chunk(
             chunk_id=str(uuid.uuid4()),
-            resume_id=str(uuid.uuid4()),
+            resume_id='query',
             text=query,
             section="query",
             candidate_name="query",
             metadata=ChunkMetadata(),
+            resume_metadata=ResumeMetadata(resume_id='query', candidate_name='query'),
             chunk_order=0
         )
         
@@ -145,6 +147,7 @@ class QueryEmbedder:
         
         # Create mock chunk objects for the queries
         from src.chunks.schema import Chunk, ChunkMetadata
+        from src.models.resume_metadata import ResumeMetadata
         
         query_chunks = []
         for i, query in enumerate(queries):
@@ -153,11 +156,12 @@ class QueryEmbedder:
             
             query_chunk = Chunk(
                 chunk_id=str(uuid.uuid4()),
-                resume_id=str(uuid.uuid4()),
+                resume_id='query',
                 text=query,
                 section="query",
                 candidate_name="query",
                 metadata=ChunkMetadata(),
+                resume_metadata=ResumeMetadata(resume_id='query', candidate_name='query'),
                 chunk_order=i
             )
             query_chunks.append(query_chunk)

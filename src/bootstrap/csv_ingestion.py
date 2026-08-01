@@ -18,8 +18,8 @@ import pickle
 import re
 import numpy as np
 
+from src.models import ResumeMetadata
 from src.resume_parser.parser_service import ParserService
-from src.resume_parser.metadata_parser import MetadataParser
 
 logger = logging.getLogger(__name__)
 
@@ -65,11 +65,12 @@ class CSVIngestionService:
             for chunk in chunks:
                 chunks_data.append({
                     "chunk_id": chunk.chunk_id,
-                    "resume_id": chunk.resume_id,
-                    "candidate_name": chunk.candidate_name,
+                    "resume_id": chunk.resume_metadata.resume_id,
+                    "candidate_name": chunk.resume_metadata.candidate_name,
                     "section": chunk.section,
                     "text": chunk.text,
                     "metadata": chunk.metadata.dict() if hasattr(chunk.metadata, 'dict') else chunk.metadata,
+                    "resume_metadata": chunk.resume_metadata.model_dump(mode="json"),
                     "chunk_order": chunk.chunk_order,
                     "created_at": chunk.created_at.isoformat() if hasattr(chunk.created_at, 'isoformat') else str(chunk.created_at),
                     "embedding_status": chunk.embedding_status.value if hasattr(chunk.embedding_status, 'value') else str(chunk.embedding_status),
@@ -132,134 +133,102 @@ class CSVIngestionService:
             logger.error(f"Failed to load cache: {e}")
             return None
     
-    def chunk_raw_text(self, raw_text: str, resume_id: str, candidate_name: Optional[str],
-                      source_document: str, chunk_size: int = 1000, overlap: int = 100,
-                      email: Optional[str] = None, phone: Optional[str] = None,
-                      skills: Optional[List[str]] = None, location: Optional[str] = None,
-                      summary: Optional[str] = None, role: Optional[str] = None,
-                      experience: Optional[int] = None, education: Optional[str] = None,
-                      extraction_notes: Optional[str] = None) -> List:
-        """
-        Chunk raw text into smaller pieces for indexing.
-        
-        This method splits raw_text into chunks of specified size with overlap,
-        creating Chunk objects directly without requiring structured semantic fields.
-        
-        Args:
-            raw_text: The raw resume text to chunk
-            resume_id: Unique identifier for the resume
-            candidate_name: Candidate name
-            source_document: Source document identifier
-            chunk_size: Maximum chunk size in characters
-            overlap: Overlap between chunks in characters
-            
-        Returns:
-            List of Chunk objects
-        """
+    def chunk_raw_text(
+        self,
+        raw_text: str,
+        resume_metadata: ResumeMetadata,
+        source_document: str,
+        chunk_size: int = 1000,
+        overlap: int = 100,
+        extraction_notes: Optional[str] = None
+    ) -> List:
+        """Chunk raw text into smaller pieces, attaching the canonical ResumeMetadata unchanged."""
         from src.chunks.schema import Chunk, ChunkMetadata, EmbeddingStatus
-        
+
         chunks = []
         if not raw_text or len(raw_text) == 0:
             return chunks
-        
+
+        resume_id = resume_metadata.resume_id
+
+        def _make_chunk_metadata() -> ChunkMetadata:
+            return ChunkMetadata(
+                candidate_name=resume_metadata.candidate_name,
+                role=resume_metadata.role,
+                experience=int(resume_metadata.experience_years) if resume_metadata.experience_years is not None else None,
+                location=resume_metadata.location,
+                education=", ".join(resume_metadata.education) if resume_metadata.education else None,
+                skills=resume_metadata.skills,
+                email=resume_metadata.email,
+                phone=resume_metadata.phone,
+                summary=resume_metadata.summary,
+                certifications=resume_metadata.certifications,
+                projects=resume_metadata.projects,
+                source_section="raw_text",
+                extraction_notes=extraction_notes
+            )
+
+        print(f"[CHUNK-META] resume_id={resume_id}  candidate_name={resume_metadata.candidate_name}  skills={resume_metadata.skills[:5]}  location={resume_metadata.location}  experience_years={resume_metadata.experience_years}")
+
         # If text is very short, create a single chunk if it has content
         if len(raw_text.strip()) < chunk_size:
             stripped_text = raw_text.strip()
             if stripped_text:
-                chunk_metadata = ChunkMetadata(
-                    candidate_name=candidate_name,
-                    role=role,
-                    experience=experience,
-                    location=location,
-                    education=education,
-                    skills=skills or [],
-                    email=email,
-                    phone=phone,
-                    summary=summary,
-                    source_section="raw_text",
-                    extraction_notes=extraction_notes
-                )
-                
-                # [META-WRITE] Log ChunkMetadata creation
-                _meta_dict = chunk_metadata.dict()
-                _non_null = {k: v for k, v in _meta_dict.items() if v is not None and v != [] and v != ''}
-                print(f"[META-WRITE][ChunkMetadata][CSV-short] resume_id={resume_id[:8]}  keys={sorted(_meta_dict.keys())}  non_null={list(_non_null.keys())}")
-                
                 chunk = Chunk(
                     chunk_id=str(uuid.uuid4()),
                     resume_id=resume_id,
-                    candidate_name=candidate_name or "NO_CANDIDATE_NAME_EXTRACTED",
+                    candidate_name=resume_metadata.candidate_name,
                     section="raw_text_chunk_1",
                     text=stripped_text,
-                    metadata=chunk_metadata,
+                    metadata=_make_chunk_metadata(),
+                    resume_metadata=resume_metadata,
                     chunk_order=0,
                     created_at=datetime.now(),
                     embedding_status=EmbeddingStatus.PENDING,
                     source_document=source_document
                 )
-                
                 chunks.append(chunk)
             return chunks
-        
+
         # Split text into chunks
         start = 0
         chunk_order = 0
-        
+
         while start < len(raw_text):
             end = start + chunk_size
             chunk_text = raw_text[start:end]
-            
+
             # Skip empty or whitespace-only chunks
             if not chunk_text or not chunk_text.strip():
                 start = end - overlap
                 if overlap >= chunk_size:
                     start = end
                 continue
-            
-            # Create chunk metadata
-            chunk_metadata = ChunkMetadata(
-                candidate_name=candidate_name,
-                role=role,
-                experience=experience,
-                location=location,
-                education=education,
-                skills=skills or [],
-                email=email,
-                phone=phone,
-                summary=summary,
-                source_section="raw_text",
-                extraction_notes=extraction_notes
-            )
-            
-            # [META-WRITE] Log ChunkMetadata creation
-            _meta_dict = chunk_metadata.dict()
-            _non_null = {k: v for k, v in _meta_dict.items() if v is not None and v != [] and v != ''}
-            print(f"[META-WRITE][ChunkMetadata][CSV-chunk] resume_id={resume_id[:8]}  chunk_order={chunk_order}  keys={sorted(_meta_dict.keys())}  non_null={list(_non_null.keys())}")
-            
-            # Create chunk
+
             chunk = Chunk(
                 chunk_id=str(uuid.uuid4()),
                 resume_id=resume_id,
-                candidate_name=candidate_name or "NO_CANDIDATE_NAME_EXTRACTED",
+                candidate_name=resume_metadata.candidate_name,
                 section=f"raw_text_chunk_{chunk_order + 1}",
                 text=chunk_text,
-                metadata=chunk_metadata,
+                metadata=_make_chunk_metadata(),
+                resume_metadata=resume_metadata,
                 chunk_order=chunk_order,
                 created_at=datetime.now(),
                 embedding_status=EmbeddingStatus.PENDING,
                 source_document=source_document
             )
-            
+
             chunks.append(chunk)
             chunk_order += 1
-            
+
             # Move to next chunk with overlap
             start = end - overlap
-            
+
             # Prevent infinite loop if overlap >= chunk_size
             if overlap >= chunk_size:
                 start = end
-        
+
         return chunks
     
     _SECTION_HEADINGS = [
@@ -433,174 +402,109 @@ class CSVIngestionService:
         normalized = re.sub(r"\n{3,}", "\n\n", normalized)
         return normalized
 
-    def _extract_resume_metadata(self, raw_text: str, record: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Extract structured metadata from a CSV resume text blob.
+    def _extract_resume_metadata(self, raw_text: str, record: Dict[str, Any]) -> "ResumeMetadata":
+        """Extract a single canonical ResumeMetadata from the resume text."""
+        from src.models import ResumeMetadata
 
-        The CSV `Resume_str` column is a long, newline-collapsed text. We first
-        normalize it so the parser can find section headings, then run it through
-        ParserService/MetadataParser to recover candidate fields. Each field's
-        source or fallback reason is tracked so failures are visible instead of
-        silently becoming "Unknown".
-        """
         parser = ParserService()
-        metadata_parser = MetadataParser()
-        extraction_log: Dict[str, str] = {}
-        fallbacks: Dict[str, str] = {}
-
-        normalized_text = self._normalize_resume_text(raw_text)
-        document = parser.parse_text(normalized_text)
+        document = parser.parse_text(raw_text, record)
         record_id = str(record.get("ID", ""))
 
-        # 1. candidate_name
-        candidate_name, name_reason = self._extract_candidate_name(raw_text, document, record)
-        extraction_log["candidate_name"] = name_reason
-        if name_reason.startswith("fallback"):
-            fallbacks["candidate_name"] = name_reason
+        def _clean(value: Optional[str]) -> Optional[str]:
+            if value is None:
+                return None
+            v = value.strip()
+            if not v or v.lower() in {"unknown", "n/a", "na", "none", "not found"}:
+                return None
+            return v
 
-        # 2. skills
-        skills = [s for s in document.skills if s and s.lower() != "unknown"] if document.skills else []
-        if skills:
-            extraction_log["skills"] = "parsed_skills_section"
-        else:
-            skills = metadata_parser.extract_skills_keywords(raw_text)
-            if skills:
-                extraction_log["skills"] = "keyword_match"
-            else:
-                category = record.get("Category")
-                if category:
-                    skills = [category.lower().strip()]
-                    extraction_log["skills"] = "csv_category_fallback"
-                    fallbacks["skills"] = "csv_category"
-                else:
-                    skills = ["NO_SKILLS_EXTRACTED"]
-                    extraction_log["skills"] = "none_found"
+        # candidate_name
+        candidate_name = _clean(document.name)
 
-        # 3. location
-        location = document.metadata.get("location") if document.metadata else None
-        if location and location != "Not specified":
-            extraction_log["location"] = "parser_metadata"
-        else:
-            location = metadata_parser.extract_location(raw_text)
-            if location and location != "Not specified":
-                extraction_log["location"] = "keyword_match"
-            else:
-                location = record.get("Location", "").strip() or None
-                if location:
-                    extraction_log["location"] = "csv_column_fallback"
-                    fallbacks["location"] = "csv_location"
-                else:
-                    location = "NO_LOCATION_EXTRACTED"
-                    extraction_log["location"] = "none_found"
+        # contact
+        email = _clean(document.email)
+        phone = _clean(document.phone)
 
-        # 4. summary
-        summary = document.summary
-        if summary:
-            extraction_log["summary"] = "parser_summary"
-        elif raw_text:
-            summary = raw_text[:200].strip()
-            extraction_log["summary"] = "raw_text_head_fallback"
-            fallbacks["summary"] = "raw_text_head"
-        else:
-            summary = "NO_SUMMARY_EXTRACTED"
-            extraction_log["summary"] = "none_found"
+        # skills are already a list of strings from the parser
+        skills = [s for s in (document.skills or []) if s and s.strip() and s.strip().lower() != "unknown"]
 
-        # 5. experience (numeric, kept None if unavailable)
-        experience_years = document.metadata.get("total_experience_years") if document.metadata else None
-        if experience_years:
-            extraction_log["experience"] = "parser_metadata"
-        else:
-            parsed_years = metadata_parser.extract_experience_years(raw_text)
-            if parsed_years:
-                experience_years = parsed_years
-                extraction_log["experience"] = "regex_extracted"
-                fallbacks["experience"] = "regex"
-            else:
-                experience_years = None
-                extraction_log["experience"] = "none_found"
+        # location
+        location = None
+        if document.metadata and document.metadata.get("location"):
+            location = _clean(document.metadata.get("location"))
 
-        # 6. role (primary source is CSV Category for this ingestion path)
-        role = record.get("Category")
-        if role:
-            extraction_log["role"] = "csv_category"
-        elif document.experience:
-            title = document.experience[0].title
-            if title and len(title) <= 60 and len(title.split()) <= 8:
-                role = title
-                extraction_log["role"] = "first_experience_title_fallback"
-                fallbacks["role"] = "first_experience_title"
-            else:
-                role = "NO_ROLE_EXTRACTED"
-                extraction_log["role"] = "none_found"
-        else:
-            role = "NO_ROLE_EXTRACTED"
-            extraction_log["role"] = "none_found"
+        # summary
+        summary = _clean(document.summary)
 
-        # 7. email
-        email = document.email
-        if email:
-            extraction_log["email"] = "parser_email"
-        else:
-            email = record.get("Email", "").strip() or None
-            if email:
-                extraction_log["email"] = "csv_column_fallback"
-                fallbacks["email"] = "csv_email"
-            else:
-                email = "NO_EMAIL_EXTRACTED"
-                extraction_log["email"] = "none_found"
+        # experience years
+        experience_years = None
+        if document.metadata and document.metadata.get("total_experience_years") is not None:
+            try:
+                exp = float(document.metadata.get("total_experience_years"))
+                if 0 <= exp <= 60:
+                    experience_years = exp
+            except (ValueError, TypeError):
+                pass
+        if experience_years is None and document.experience:
+            years = sum(1 for _ in document.experience)
+            if years:
+                experience_years = float(years)
 
-        # 8. phone
-        phone = document.phone
-        if phone:
-            extraction_log["phone"] = "parser_phone"
-        else:
-            phone = record.get("Phone", "").strip() or None
-            if phone:
-                extraction_log["phone"] = "csv_column_fallback"
-                fallbacks["phone"] = "csv_phone"
-            else:
-                phone = "NO_PHONE_EXTRACTED"
-                extraction_log["phone"] = "none_found"
+        # role: CSV Category first, otherwise latest experience title
+        role = None
+        if record.get("Category"):
+            cat = _clean(record.get("Category"))
+            if cat and cat.lower() not in {"summary", "experience", "education", "skills", "projects", "certifications", "contact", "personal information"}:
+                role = cat
+        if not role and document.experience:
+            for exp in document.experience:
+                if exp.title:
+                    role = _clean(exp.title)
+                    if role:
+                        break
 
-        # 9. education
-        education = None
-        if document.education:
-            edu = document.education[0]
-            education = " ".join(p for p in [edu.degree, edu.institution, edu.field_of_study] if p).strip()
-        if education:
-            extraction_log["education"] = "parser_education"
-        else:
-            education = record.get("Education", "").strip() or None
-            if education:
-                extraction_log["education"] = "csv_column_fallback"
-                fallbacks["education"] = "csv_education"
-            else:
-                education = "NO_EDUCATION_EXTRACTED"
-                extraction_log["education"] = "none_found"
+        # education as list of strings
+        education = []
+        for edu in document.education or []:
+            parts = [p for p in [
+                _clean(edu.degree),
+                _clean(edu.field_of_study),
+                _clean(edu.institution),
+                _clean(edu.end_date)
+            ] if p]
+            if parts:
+                education.append(", ".join(parts))
 
-        extracted = sorted([k for k, v in extraction_log.items() if v != "none_found"])
-        missing = sorted([k for k, v in extraction_log.items() if v == "none_found"])
-        extraction_notes = (
-            "; ".join(f"{k}={v}" for k, v in extraction_log.items() if v.endswith("_fallback") or v == "none_found")
-            or "all_fields_extracted"
+        # certifications and projects as lists of names
+        certifications = [
+            _clean(c.name)
+            for c in (document.certifications or [])
+            if c.name and _clean(c.name)
+        ]
+        projects = [
+            _clean(p.name)
+            for p in (document.projects or [])
+            if p.name and _clean(p.name)
+        ]
+
+        metadata = ResumeMetadata(
+            resume_id=record_id,
+            candidate_name=candidate_name,
+            role=role,
+            skills=skills,
+            location=location,
+            experience_years=experience_years,
+            education=education,
+            projects=projects,
+            certifications=certifications,
+            email=email,
+            phone=phone,
+            summary=summary,
         )
 
-        print(f"[METADATA] Resume ID: {record_id}  Extracted: {extracted}  Missing: {missing}  Fallback Used: {fallbacks}")
+        print(f"[METADATA] Resume ID: {record_id}  candidate_name={metadata.candidate_name}  skills={metadata.skills[:5]}  location={metadata.location}  experience_years={metadata.experience_years}")
 
-        return {
-            "candidate_name": candidate_name.strip() if candidate_name else None,
-            "email": email,
-            "phone": phone,
-            "skills": skills,
-            "location": location,
-            "summary": summary,
-            "role": role,
-            "experience": experience_years,
-            "education": education,
-            "extraction_log": extraction_log,
-            "fallbacks": fallbacks,
-            "extraction_notes": extraction_notes,
-        }
+        return metadata
 
     def detect_csv_file(self, directory: Path) -> Optional[Path]:
         """
@@ -747,27 +651,20 @@ class CSVIngestionService:
                     print("WARNING: no vector store service injected; skipping cached vector upsert")
 
                 records = []
-                
+                from src.models import ResumeMetadata
+
                 for chunk_data, embedding_vector in zip(chunks_data, embeddings_array):
-                    cached_metadata = chunk_data.get("metadata") or {}
-                    candidate_name = (
-                        chunk_data.get("candidate_name")
-                        or cached_metadata.get("candidate_name")
-                        or "NO_CANDIDATE_NAME_CACHED"
-                    )
-                    metadata = dict(cached_metadata)
-                    metadata.update({
-                        "text": chunk_data.get("text", ""),
-                        "chunk_order": chunk_data.get("chunk_order", 0)
-                    })
+                    resume_metadata_data = chunk_data.get("resume_metadata")
+                    if resume_metadata_data is None:
+                        print("Legacy cache missing resume_metadata; aborting cache load")
+                        return None
+                    resume_metadata = ResumeMetadata.model_validate(resume_metadata_data)
                     record = VectorRecord(
                         id=str(uuid.uuid4()),
-                        resume_id=chunk_data.get("resume_id", ""),
                         chunk_id=chunk_data.get("chunk_id", ""),
-                        candidate_name=candidate_name,
                         section=chunk_data.get("section", ""),
                         vector=embedding_vector.tolist(),
-                        metadata=metadata
+                        resume_metadata=resume_metadata
                     )
                     records.append(record)
                 
@@ -867,30 +764,21 @@ class CSVIngestionService:
                     
                     # Parse timing
                     parse_start = time.time()
-                    # Extract structured metadata from the resume text blob
-                    meta = self._extract_resume_metadata(raw_text, record)
+                    # Extract the single canonical ResumeMetadata
+                    resume_metadata = self._extract_resume_metadata(raw_text, record)
                     parse_time = time.time() - parse_start
                     total_parse_time += parse_time
-                    
-                    candidate_name = meta['candidate_name']
-                    
+
+                    candidate_name = resume_metadata.candidate_name
+
                     # Chunk timing
                     chunk_start = time.time()
-                    # Step 3: Chunk the raw text directly
+                    # Step 3: Chunk the raw text directly, metadata is passed unchanged
                     chunks = self.chunk_raw_text(
                         raw_text=raw_text,
-                        resume_id=record_id,
-                        candidate_name=candidate_name,
+                        resume_metadata=resume_metadata,
                         source_document=str(csv_path),
-                        email=meta['email'],
-                        phone=meta['phone'],
-                        skills=meta['skills'],
-                        location=meta['location'],
-                        summary=meta['summary'],
-                        role=meta['role'],
-                        experience=meta['experience'],
-                        education=meta['education'],
-                        extraction_notes=meta.get('extraction_notes')
+                        extraction_notes=None
                     )
                     chunk_time = time.time() - chunk_start
                     total_chunk_time += chunk_time
@@ -982,14 +870,14 @@ class CSVIngestionService:
                     indexing_service._indexed_documents[record_id] = {
                         'source': 'csv',
                         'csv_path': str(csv_path),
-                        'candidate_name': candidate_name,
+                        'candidate_name': resume_metadata.candidate_name,
                         'chunks_count': chunks_count,
-                        'role': meta['role'],
-                        'skills': meta['skills'],
-                        'location': meta['location'],
-                        'experience': meta['experience'],
-                        'education': meta['education'],
-                        'extraction_notes': meta.get('extraction_notes'),
+                        'role': resume_metadata.role,
+                        'skills': resume_metadata.skills,
+                        'location': resume_metadata.location,
+                        'experience': resume_metadata.experience_years,
+                        'education': resume_metadata.education,
+                        'extraction_notes': None,
                         'indexed_at': datetime.now().isoformat()
                     }
                     

@@ -20,9 +20,11 @@ SOLID Principles Applied:
 """
 
 import logging
+import re
 import time
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from .schema import DenseSearchResult, RetrievalMetrics
+from ...models import ResumeMetadata
 from .validator import RetrievalValidator, ValidationError
 from .cache import QueryCache
 from .score_normalizer import ScoreNormalizer, NormalizationStrategy
@@ -184,11 +186,15 @@ class DenseRetrievalService:
                           })
             
             # ── STAGE 6 — DENSE RETRIEVAL ───────────────────────────────────────
+            logger.info(f"Incoming Filters: {filters}")
             log_stage_start(6, "DENSE RETRIEVAL", Top_K=top_k, Filters=filters)
             
             vector_start = time.perf_counter()
             vector_results = self.vector_store_service.query(query_vector, k=top_k, filters=filters)
             vector_latency = time.perf_counter() - vector_start
+            
+            logger.info(f"Applied Filters: {list(filters.keys()) if filters else 'None'}")
+            logger.info(f"Remaining Candidates: {len(vector_results)}")
             
             # Normalize scores
             raw_scores = [result['score'] for result in vector_results]
@@ -206,14 +212,13 @@ class DenseRetrievalService:
             search_results = [
                 DenseSearchResult(
                     query=result.query,
-                    candidate_name=result.candidate_name,
-                    resume_id=result.resume_id,
                     chunk_id=result.chunk_id,
                     section=result.section,
                     score=result.score,
                     normalized_score=result.normalized_score,
-                    metadata=result.metadata,
+                    resume_metadata=result.resume_metadata,
                     matched_text=result.matched_text,
+                    offset=result.offset,
                     rank=i
                 )
                 for i, result in enumerate(search_results)
@@ -305,19 +310,17 @@ class DenseRetrievalService:
             # Get the top evidence chunk
             top_evidence = max(agg_candidate.evidence_chunks, key=lambda x: x['score'])
             
+            resume_metadata = ResumeMetadata.model_validate(
+                {**agg_candidate.metadata, 'resume_id': agg_candidate.resume_id, 'candidate_name': agg_candidate.candidate_name}
+            )
+
             result = DenseSearchResult(
                 query=query,
-                candidate_name=agg_candidate.candidate_name,
-                resume_id=agg_candidate.resume_id,
                 chunk_id=top_evidence['chunk_id'],
                 section=top_evidence['section'],
                 score=top_evidence['score'],
                 normalized_score=agg_candidate.final_score,
-                metadata={
-                    'section_scores': agg_candidate.section_scores,
-                    'num_chunks': agg_candidate.metadata['num_chunks'],
-                    'aggregated': True
-                },
+                resume_metadata=resume_metadata,
                 matched_text=top_evidence['matched_text'],
                 rank=i
             )
@@ -330,6 +333,28 @@ class DenseRetrievalService:
         
         return final_results
     
+    def _extract_matched_text(self, query: str, text: Optional[str]) -> Tuple[str, int]:
+        """
+        Extract a query-relevant snippet and its character offset from chunk text.
+
+        If no query term is found, falls back to the first 300 characters.
+        """
+        if not text or not text.strip():
+            return "", 0
+
+        text = text.strip()
+        text_lower = text.lower()
+        terms = [t.lower() for t in re.findall(r"\b\w+\b", query) if len(t) > 2]
+
+        for term in terms:
+            pos = text_lower.find(term)
+            if pos != -1:
+                start = max(0, pos - 80)
+                end = min(len(text), pos + len(term) + 80)
+                return text[start:end], start
+
+        return text[:300], 0
+
     def _convert_to_dense_results(
         self,
         query: str,
@@ -355,33 +380,34 @@ class DenseRetrievalService:
             # Pinecone/Qdrant adapters may return different formats
             
             if 'record' in vector_result:
-                # Format with VectorRecord object
                 record = vector_result['record']
                 score = vector_result['score']
-                metadata = record.metadata
-                resume_id = record.resume_id
+                resume_metadata = record.resume_metadata
                 chunk_id = record.chunk_id
-                candidate_name = record.candidate_name
                 section = record.section
+                text = resume_metadata.model_dump().get('text') or resume_metadata.model_dump().get('text_preview') or ""
             else:
-                # Format with metadata directly (memory adapter)
                 metadata = vector_result.get('metadata', {})
                 score = vector_result.get('score', 0.0)
-                resume_id = metadata.get('resume_id', '')
                 chunk_id = vector_result.get('id', '')
-                candidate_name = metadata.get('candidate_name', '')
                 section = metadata.get('section', '')
-            
+                resume_metadata = ResumeMetadata.model_validate(metadata)
+                text = metadata.get('text') or metadata.get('text_preview') or metadata.get('source_text') or metadata.get('chunk_text') or ""
+
+            matched_text, offset = self._extract_matched_text(query, text)
+            if not matched_text and 'metadata' in locals() and metadata.get('text_preview'):
+                matched_text = metadata['text_preview'][:300]
+                offset = 0
+
             result = DenseSearchResult(
                 query=query,
-                candidate_name=candidate_name,
-                resume_id=resume_id,
                 chunk_id=chunk_id,
                 section=section,
                 score=score,
                 normalized_score=normalized_score,
-                metadata=metadata,
-                matched_text=metadata.get('text_preview', ''),
+                resume_metadata=resume_metadata,
+                matched_text=matched_text,
+                offset=offset,
                 rank=i
             )
             

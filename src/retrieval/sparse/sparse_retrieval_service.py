@@ -21,7 +21,7 @@ SOLID Principles Applied:
 
 import logging
 import time
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 
 from .schema import SparseSearchResult, RetrievalMetrics
 from .validator import SparseRetrievalValidator, ValidationError
@@ -214,14 +214,13 @@ class SparseRetrievalService:
             search_results = [
                 SparseSearchResult(
                     query=result.query,
-                    candidate_name=result.candidate_name,
-                    resume_id=result.resume_id,
                     chunk_id=result.chunk_id,
                     section=result.section,
                     bm25_score=result.bm25_score,
-                    metadata=result.metadata,
+                    resume_metadata=result.resume_metadata,
                     matched_terms=result.matched_terms,
                     matched_text=result.matched_text,
+                    offset=result.offset,
                     rank=i
                 )
                 for i, result in enumerate(search_results)
@@ -304,82 +303,71 @@ class SparseRetrievalService:
             List of SparseSearchResult objects
         """
         sparse_results = []
-        
+
         for idx, result in enumerate(search_results):
             # Handle both dict and object formats
             if isinstance(result, dict):
-                # Dict format from BM25Index
                 document = result.get('document')
                 score = result.get('score', 0.0)
-                
-                # Extract document fields (handle both dict and object)
-                if isinstance(document, dict):
-                    candidate_name = document.get('candidate_name', 'Unknown')
-                    resume_id = document.get('resume_id', '')
-                    chunk_id = document.get('chunk_id', '')
-                    section = document.get('section', '')
-                    metadata = document.get('metadata', {})
-                    text = document.get('text', '')
-                    tokens = document.get('tokens', [])
-                else:
-                    # Object format
-                    candidate_name = getattr(document, 'candidate_name', 'Unknown')
-                    resume_id = getattr(document, 'resume_id', '')
-                    chunk_id = getattr(document, 'chunk_id', '')
-                    section = getattr(document, 'section', '')
-                    metadata = getattr(document, 'metadata', {})
-                    text = getattr(document, 'text', '')
-                    tokens = getattr(document, 'tokens', [])
             else:
-                # Object format (legacy BM25Result)
                 document = getattr(result, 'document', None)
                 score = getattr(result, 'score', 0.0)
-                
-                if document:
-                    candidate_name = getattr(document, 'candidate_name', 'Unknown')
-                    resume_id = getattr(document, 'resume_id', '')
-                    chunk_id = getattr(document, 'chunk_id', '')
-                    section = getattr(document, 'section', '')
-                    metadata = getattr(document, 'metadata', {})
-                    text = getattr(document, 'text', '')
-                    tokens = getattr(document, 'tokens', [])
+
+            if not document:
+                continue
+
+            # Extract fields uniformly
+            if isinstance(document, dict):
+                from src.models import ResumeMetadata
+                resume_metadata_data = document.get('resume_metadata') or document.get('metadata')
+                if isinstance(resume_metadata_data, dict):
+                    resume_metadata = ResumeMetadata.model_validate(resume_metadata_data)
                 else:
-                    # Skip if no document
-                    continue
-            
-            # Log metadata keys for first few results (meta trace)
+                    resume_metadata = getattr(document, 'resume_metadata', None)
+                chunk_id = document.get('chunk_id', '')
+                section = document.get('section', '')
+                text = document.get('text', '')
+                tokens = document.get('tokens', [])
+            else:
+                resume_metadata = getattr(document, 'resume_metadata', None)
+                chunk_id = getattr(document, 'chunk_id', '')
+                section = getattr(document, 'section', '')
+                text = getattr(document, 'text', '')
+                tokens = getattr(document, 'tokens', [])
+
+            if not resume_metadata:
+                print(f"  [WARN] Sparse result[{idx}]: missing resume_metadata, skipping")
+                continue
+
+            # Log metadata for first few results
             if idx < 3:
-                meta_keys = list(metadata.keys()) if isinstance(metadata, dict) and metadata else '[]'
-                print(f"  [META TRACE] Sparse result[{idx}]: resume_id={resume_id}, "
-                      f"candidate_name={candidate_name}, meta_keys={meta_keys}")
-            
+                m = resume_metadata
+                print(f"  [META TRACE] Sparse result[{idx}]: resume_id={m.resume_id}, "
+                      f"candidate_name={m.candidate_name}, skills={len(m.skills)}")
+
             # Find matched terms
-            matched_terms = []
-            for term in query_tokens:
-                if term in tokens:
-                    matched_terms.append(term)
-            
+            matched_terms = [term for term in query_tokens if term in tokens]
+
             # Find matched text (highlight matched terms)
-            matched_text = self._find_matched_text(text, matched_terms)
-            
+            matched_text, offset = self._find_matched_text(text, matched_terms)
+
             sparse_result = SparseSearchResult(
                 query=query,
-                candidate_name=candidate_name,
-                resume_id=resume_id,
                 chunk_id=chunk_id,
                 section=section,
                 bm25_score=score,
-                metadata=metadata,
+                resume_metadata=resume_metadata,
                 matched_terms=matched_terms,
                 matched_text=matched_text,
-                rank=0  # Will be assigned later
+                offset=offset,
+                rank=0
             )
-            
+
             sparse_results.append(sparse_result)
-        
+
         return sparse_results
     
-    def _find_matched_text(self, text: str, matched_terms: List[str]) -> str:
+    def _find_matched_text(self, text: str, matched_terms: List[str]) -> Tuple[str, int]:
         """
         Find text segments that contain matched terms.
         
@@ -388,10 +376,13 @@ class SparseRetrievalService:
             matched_terms: List of matched terms
             
         Returns:
-            Text segment with matched terms
+            Tuple of (text segment with matched terms, character offset in original text)
         """
+        if not text:
+            return "", 0
+
         if not matched_terms:
-            return text[:200]  # Return first 200 chars if no matches
+            return text[:200], 0  # Return first 200 chars if no matches
         
         # Find the first occurrence of any matched term
         text_lower = text.lower()
@@ -402,35 +393,31 @@ class SparseRetrievalService:
                 pos = text_lower.find(term_lower)
                 start = max(0, pos - 50)
                 end = min(len(text), pos + len(term) + 50)
-                return text[start:end]
+                return text[start:end], start
         
-        return text[:200]  # Return first 200 chars if no matches found
+        return text[:200], 0  # Return first 200 chars if no matches found
     
     def _apply_filters(self, results: List[SparseSearchResult], filters: Dict[str, Any]) -> List[SparseSearchResult]:
-        """
-        Apply metadata filters to search results.
-        
-        Args:
-            results: List of search results
-            filters: Dictionary of filters to apply
-            
-        Returns:
-            Filtered list of search results
-        """
+        """Apply metadata filters using the canonical ResumeMetadata on each result."""
+
+        def _normalize(value: Any) -> str:
+            return str(value).strip().lower()
+
         filtered_results = []
-        
+
         for result in results:
             match = True
             rejection_reason = None
-            
+            m = result.resume_metadata
+
             for key, value in filters.items():
                 if key == 'resume_id':
-                    if result.resume_id != value:
+                    if m.resume_id != value:
                         match = False
                         rejection_reason = f"resume_id mismatch"
                         break
                 elif key == 'candidate_name':
-                    if value.lower() not in result.candidate_name.lower():
+                    if not m.candidate_name or value.lower() not in m.candidate_name.lower():
                         match = False
                         rejection_reason = f"candidate_name mismatch"
                         break
@@ -439,21 +426,41 @@ class SparseRetrievalService:
                         match = False
                         rejection_reason = f"section mismatch"
                         break
-                elif key in result.metadata:
-                    if result.metadata[key] != value:
+                elif key == 'skills':
+                    if not m.skills:
                         match = False
-                        rejection_reason = f"{key} mismatch"
+                        rejection_reason = "missing skills"
+                        break
+                    required = {_normalize(s) for s in value}
+                    candidate = {_normalize(s) for s in m.skills}
+                    if not (required & candidate):
+                        match = False
+                        rejection_reason = f"skills mismatch"
+                        break
+                elif key == 'location':
+                    if not m.location or _normalize(value) not in _normalize(m.location):
+                        match = False
+                        rejection_reason = f"location mismatch"
+                        break
+                elif key == 'experience_min':
+                    if m.experience_years is None or float(m.experience_years) < float(value):
+                        match = False
+                        rejection_reason = f"experience_min mismatch"
+                        break
+                elif key == 'experience_max':
+                    if m.experience_years is None or float(m.experience_years) > float(value):
+                        match = False
+                        rejection_reason = f"experience_max mismatch"
                         break
                 else:
-                    # Filter key not in metadata, skip
+                    # Unknown filter key — ignore
                     continue
-            
+
             if match:
                 filtered_results.append(result)
             else:
-                # Concise rejection log — only ID, name, reason
-                print(f"  Rejected: {result.resume_id} ({result.candidate_name}) — {rejection_reason}")
-        
+                print(f"  Rejected: {m.resume_id} ({m.candidate_name}) — {rejection_reason}")
+
         return filtered_results
     
     def _log_metrics(

@@ -15,54 +15,44 @@ SOLID Principles Applied:
 """
 
 from typing import Optional, Dict, Any, List
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, computed_field, field_validator
 from datetime import datetime
+
+from src.models import ResumeMetadata
 
 
 class SparseSearchResult(BaseModel):
-    """
-    Result from sparse BM25 retrieval.
-    
-    This schema represents a single search result from the BM25 sparse retrieval engine.
-    It contains the query, candidate information, BM25 score, and matched terms.
-    
-    BM25 (Best Matching 25) is a ranking function used by search engines to estimate
-    the relevance of documents to a given search query. It's based on the probabilistic
-    retrieval framework developed in the 1970s and 1980s.
-    
-    The BM25 score is calculated using:
-    - Term frequency (TF): How often the term appears in the document
-    - Inverse document frequency (IDF): How rare the term is across all documents
-    - Document length normalization: Accounts for varying document lengths
-    - Parameters k1 and b: Tuning parameters for term saturation and length normalization
-    
-    Attributes:
-        query: The original search query
-        candidate_name: Name of the candidate
-        resume_id: Unique identifier for the resume
-        chunk_id: Unique identifier for the chunk
-        section: Section of the resume
-        bm25_score: BM25 relevance score
-        metadata: Additional metadata about the result
-        matched_terms: List of terms from the query that matched
-        matched_text: Text content that matched the query
-        rank: Rank position in the results
-    """
+    """Result from sparse BM25 retrieval, carrying the canonical ResumeMetadata."""
+
     query: str = Field(..., description="The original search query")
-    candidate_name: str = Field(..., description="Name of the candidate")
-    resume_id: str = Field(..., description="Unique identifier for the resume")
-    chunk_id: str = Field(..., description="Unique identifier for the chunk")
+    chunk_id: str = Field(..., description="Unique chunk identifier")
     section: str = Field(..., description="Section of the resume")
     bm25_score: float = Field(..., ge=0.0, description="BM25 relevance score")
-    metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
+    resume_metadata: ResumeMetadata = Field(..., description="Canonical resume metadata")
     matched_terms: List[str] = Field(default_factory=list, description="Terms from query that matched")
     matched_text: str = Field(..., description="Text content that matched the query")
+    offset: int = Field(default=0, ge=0, description="Character offset of matched_text in the original chunk text")
     rank: int = Field(..., ge=0, description="Rank position in the results")
+
+    @computed_field
+    @property
+    def resume_id(self) -> str:
+        return self.resume_metadata.resume_id
+
+    @computed_field
+    @property
+    def candidate_name(self) -> Optional[str]:
+        return self.resume_metadata.candidate_name
+
+    @computed_field
+    @property
+    def metadata(self) -> Dict[str, Any]:
+        """Legacy compatibility: expose resume metadata as a flat dict."""
+        return self.resume_metadata.model_dump(mode="json")
 
     @field_validator('bm25_score')
     @classmethod
     def validate_bm25_score(cls, v: float) -> float:
-        """Validate that BM25 score is non-negative."""
         if v < 0:
             raise ValueError(f"BM25 score must be non-negative, got {v}")
         return v
@@ -70,48 +60,41 @@ class SparseSearchResult(BaseModel):
     @field_validator('rank')
     @classmethod
     def validate_rank(cls, v: int) -> int:
-        """Validate that rank is non-negative."""
         if v < 0:
             raise ValueError(f"Rank must be non-negative, got {v}")
         return v
 
-    class Config:
-        frozen = True
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
-
 
 class BM25Document(BaseModel):
-    """
-    Document representation for BM25 indexing.
-    
-    This schema represents a document in the BM25 index. Each chunk becomes one
-    BM25 document with its tokens, metadata, and statistics.
-    
-    Attributes:
-        chunk_id: Unique identifier for the chunk
-        resume_id: Unique identifier for the resume
-        section: Section of the resume
-        candidate_name: Name of the candidate
-        text: Original text content
-        tokens: Tokenized text
-        document_length: Number of tokens in the document
-        metadata: Additional metadata
-    """
+    """Document representation for BM25 indexing. Carries ResumeMetadata unchanged."""
+
+    document_id: str = Field(..., description="Unique document identifier (defaults to chunk_id)")
     chunk_id: str = Field(..., description="Unique chunk identifier")
-    resume_id: str = Field(..., description="Resume identifier")
     section: str = Field(..., description="Section name")
-    candidate_name: str = Field(..., description="Candidate name")
     text: str = Field(..., description="Original text content")
     tokens: List[str] = Field(..., description="Tokenized text")
     document_length: int = Field(..., ge=0, description="Number of tokens")
-    metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
+    resume_metadata: ResumeMetadata = Field(..., description="Canonical resume metadata")
+
+    @computed_field
+    @property
+    def resume_id(self) -> str:
+        return self.resume_metadata.resume_id
+
+    @computed_field
+    @property
+    def candidate_name(self) -> Optional[str]:
+        return self.resume_metadata.candidate_name
+
+    @computed_field
+    @property
+    def metadata(self) -> Dict[str, Any]:
+        """Legacy compatibility: expose resume metadata as a flat dict."""
+        return self.resume_metadata.model_dump(mode="json")
 
     @field_validator('document_length')
     @classmethod
     def validate_document_length(cls, v: int) -> int:
-        """Validate that document length is non-negative."""
         if v < 0:
             raise ValueError(f"Document length must be non-negative, got {v}")
         return v

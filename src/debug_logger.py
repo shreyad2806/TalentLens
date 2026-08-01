@@ -1,15 +1,9 @@
 """
-TalentLens Debug Logger — Production-style observability helper.
+TalentLens Debug Logger — Production-style structured logging helper.
 
-Provides consistent, colored, banner-style logging for every pipeline stage.
-Every stage prints:
-  - Stage name & number
-  - Input summary
-  - Output summary
-  - Count
-  - Sample object
-  - Execution time
-  - Status (SUCCESS / WARNING / FAILED)
+Provides consistent, banner-style logging for every pipeline stage using the
+standard library `logging` module.  Full exception tracebacks are emitted only
+when `DEBUG=1` or the `LOG_LEVEL` environment variable is set to `DEBUG`.
 
 Usage:
     from src.debug_logger import log_stage_start, log_stage_end, log_error, StageTimer
@@ -21,40 +15,63 @@ Usage:
 
 Or use the context-manager style:
     with StageTimer(3, "EMBEDDING", query="java developer") as t:
-        ... do work ...
+        result = embed(query)
         t.set_output(count=1, sample={"shape": "(384,)"})
-    # automatically prints START + END banners
+    # END banner logged automatically on exit
 """
 
-import sys
+import logging
 import os
+import re
+import sys
 import time
 import traceback
 from typing import Any, Dict, Optional
 
-# ── ANSI Colors ──────────────────────────────────────────────────────────────
 
-_COLOR_SUPPORT = (
-    hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
-) or os.getenv("FORCE_COLOR") == "1"
+# ── Logger setup ─────────────────────────────────────────────────────────────
 
-if _COLOR_SUPPORT:
-    _BLUE   = "\033[94m"
-    _GREEN  = "\033[92m"
-    _YELLOW = "\033[93m"
-    _RED    = "\033[91m"
-    _CYAN   = "\033[96m"
-    _BOLD   = "\033[1m"
-    _RESET  = "\033[0m"
-else:
-    _BLUE = _GREEN = _YELLOW = _RED = _CYAN = _BOLD = _RESET = ""
+# Default to INFO so stage banners and warnings are visible in production.
+_LOG_LEVEL_NAME = os.getenv("LOG_LEVEL", "INFO").upper()
+_LOG_LEVEL = getattr(logging, _LOG_LEVEL_NAME, logging.INFO)
+_DEBUG = _LOG_LEVEL == logging.DEBUG or os.getenv("DEBUG", "").lower() in ("1", "true", "yes")
+
+logger = logging.getLogger("talentlens")
+logger.setLevel(logging.DEBUG)  # let the handlers decide
+
+# Keep a single stream handler pointed at stdout.  The formatter uses standard
+# key-value pairs so logs are machine-readable and safe for production.
+if not logger.handlers:
+    _handler = logging.StreamHandler(sys.stdout)
+    _handler.setLevel(_LOG_LEVEL)
+    _formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+    _handler.setFormatter(_formatter)
+    logger.addHandler(_handler)
 
 
-def _c(color: str, text: str) -> str:
-    """Wrap text in ANSI color if supported."""
-    if not color:
-        return text
-    return f"{color}{text}{_RESET}"
+# ── Sensitive-data redaction ─────────────────────────────────────────────────
+
+# Redact values whose keys look like they could be a credential.  This applies
+# to the arbitrary key/value pairs passed to log_stage_start/log_stage_end so
+# that no API key, token, or password is accidentally written to logs.
+_SENSITIVE_PATTERN = re.compile(
+    r"(api_?key|password|passwd|secret|token|credential|auth|private_key|"
+    r"access_key|openai_api_key|pinecone_api_key|qdrant_api_key)",
+    re.IGNORECASE,
+)
+
+
+def _redact_value(key: str, value: Any) -> Any:
+    """Return a redacted placeholder for values that look sensitive."""
+    if _SENSITIVE_PATTERN.search(key):
+        if value is None:
+            return None
+        if isinstance(value, bool):
+            return "***REDACTED***" if value else value
+        return "***REDACTED***"
+    return value
 
 
 # ── Core Helpers ─────────────────────────────────────────────────────────────
@@ -62,30 +79,60 @@ def _c(color: str, text: str) -> str:
 _SEP = "=" * 60
 
 
+def _format_value(value: Any, max_len: int = 120) -> str:
+    """Format a value for display, truncating long representations."""
+    if value is None:
+        return "None"
+    if isinstance(value, float):
+        return f"{value:.4f}"
+    if isinstance(value, list):
+        if len(value) > 5:
+            preview = ", ".join(str(v) for v in value[:5])
+            return f"[{preview}, ... ({len(value)} items)]"
+        return str(value)
+    text = str(value)
+    if len(text) > max_len:
+        return text[:max_len] + "..."
+    return text
+
+
+def _format_fields(fields: Dict[str, Any], indent: int = 2) -> str:
+    """Format key=value pairs with sensitive values redacted."""
+    if not fields:
+        return ""
+    spaces = " " * indent
+    lines = []
+    for key, value in fields.items():
+        safe_value = _redact_value(key, value)
+        formatted = _format_value(safe_value)
+        lines.append(f"{spaces}{key:<30} = {formatted}")
+    return "\n".join(lines)
+
+
+# ── Public API ───────────────────────────────────────────────────────────────
+
 def log_stage_start(
     stage_num: int,
     stage_name: str,
     **fields: Any,
 ) -> None:
     """
-    Print a START banner for a pipeline stage.
+    Log a START banner for a pipeline stage.
 
     Args:
         stage_num: Stage number (1-12)
         stage_name: Human-readable stage name (e.g. "EMBEDDING")
         **fields: Arbitrary key=value pairs to display as input
     """
-    print()
-    print(_c(_BLUE, _SEP))
-    print(_c(_BLUE, f"STAGE {stage_num} — {stage_name}  [START]"))
-    print(_c(_BLUE, _SEP))
-
+    message = (
+        f"\n{_SEP}\n"
+        f"STAGE {stage_num} — {stage_name}  [START]\n"
+        f"{_SEP}"
+    )
     if fields:
-        print(_c(_CYAN, "Input:"))
-        for key, value in fields.items():
-            formatted = _format_value(value)
-            print(f"  {key:<30} = {formatted}")
-    print()
+        message += "\nInput:\n" + _format_fields(fields)
+    message += "\n"
+    logger.info(message)
 
 
 def log_stage_end(
@@ -98,45 +145,50 @@ def log_stage_end(
     extra: Optional[Dict[str, Any]] = None,
 ) -> None:
     """
-    Print an END banner for a pipeline stage.
+    Log an END banner for a pipeline stage.
 
     Args:
-        stage_num: Stage number (1-12)
-        stage_name: Human-readable stage name
+        stage_num: Stage number
+        stage_name: Stage name
         status: "SUCCESS" | "WARNING" | "FAILED"
         time_ms: Execution time in milliseconds
         output_count: Number of output items
         sample: Sample output object to display
         extra: Additional key=value pairs
     """
-    status_color = {"SUCCESS": _GREEN, "WARNING": _YELLOW, "FAILED": _RED}.get(status, _RESET)
+    level = logging.INFO
+    if status == "WARNING":
+        level = logging.WARNING
+    elif status == "FAILED":
+        level = logging.ERROR
 
-    print(_c(_BLUE, _SEP))
-    print(_c(_BLUE, f"STAGE {stage_num} — {stage_name}  [END]"))
-    print(_c(_BLUE, _SEP))
-
-    print(f"  {'Status':<30} = {_c(status_color, status)}")
+    lines = [
+        _SEP,
+        f"STAGE {stage_num} — {stage_name}  [END]",
+        _SEP,
+        f"  {'Status':<30} = {status}",
+    ]
 
     if time_ms is not None:
-        print(f"  {'Time':<30} = {time_ms:.1f} ms")
+        lines.append(f"  {'Time':<30} = {time_ms:.1f} ms")
 
     if output_count is not None:
-        print(f"  {'Output Count':<30} = {output_count}")
+        lines.append(f"  {'Output Count':<30} = {output_count}")
 
     if sample is not None:
-        print(_c(_CYAN, "  Sample:"))
+        lines.append("  Sample:")
         if isinstance(sample, dict):
             for k, v in sample.items():
-                print(f"    {k:<28} = {_format_value(v)}")
+                safe_v = _redact_value(k, v)
+                lines.append(f"    {k:<28} = {_format_value(safe_v)}")
         else:
-            print(f"    {_format_value(sample)}")
+            lines.append(f"    {_format_value(sample)}")
 
     if extra:
-        for k, v in extra.items():
-            print(f"  {k:<30} = {_format_value(v)}")
+        lines.append(_format_fields(extra, indent=2))
 
-    print(_c(_BLUE, _SEP))
-    print()
+    lines.extend([_SEP, ""])
+    logger.log(level, "\n" + "\n".join(lines))
 
 
 def log_error(
@@ -146,7 +198,11 @@ def log_error(
     reraise: bool = True,
 ) -> None:
     """
-    Print a full error trace for a stage, then optionally re-raise.
+    Log a full error trace for a stage, then optionally re-raise.
+
+    Only the exception message is emitted at ERROR level.  The full traceback
+    is sent at DEBUG level so it is available when `LOG_LEVEL=DEBUG` or
+    `DEBUG=1`, but never printed to production logs by default.
 
     Args:
         stage_num: Stage number
@@ -154,16 +210,21 @@ def log_error(
         error: The exception that occurred
         reraise: Whether to re-raise after logging (default True)
     """
-    print()
-    print(_c(_RED, _SEP))
-    print(_c(_RED, f"STAGE {stage_num} — {stage_name}  [FAILED]"))
-    print(_c(_RED, _SEP))
-    print(_c(_RED, f"  Error: {error}"))
-    print()
-    print(_c(_RED, "  Traceback:"))
-    traceback.print_exc()
-    print(_c(_RED, _SEP))
-    print()
+    logger.error(
+        f"\n{_SEP}\n"
+        f"STAGE {stage_num} — {stage_name}  [FAILED]\n"
+        f"{_SEP}\n"
+        f"  Error: {error}\n"
+        f"{_SEP}"
+    )
+
+    if _DEBUG and sys.exc_info()[0] is not None:
+        # Full internal traceback is only emitted in DEBUG mode and when an
+        # active exception is available.
+        logger.debug("Full traceback:", exc_info=True)
+    else:
+        # In production, log only the exception type for diagnostics.
+        logger.info(f"Exception type: {type(error).__name__}")
 
     if reraise:
         raise error
@@ -179,7 +240,7 @@ class StageTimer:
         with StageTimer(3, "EMBEDDING", query="java developer") as t:
             result = embed(query)
             t.set_output(count=1, sample={"shape": "(384,)"})
-        # END banner printed automatically on exit
+        # END banner logged automatically on exit
     """
 
     def __init__(self, stage_num: int, stage_name: str, **input_fields: Any):
@@ -231,22 +292,3 @@ class StageTimer:
         if extra:
             self._extra.update(extra)
         self._status = status
-
-
-# ── Formatting ───────────────────────────────────────────────────────────────
-
-def _format_value(value: Any, max_len: int = 120) -> str:
-    """Format a value for display, truncating long representations."""
-    if value is None:
-        return "None"
-    if isinstance(value, float):
-        return f"{value:.4f}"
-    if isinstance(value, list):
-        if len(value) > 5:
-            preview = ", ".join(str(v) for v in value[:5])
-            return f"[{preview}, ... ({len(value)} items)]"
-        return str(value)
-    text = str(value)
-    if len(text) > max_len:
-        return text[:max_len] + "..."
-    return text
