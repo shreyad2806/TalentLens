@@ -1,107 +1,264 @@
-import os
-import sys
-import platform
-import warnings
-from dotenv import load_dotenv
-import streamlit as st
-import re
+"""TalentLens — AI Resume Intelligence Platform (one-page dashboard)."""
+from __future__ import annotations
+
 import html
-import time
-import pandas as pd
-from PyPDF2 import PdfReader
-import io
-import docx
+import os
+from pathlib import Path
 
-from src.debug_logger import log_stage_start, log_stage_end, log_error
-from src.cards import build_candidate_card
-from src.models import get_display_name
+import streamlit as st
 
-st.set_page_config(page_title="Talentlens", page_icon="🎯", layout="wide")
+st.set_page_config(page_title="TalentLens", page_icon="🎯", layout="wide")
 
-# ── Cached resource factories (lazy — only build on first call) ────────────
+# ── Custom theme / design system ────────────────────────────────────────────
 
-@st.cache_resource(show_spinner=False)
-def _get_embedding_model():
-    """Load embedding model exactly once."""
-    from src.embed import load_embedding_model
-    return load_embedding_model()
+def _talentlens_css() -> str:
+    return """
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+      html, body, .stApp, [data-testid="stAppViewContainer"] {
+        font-family: 'Inter', sans-serif !important;
+        background-color: #0B1220 !important;
+        color: #F8FAFC !important;
+      }
+
+      /* Hide Streamlit chrome */
+      header { visibility: hidden !important; }
+      footer { visibility: hidden !important; }
+      #MainMenu { visibility: hidden !important; }
+      [data-testid="stToolbar"] { display: none !important; }
+
+      /* Sidebar */
+      [data-testid="stSidebar"] {
+        background-color: #0B1220 !important;
+        border-right: 1px solid #253247 !important;
+      }
+      [data-testid="stSidebar"] .st-emotion-cache-16idsys p,
+      [data-testid="stSidebar"] .st-emotion-cache-16idsys span,
+      [data-testid="stSidebar"] .st-emotion-cache-16idsys div {
+        color: #F8FAFC !important;
+      }
+
+      /* Bordered containers (cards, drawer, filter bar) */
+      [data-testid="stVerticalBlockBorderWrapper"] {
+        background-color: #131C2E !important;
+        border: 1px solid #253247 !important;
+        border-radius: 16px !important;
+        padding: 0.75rem 1rem !important;
+        margin-bottom: 0.75rem !important;
+      }
+
+      /* Inputs */
+      .stTextInput input, .stSelectbox, .stMultiselect, .stSlider, div[data-baseweb="input"] input {
+        background-color: #131C2E !important;
+        color: #F8FAFC !important;
+        border: 1px solid #253247 !important;
+        border-radius: 12px !important;
+      }
+      .stTextInput input:focus, div[data-baseweb="input"] input:focus {
+        border-color: #6D5DF6 !important;
+        box-shadow: 0 0 0 1px #6D5DF6 !important;
+      }
+
+      /* Buttons */
+      .stButton > button {
+        background-color: #6D5DF6 !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 12px !important;
+        font-weight: 600 !important;
+        padding: 0.55rem 1.1rem !important;
+      }
+      .stButton > button:hover { background-color: #5b4ed6 !important; }
+      .stButton > button[kind="secondary"] {
+        background-color: transparent !important;
+        color: #F8FAFC !important;
+        border: 1px solid #253247 !important;
+      }
+      .stButton > button[kind="secondary"]:hover { background-color: #1e293b !important; }
+
+      /* Radio nav */
+      div[role="radiogroup"] > label {
+        background-color: transparent !important;
+        border-radius: 10px !important;
+        padding: 0.55rem 0.75rem !important;
+        color: #94A3B8 !important;
+        border: 1px solid transparent !important;
+      }
+      div[role="radiogroup"] > label:has(input:checked) {
+        background-color: #131C2E !important;
+        color: #F8FAFC !important;
+        border-color: #6D5DF6 !important;
+      }
+
+      /* Right drawer sticky */
+      [data-testid="stColumn"]:last-child {
+        position: sticky !important;
+        top: 1rem !important;
+        align-self: flex-start !important;
+      }
+
+      /* Match circle */
+      .match-circle {
+        width: 96px;
+        height: 96px;
+        border-radius: 50%;
+        background: conic-gradient(#22C55E var(--pct, 92%), #1e293b 0);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        margin: 0 auto 0.5rem auto;
+      }
+      .match-circle-inner {
+        width: 76px;
+        height: 76px;
+        border-radius: 50%;
+        background-color: #131C2E;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+      }
+      .match-number { font-size: 1.6rem; font-weight: 700; color: #F8FAFC; }
+      .match-label { font-size: 0.7rem; color: #94A3B8; }
+
+      /* Skill chips */
+      .skill-chip {
+        display: inline-block;
+        background-color: #1e293b;
+        color: #F8FAFC;
+        border: 1px solid #253247;
+        border-radius: 20px;
+        padding: 0.2rem 0.6rem;
+        margin: 0.15rem;
+        font-size: 0.78rem;
+      }
+      .skill-chip.matched { background-color: #6D5DF6; border-color: #6D5DF6; color: white; }
+
+      /* Avatar */
+      .avatar-circle {
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #6D5DF6, #22C55E);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-weight: 700;
+        font-size: 1.1rem;
+      }
+
+      /* Summary clamp */
+      .summary { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; color: #94A3B8; font-size: 0.85rem; line-height: 1.45; }
+
+      /* Status dots */
+      .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 8px; }
+      .dot-green { background-color: #22C55E; }
+      .dot-blue { background-color: #3B82F6; }
+      .dot-purple { background-color: #6D5DF6; }
+
+      /* Headings */
+      h1, h2, h3, h4, h5 { color: #F8FAFC !important; }
+      .muted { color: #94A3B8; }
+
+      /* Progress bars */
+      .stProgress > div > div > div > div { background-color: #6D5DF6 !important; }
+    </style>
+    """
+
+st.markdown(_talentlens_css(), unsafe_allow_html=True)
+
+# ── Cached backend factories (lazy, once per session) ───────────────────────
 
 @st.cache_resource(show_spinner=False)
 def _get_retrieval_bundle():
-    """Build retrieval bundle exactly once (bootstrap, vector store, BM25, etc.)."""
     from src.bootstrap.composition_root import create_retrieval_bundle
     return create_retrieval_bundle()
 
+
 @st.cache_resource(show_spinner=False)
 def _run_bootstrap():
-    """Run BootstrapService exactly once to load or build indexes."""
     from src.bootstrap.bootstrap_service import BootstrapService
-    bs = BootstrapService(verbose=True)
-    return bs.bootstrap()
+    return BootstrapService(verbose=False).bootstrap()
 
-# ── STAGE 1 — APPLICATION STARTUP (runs once per session) ──────────────────
 
-_t_startup_total = time.perf_counter()
-_t_config_end = None
+# ── Session state ───────────────────────────────────────────────────────────
 
-if "_stage1_done" not in st.session_state:
-    from src.config import EMBEDDING_MODEL, EMBEDDING_DIM
+if "page" not in st.session_state:
+    st.session_state.page = "Dashboard"
 
-    _t_config = time.perf_counter()
-    _t_config_end = _t_config
+if "shortlist" not in st.session_state:
+    st.session_state.shortlist = []
 
-    # [BOOTSTRAP-TRACE] App startup entry point
-    print("[BOOTSTRAP-TRACE][app.py] Stage 1 startup beginning")
-    print("[BOOTSTRAP-TRACE][app.py] BootstrapService will be invoked during Streamlit startup")
+if "shortlist_map" not in st.session_state:
+    st.session_state.shortlist_map = {}
 
-    log_stage_start(1, "APPLICATION STARTUP",
-        Python_Version=sys.version.split()[0],
-        OS=platform.system(),
-        OS_Version=platform.version(),
-        Embedding_Model=EMBEDDING_MODEL,
-        Embedding_Dim=EMBEDDING_DIM,
-        Vector_Store_Provider=os.getenv("VECTOR_STORE_PROVIDER", "qdrant"),
-        Resume_Folder=os.getenv("RESUME_FOLDER", "Resume/"),
-        Index_Folder=os.getenv("INDEX_FOLDER", "data/indexes"),
-        Cache_Folder=os.getenv("CACHE_FOLDER", "data/cache"),
-    )
-    log_stage_end(1, "APPLICATION STARTUP",
-        status="SUCCESS",
-        time_ms=(_t_config - _t_startup_total) * 1000,
-        sample={
-            "Python": sys.version.split()[0],
-            "Platform": platform.system(),
-            "Model": EMBEDDING_MODEL,
-            "Dim": EMBEDDING_DIM,
-        },
-        extra={"Config": "Loaded from .env + defaults"},
-    )
-    st.session_state._stage1_done = True
+if "search_results" not in st.session_state:
+    st.session_state.search_results = []
 
-# ── Startup Timing Table ────────────────────────────────────────────────────
-_t_ui_render = time.perf_counter()
-_startup_total_ms = (_t_ui_render - _t_startup_total) * 1000
+if "selected_candidate" not in st.session_state:
+    st.session_state.selected_candidate = None
 
-with st.expander("⏱ Startup Timing", expanded=False):
-    _timing_rows = [
-        {"Phase": "Configuration (.env + imports)", "Time (ms)": f"{(_t_config - _t_startup_total) * 1000:.1f}" if _t_config_end else "cached"},
-        {"Phase": "Stage 1 banner", "Time (ms)": f"{(_t_config - _t_startup_total) * 1000:.1f}" if _t_config_end else "cached"},
-        {"Phase": "Embedding model", "Time (ms)": "deferred (lazy, cached)"},
-        {"Phase": "Retrieval bundle", "Time (ms)": "deferred (lazy, cached)"},
-        {"Phase": "UI rendering", "Time (ms)": f"{(_t_ui_render - _t_config) * 1000:.1f}" if _t_config_end else f"{(_t_ui_render - _t_startup_total) * 1000:.1f}"},
-        {"Phase": "TOTAL startup", "Time (ms)": f"{_startup_total_ms:.1f}"},
-    ]
-    st.table(pd.DataFrame(_timing_rows))
+if "search_service" not in st.session_state:
+    st.session_state.search_service = None
 
-st.markdown("""
-# Talentlens - Resume Intelligence Platform
-AI-powered candidate discovery using Retrieval Augmented Generation.
 
-This dashboard helps recruiters ask role-based questions and quickly surface matched candidates with explainability.
-""")
+# ── Helpers ─────────────────────────────────────────────────────────────────
 
-# ── BOOTSTRAP GUARD ────────────────────────────────────────────────────────
-print("[BOOTSTRAP] App startup")
+def _initials(name: str) -> str:
+    clean = html.unescape(name).strip()
+    if not clean:
+        return "?"
+    if clean.lower().startswith("resume #"):
+        return "R#"
+    parts = clean.split()
+    return "".join(p[0].upper() for p in parts[:2] if p)
+
+
+def _confidence_label(conf: float) -> str:
+    if conf >= 0.8:
+        return "High Confidence"
+    if conf >= 0.5:
+        return "Medium Confidence"
+    return "Low Confidence"
+
+
+def _add_to_shortlist(candidate: dict) -> None:
+    cid = candidate.get("id")
+    if not cid or cid in st.session_state.shortlist_map:
+        return
+    st.session_state.shortlist.append(cid)
+    st.session_state.shortlist_map[cid] = candidate
+
+
+def _remove_from_shortlist(cid: str) -> None:
+    if cid in st.session_state.shortlist_map:
+        del st.session_state.shortlist_map[cid]
+    st.session_state.shortlist = [c for c in st.session_state.shortlist if c != cid]
+
+
+def _why_matched(candidate: dict) -> list[str]:
+    reasons = []
+    if candidate.get("role_match", 0) >= 40:
+        reasons.append("Role alignment")
+    if candidate.get("matched_skills"):
+        reasons.append(f"Skills match: {', '.join(candidate['matched_skills'][:3])}")
+    if candidate.get("industry_match", 0) >= 40:
+        reasons.append("Industry relevance")
+    if candidate.get("experience_match", 0) >= 40:
+        reasons.append("Relevant experience")
+    if candidate.get("education_match", 0) >= 40:
+        reasons.append("Education match")
+    if candidate.get("location_match", 0) >= 40:
+        reasons.append("Location match")
+    if not reasons:
+        reasons.append("Retrieved by semantic search")
+    return reasons
+
+
+# ── Bootstrap guard ─────────────────────────────────────────────────────────
 
 if "bootstrap_complete" not in st.session_state:
     st.session_state.bootstrap_complete = False
@@ -111,894 +268,308 @@ if not st.session_state.bootstrap_complete:
         bootstrap_result = _run_bootstrap()
         st.session_state.bootstrap_complete = True
         st.session_state.bootstrap_result = bootstrap_result
+
+    bundle = _get_retrieval_bundle()
+    from src.search.search_service import SearchService
+    st.session_state.search_service = SearchService(hybrid_service=bundle.hybrid_service)
     st.rerun()
 
-# ── Search UI is only available after bootstrap completes ──────────────────
-
-# Tabs: Resume Search and Upload & Rank
-tab_search, tab_upload = st.tabs(["Resume Search", "Upload & Rank"]) 
-
-# Initialize session state properly
-if "shortlist" not in st.session_state:
-    st.session_state.shortlist = []
-    st.session_state.shortlist_map = {}
-
-if "selected_skills" not in st.session_state:
-    st.session_state.selected_skills = []
-
-if "upload_filter_skills" not in st.session_state:
-    st.session_state.upload_filter_skills = []
-
-if "search_results" not in st.session_state:
-    st.session_state.search_results = []
-
-if "upload_results" not in st.session_state:
-    st.session_state.upload_results = []
-
-if "selected_candidate" not in st.session_state:
-    st.session_state.selected_candidate = None
-
-# Reset any problematic session state values
-if st.session_state.selected_skills and isinstance(st.session_state.selected_skills, list):
-    valid_skills = ["SQL", "Python", "AWS", "RAG", "Docker", "Spark", "java", "javascript", "react", "node.js", "ml", "ai", "ci/cd", "postgresql", "mongodb", "spark"]
-    st.session_state.selected_skills = [skill for skill in st.session_state.selected_skills if skill.lower() in [v.lower() for v in valid_skills]]
+bundle = _get_retrieval_bundle()
+if st.session_state.search_service is None:
+    from src.search.search_service import SearchService
+    st.session_state.search_service = SearchService(hybrid_service=bundle.hybrid_service)
 
 
-def add_to_shortlist(candidate: dict) -> None:
-    ss = st.session_state.get("shortlist", [])
-    smap = st.session_state.get("shortlist_map", {})
-    cid = candidate.get("id")
-    if cid not in ss:
-        ss.append(cid)
-        smap[cid] = {
-            "name": candidate.get("name"),
-            "role": candidate.get("role"),
-            "score": candidate.get("score"),
-            "match_pct": candidate.get("match_pct", 0),
-        }
-        st.session_state.shortlist = ss
-        st.session_state.shortlist_map = smap
-        st.success("Added to shortlist!")
+# ── LEFT SIDEBAR ────────────────────────────────────────────────────────────
+
+with st.sidebar:
+    st.markdown("<h2 style='margin:0; color:#F8FAFC;'>TalentLens</h2>", unsafe_allow_html=True)
+    st.markdown("<p class='muted' style='margin:0 0 2rem 0; font-size:0.8rem;'>AI Resume Intelligence</p>", unsafe_allow_html=True)
+
+    nav = st.radio(
+        "Navigation",
+        ["🏠 Dashboard", "⭐ Shortlist"],
+        index=0 if st.session_state.page == "Dashboard" else 1,
+        label_visibility="collapsed",
+    )
+    st.session_state.page = "Dashboard" if "Dashboard" in nav else "Shortlist"
+
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("<p style='font-weight:600; color:#F8FAFC;'>System Status</p>", unsafe_allow_html=True)
+    vector_count = bundle.vector_store_service.count()
+    bm25_count = bundle.bm25_index.total_documents if hasattr(bundle.bm25_index, "total_documents") else 0
+    st.sidebar.markdown(f"<span class='status-dot dot-green'></span>Vector Store Connected", unsafe_allow_html=True)
+    st.sidebar.markdown(f"<span class='status-dot dot-blue'></span>BM25 Ready", unsafe_allow_html=True)
+    st.sidebar.markdown(f"<span class='status-dot dot-purple'></span>RAG Pipeline Active", unsafe_allow_html=True)
+    st.sidebar.markdown(f"<p class='muted' style='font-size:0.75rem; margin-top:1rem;'>{vector_count} vectors • {bm25_count} BM25 docs</p>", unsafe_allow_html=True)
 
 
-def skill_selector(title, suggested_skills):
-    """Modern skill selector with clickable tags like LinkedIn/Figma UI"""
-    st.markdown(f"### ⚡ {title}")
-    
-    # Session state for this component
-    session_key = f"{title.lower().replace(' ', '_')}_skills"
-    
-    # Initialize session state if not exists
-    if session_key not in st.session_state:
-        st.session_state[session_key] = []
-    
-    # Get current skills safely
-    current_skills = st.session_state.get(session_key, [])
-    
-    # Search input
-    custom_skill = st.text_input("🔍 Add custom skill", placeholder="Type and press Enter...", key=f"custom_{session_key}")
-    
-    # Add custom skill on Enter (check if new skill was entered)
-    if custom_skill and custom_skill.strip() and custom_skill.lower() not in [s.lower() for s in current_skills]:
-        st.session_state[session_key] = current_skills + [custom_skill.strip().lower()]
-        # Clear the input by setting it to empty
-        st.rerun()
-    
-    # Suggested skills as clickable tags
-    st.markdown("#### 🎯 Click to Add Skills")
-    
-    # Calculate grid layout
-    cols_per_row = 6
-    for i in range(0, len(suggested_skills), cols_per_row):
-        cols = st.columns(cols_per_row)
-        for j in range(cols_per_row):
-            skill_idx = i + j
-            if skill_idx < len(suggested_skills):
-                skill = suggested_skills[skill_idx]
-                with cols[j]:
-                    # Check if skill is already selected
-                    is_selected = skill.lower() in st.session_state[session_key]
-                    if is_selected:
-                        st.button(f"✅ {skill}", key=f"add_{title}_{skill_idx}_{skill}", disabled=True)
-                    else:
-                        if st.button(f"+ {skill}", key=f"add_{title}_{skill_idx}_{skill}"):
-                            current_skills = st.session_state.get(session_key, [])
-                            if skill.lower() not in current_skills:
-                                st.session_state[session_key] = current_skills + [skill.lower()]
-    
-    # Display selected skills as removable chips
-    current_skills = st.session_state.get(session_key, [])
-    if current_skills:
-        st.markdown("#### ✅ Selected Skills")
-        
-        # Calculate grid for selected skills
-        selected_cols_per_row = 8
-        for i in range(0, len(current_skills), selected_cols_per_row):
-            cols = st.columns(selected_cols_per_row)
-            for j in range(selected_cols_per_row):
-                skill_idx = i + j
-                if skill_idx < len(current_skills):
-                    skill = current_skills[skill_idx]
-                    with cols[j]:
-                        if st.button(f"❌ {skill.title()}", key=f"remove_{title}_{skill_idx}_{skill}"):
-                            current_skills = st.session_state.get(session_key, [])
-                            if skill in current_skills:
-                                current_skills.remove(skill)
-                                st.session_state[session_key] = current_skills
-    
-    return st.session_state.get(session_key, [])
+# ── MAIN LAYOUT ─────────────────────────────────────────────────────────────
 
+main_col, drawer_col = st.columns([2.8, 1.2])
 
-# Define smart suggested skills
-SUGGESTED_SKILLS = [
-    "Python", "SQL", "AWS", "Docker", "Kubernetes",
-    "React", "Node", "Java", "Spring", "C++",
-    "Machine Learning", "AI", "Deep Learning",
-    "RAG", "LLMs", "Prompt Engineering",
-    "Power BI", "Tableau", "Excel",
-    "MongoDB", "PostgreSQL", "Git", "CI/CD",
-    "HTML", "CSS", "Angular", "Vue", "Django",
-    "Flask", "REST API", "GraphQL", "Microservices",
-    "Linux", "Azure", "GCP", "Salesforce",
-    "Figma", "Photoshop", "Canva", "WordPress",
-    "TypeScript", "Next.js", "GraphQL", "Redis"
-]
+# ── TOP SECTION (Dashboard only) ────────────────────────────────────────────
 
+if st.session_state.page == "Dashboard":
+    with main_col:
+        st.markdown("<h1 style='text-align:center; margin-bottom:0;'>TalentLens</h1>", unsafe_allow_html=True)
+        st.markdown("<p class='muted' style='text-align:center; margin-bottom:2rem;'>Search thousands of resumes using natural language.</p>", unsafe_allow_html=True)
 
-def extract_text(file):
-    """Safe text extraction for PDF, DOCX, and TXT files"""
-    try:
-        file.seek(0)  # ✅ VERY IMPORTANT: Reset file pointer
-        
-        filename = file.name.lower()
-        
-        # 📄 PDF
-        if filename.endswith(".pdf"):
-            pdf_bytes = file.read()
-            pdf_stream = io.BytesIO(pdf_bytes)
-            
-            reader = PdfReader(pdf_stream)
-            
-            text = ""
-            for page in reader.pages:
-                content = page.extract_text()
-                if content:
-                    text += content
-            
-            return text.lower().strip()
-        
-        # 📝 DOCX
-        elif filename.endswith(".docx"):
-            file.seek(0)
-            doc = docx.Document (file)
-            
-            text = "\n".join([p.text for p in doc.paragraphs])
-            return text.lower().strip()
-        
-        # 📃 TXT
-        elif filename.endswith(".txt"):
-            file.seek(0)
-            return file.read().decode("utf-8").lower().strip()
-        
-        return ""
-    
-    except Exception as e:
-        return f"ERROR: {str(e)}"
+        # Search form + filters
+        with st.container(border=True):
+            with st.form("search_form", clear_on_submit=False):
+                c1, c2 = st.columns([5, 1])
+                with c1:
+                    user_query = st.text_input(
+                        "Search",
+                        placeholder="Finance Manager with Excel and Banking experience",
+                        label_visibility="collapsed",
+                    )
+                with c2:
+                    submitted = st.form_submit_button("Search", type="primary", use_container_width=True)
 
+                # Filter bar
+                st.markdown("<p style='font-weight:600; color:#F8FAFC; margin:1rem 0 0.5rem;'>Filters</p>", unsafe_allow_html=True)
+                f1, f2, f3, f4, f5, f6 = st.columns([1, 1, 1, 1.4, 1, 0.8])
+                with f1:
+                    exp_range = st.slider("Experience", 0, 20, (0, 20), step=1)
+                with f2:
+                    location_filter = st.text_input("Location", placeholder="Any")
+                with f3:
+                    education_filter = st.text_input("Education", placeholder="Any")
+                with f4:
+                    skill_pool = ["Python", "SQL", "AWS", "Docker", "Kubernetes", "React", "Node.js", "Java",
+                                  "Machine Learning", "AI", "RAG", "LLMs", "PostgreSQL", "MongoDB", "Git",
+                                  "CI/CD", "Flask", "Django", "Spark", "Excel", "Tableau", "Power BI",
+                                  "TypeScript", "Next.js", "GraphQL", "Redis", "Azure", "GCP", "Salesforce",
+                                  "Spring", "C++", "HTML", "CSS"]
+                    skills_filter = st.multiselect("Skills", skill_pool, placeholder="Any skills")
+                with f5:
+                    max_results = st.selectbox("Max Results", [5, 10, 15, 20], index=1)
+                with f6:
+                    reset = st.form_submit_button("Reset", type="secondary")
 
-def parse_resume(text):
-    """Parse resume text into structured data - NEVER CRASHES"""
-    try:
-        # Use new parser functions
-        from src.parser import extract_skills, extract_experience, extract_location, extract_role
-        
-        skills = extract_skills(text)
-        experience = extract_experience(text)
-        location = extract_location(text)
-        role = extract_role(text)
-        
-        return {
-            "skills": skills,
-            "experience": experience,
-            "location": location,
-            "role": role,
-            "text": text
-        }
-    except Exception as e:
-        # Fallback - never crash the app
-        return {
-            "skills": [],
-            "experience": "Not specified",
-            "location": "Not specified",
-            "role": "Software Developer",
-            "text": text
-        }
-
-
-def parse_jd(jd_text):
-    """Parse job description into structured data - NEVER CRASHES"""
-    try:
-        # Use new parser functions
-        from src.parser import extract_skills, extract_experience, extract_location
-        
-        skills = extract_skills(jd_text)
-        experience = extract_experience(jd_text)
-        location = extract_location(jd_text)
-        
-        return {
-            "skills": skills,
-            "experience": experience,
-            "location": location,
-            "text": jd_text.lower()
-        }
-    except Exception as e:
-        # Fallback - never crash the app
-        return {
-            "skills": [],
-            "experience": 0,
-            "location": "Not specified",
-            "text": jd_text.lower()
-        }
-
-
-def generate_reasons(candidate, jd_data):
-    """Generate match reasons for candidate"""
-    reasons = []
-    
-    # Skill matches
-    for skill in jd_data["skills"]:
-        if skill in candidate["skills"]:
-            reasons.append(f"{skill} match")
-    
-    # Experience match
-    if candidate["experience"] != "Not specified" and jd_data["experience"] != "Not specified":
-        try:
-            cand_exp = int(re.findall(r"(\d+)", candidate["experience"])[0]) if re.findall(r"(\d+)", candidate["experience"]) else 0
-            jd_exp = int(re.findall(r"(\d+)", jd_data["experience"])[0]) if re.findall(r"(\d+)", jd_data["experience"]) else 0
-            if cand_exp >= jd_exp:
-                reasons.append("Experience match")
-        except:
-            pass
-    
-    # Location match
-    if (candidate["location"] != "Not specified" and 
-        jd_data["location"] != "Not specified" and
-        candidate["location"].lower() == jd_data["location"].lower()):
-        reasons.append("Location match")
-    
-    return reasons[:3]
-
-
-def extract_experience(text):
-    """Extract years of experience from resume text"""
-    import re
-    matches = re.findall(r"(\d+)\+?\s+years", text.lower())
-    if matches:
-        return max(matches) + " years"
-    return "Not specified"
-
-def extract_location(text):
-    """Extract location from resume text"""
-    locations = [
-        "bangalore", "mumbai", "delhi", "hyderabad",
-        "pune", "chennai", "india", "usa", "uk", "remote",
-        "new york", "california", "texas", "florida",
-        "london", "toronto", "vancouver", "sydney"
-    ]
-    
-    text = text.lower()
-    
-    for loc in locations:
-        if loc in text:
-            return loc.title()
-    
-    return "Not specified"
-
-def extract_role(text):
-    """Extract role from resume text"""
-    lines = text.split("\n")[:5]
-    
-    for line in lines:
-        if any(x in line.lower() for x in ["engineer", "developer", "scientist", "manager", "analyst"]):
-            return line.strip()
-    
-    return "Software Developer"
-
-def extract_skills_from_text(text):
-    """Extract skills from text using comprehensive keyword matching"""
-    SKILL_KEYWORDS = [
-        "python","sql","aws","docker","kubernetes","react","node","java",
-        "machine learning","ai","rag","llm","postgresql","mongodb","git",
-        "ci/cd","flask","django","spark","hadoop","excel","power bi",
-        "tableau","tensorflow","pytorch","c++","javascript","typescript",
-        "angular","vue","spring","rest api","graphql","microservices",
-        "linux","azure","gcp","salesforce","jira","html","css"
-    ]
-
-    text = text.lower()
-    found_skills = [skill for skill in SKILL_KEYWORDS if skill in text]
-    
-    return list(set(found_skills))
-
-def extract_jd_skills(jd_text):
-    """Extract skills from job description"""
-    return extract_skills_from_text(jd_text)
-
-def normalize_skills(skills):
-    """Normalize skills to lowercase and remove empties"""
-    return [s.lower().strip() for s in skills if s and s.strip()]
-
-def compute_match_score(candidate_skills, jd_skills):
-    """Fixed scoring function - always returns 0-100%"""
-    if not jd_skills:
-        return 0, []
-
-    # Normalize both skill lists
-    candidate_skills = normalize_skills(candidate_skills)
-    jd_skills = normalize_skills(jd_skills)
-
-    matched = list(set(candidate_skills) & set(jd_skills))
-
-    score = (len(matched) / len(jd_skills)) * 100
-    score = min(score, 100)
-
-    return round(score, 2), matched
-
-# Smart skill pool for autocomplete
-SKILL_POOL = [
-    "Python","SQL","AWS","Docker","Kubernetes","React","Node.js","Java",
-    "Machine Learning","AI","RAG","LLMs","PostgreSQL","MongoDB","Git",
-    "CI/CD","Flask","Django","Spark","Figma","Tableau","Power BI",
-    "TypeScript","Next.js","GraphQL","Redis","Azure","GCP","Salesforce",
-    "Jira","Excel","JavaScript","Angular","Vue","Spring","C++","HTML",
-    "CSS","REST API","Microservices","Linux","Hadoop","Canva","WordPress"
-]
-
-
-def render_candidate_card(candidate, idx):
-    """Render a ResumeDocument-backed candidate card (no frontend heuristics)."""
-    st.markdown("---")
-    st.markdown(f"### 👤 {candidate['name']}")
-
-    col1, col2 = st.columns([4, 1])
-
-    with col1:
-        st.caption(f"{candidate['role']} • {candidate['location']}")
-        contact = []
-        if candidate.get('email'):
-            contact.append(f"📧 {candidate['email']}")
-        if candidate.get('phone'):
-            contact.append(f"📞 {candidate['phone']}")
-        if contact:
-            st.caption(" • ".join(contact))
-
-    with col2:
-        st.markdown(f"### {candidate.get('overall_match', 0):.0f}%")
-        st.caption("Overall Match")
-        st.markdown(
-            f"Role {candidate.get('role_match', 0):.0f}%  •  "
-            f"Skill {candidate.get('skill_match', 'N/A')}{'%' if isinstance(candidate.get('skill_match'), (int, float)) else ''}  •  "
-            f"Exp {candidate.get('experience_match', 0):.0f}%  •  "
-            f"Loc {candidate.get('location_match', 0):.0f}%"
-        )
-        st.markdown(f"**{candidate['confidence']*100:.0f}%**")
-        st.caption("Confidence")
-
-    cols = st.columns(3)
-    with cols[0]:
-        st.write(f"📅 Experience: {candidate['experience']}")
-    with cols[1]:
-        if candidate.get('education'):
-            st.write(f"🎓 {candidate['education'][0]}")
-            if len(candidate['education']) > 1:
-                st.caption(f"+ {len(candidate['education']) - 1} more")
-    with cols[2]:
-        if candidate.get('projects'):
-            st.write(f"🚀 {len(candidate['projects'])} project(s)")
-
-    if candidate.get('top_skills'):
-        st.markdown("🧠 " + " ".join([f"`{s}`" for s in candidate['top_skills']]))
-
-    if candidate.get('matched_skills'):
-        st.markdown("🎯 **Matched Skills:** " + " ".join([f"`{s}`" for s in candidate['matched_skills']]))
-        st.success(f"✅ {len(candidate['matched_skills'])} skill match{'es' if len(candidate['matched_skills']) != 1 else ''}")
-    else:
-        st.caption("No skill matches")
-
-    with st.expander("📝 Resume Preview"):
-        st.caption(f"Matched section: {candidate['section']} | offset {candidate['evidence_offset']}")
-        if candidate.get('matched_text'):
-            st.info(candidate['matched_text'])
-        st.write(candidate['resume_preview'])
-
-    # Action buttons
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("📄 View", key=f"view_{candidate['id']}_{idx}"):
-            st.session_state.selected_candidate = candidate
-            st.rerun()
-    with col2:
-        if st.button("⭐ Shortlist", key=f"short_{candidate['id']}_{idx}"):
-            add_to_shortlist(candidate)
+        if reset:
+            st.session_state.search_results = []
+            st.session_state.selected_candidate = None
             st.rerun()
 
+        # Search execution
+        if submitted and user_query.strip():
+            with st.spinner("Retrieving and scoring candidates..."):
+                from src.search.schema import SearchFilters
 
-# Resume Search Tab
-with tab_search:
-    # Shortlist sidebar (interactive)
-    with st.sidebar:
-        st.subheader("⭐ Shortlist")
-        ss = st.session_state.get("shortlist", [])
-        smap = st.session_state.get("shortlist_map", {})
-        if ss:
-            for cid in ss:
-                item = smap.get(cid, {})
-                score_pct = item.get("match_pct", 0)
-                st.markdown(f"**{item.get('name') or f'Resume #{cid}'}**")
-                st.caption(f"{item.get('role') or 'Role not specified'} • RRF {item.get('score', 0):.4f}")
-        else:
-            st.caption("No shortlisted candidates yet")
-
-    # Main search form (only contains search inputs)
-    with st.form("search_form"):
-        user_query = st.text_input(
-            "Your query",
-            placeholder="E.g., Find senior Python developers with AWS experience in Bangalore",
-            help="Describe the role, skills, experience, and location you're looking for."
-        )
-
-        st.markdown("### 🎯 Refine Your Search")
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            num_candidates = st.selectbox("Number of Candidates", [5, 10, 15, 20], index=1)
-        with col2:
-            exp_range = st.slider("Experience (Years)", 0, 20, (0, 20))
-        with col3:
-            location = st.text_input("Preferred Location", "")
-
-        submitted = st.form_submit_button("Search 🚀")
-
-    if submitted and user_query.strip():
-        _ui_start = time.perf_counter()
-        log_stage_start(12, "UI OUTPUT", Query=user_query[:80], Top_K=num_candidates)
-
-        with st.spinner("Searching candidates and generating answer..."):
-            try:
-                # [BOOTSTRAP-TRACE] Lazy retrieval bundle creation triggered by search
-                print("[BOOTSTRAP-TRACE][app.py] Search submitted - calling _get_retrieval_bundle() (lazy, cached)")
-                # Use cached retrieval bundle (built once, reused on every search)
-                bundle = _get_retrieval_bundle()
-                _bundle_stats = bundle.bm25_index.get_statistics()
-                if hasattr(_bundle_stats, 'num_documents'):
-                    _bundle_num_docs = _bundle_stats.num_documents
-                elif hasattr(_bundle_stats, 'total_documents'):
-                    _bundle_num_docs = _bundle_stats.total_documents
-                else:
-                    _bundle_num_docs = _bundle_stats.get('num_documents', 0) if isinstance(_bundle_stats, dict) else 0
-                print(f"[BOOTSTRAP-TRACE][app.py] Retrieval bundle returned: bm25_index has {_bundle_num_docs} docs")
-                print(f"[BOOTSTRAP-TRACE][app.py] Retrieval bundle returned: vector_store_service type={type(bundle.vector_store_service).__name__}")
-
-                # Extract skills from the query; never fall back to default skills.
-                jd_skills = extract_jd_skills(user_query)
-
-                # Debug info (important for troubleshooting)
-                with st.expander("🔍 Debug: Skill Matching"):
-                    st.write("**JD Skills:**", jd_skills)
-                    st.write("**User Query:**", user_query)
-
-                # Build a clean SearchFilters object; only non-empty/explicit values are retained.
-                from src.search import SearchFilters
-                _clean_skills = jd_skills if jd_skills else None
-                _clean_location = location.strip() if location and location.strip() else None
-                _clean_exp_min = exp_range[0] if exp_range[0] > 0 else None
-                _clean_exp_max = exp_range[1] if exp_range[1] < 20 else None
-
-                refined_query = {
-                    "text": user_query,
-                    "num_candidates": num_candidates
-                }
-
-                # ── STAGE 4 — METADATA FILTER PARSING ────────────────────────────
-                _s4_start = time.perf_counter()
-                log_stage_start(4, "METADATA FILTER PARSING",
-                    Extracted_Skills=_clean_skills,
-                    Experience_Range=f"{_clean_exp_min}-{_clean_exp_max}" if _clean_exp_min or _clean_exp_max else "(not set)",
-                    Location=_clean_location or "(not set)",
-                    Education="(not extracted)",
-                    Company="(not extracted)",
-                    Role="(not extracted)",
-                )
+                _exp_min = exp_range[0] if exp_range[0] > 0 else None
+                _exp_max = exp_range[1] if exp_range[1] < 20 else None
+                _loc = location_filter.strip() if location_filter else None
+                _edu = education_filter.strip() if education_filter else None
+                _skills = [s.lower() for s in skills_filter] if skills_filter else None
 
                 filters = SearchFilters(
-                    skills=_clean_skills,
-                    location=_clean_location,
-                    experience_min=_clean_exp_min,
-                    experience_max=_clean_exp_max,
-                )
-                filters_dict = filters.model_dump(exclude_none=True)
-
-                log_stage_end(4, "METADATA FILTER PARSING",
-                    status="SUCCESS",
-                    time_ms=(time.perf_counter() - _s4_start) * 1000,
-                    output_count=len(_clean_skills) if _clean_skills else 0,
-                    sample=filters_dict,
-                    extra={"Note": "Filters extracted in UI layer; passed to retrieval pipeline"},
+                    role=None,
+                    skills=_skills,
+                    location=_loc,
+                    experience_min=_exp_min,
+                    experience_max=_exp_max,
+                    education=_edu,
+                    strict=False,
                 )
 
-                # Use cached bundle for hybrid search (no re-creation)
-                _t_retrieve = time.perf_counter()
-                hybrid_results = bundle.hybrid_service.search(
-                    query=refined_query["text"],
-                    top_k=refined_query.get("num_candidates", 10),
-                    filters=filters_dict if filters_dict else None,
+                results = st.session_state.search_service.search(
+                    query=user_query,
+                    top_k=max_results,
+                    filters=filters,
                 )
-                _t_retrieve_ms = (time.perf_counter() - _t_retrieve) * 1000
+                st.session_state.search_results = [r.to_frontend_dict() for r in results]
+                st.session_state.search_results = [
+                    {**c, "score_breakdown": r.score_breakdown}
+                    for c, r in zip(st.session_state.search_results, results)
+                ]
+                st.session_state.selected_candidate = None
 
-                # ── Score mapping: HybridSearchResult → docs[] ────────────────
-                print()
-                print("[SCORE TRACE] Mapping HybridSearchResult → docs[]")
-                print("[META TRACE] Mapping HybridSearchResult → docs[]")
-                if hybrid_results:
-                    print(f"  BEFORE: {len(hybrid_results)} HybridSearchResult objects")
-                    _top = hybrid_results[0]
-                    _top_name = get_display_name(_top.resume_metadata)
-                    print(f"  BEFORE: top rrf_score = {_top.rrf_score:.6f}  "
-                          f"({_top_name})")
-                    print(f"  BEFORE META: keys={list(_top.metadata.keys()) if _top.metadata else '[]'}")
-                    print(f"  BEFORE META: candidate_name={_top.candidate_name}, "
-                          f"display_name={_top_name}, "
-                          f"resume_id={_top.resume_id}")
-                else:
-                    print("  BEFORE: no hybrid results")
+        # Search stats
+        if st.session_state.search_results:
+            total = bm25_count if bm25_count else 2484
+            n_results = len(st.session_state.search_results)
+            high = sum(1 for c in st.session_state.search_results if c.get("overall_match", 0) >= 90)
+            good = sum(1 for c in st.session_state.search_results if 70 <= c.get("overall_match", 0) < 90)
+            fair = n_results - high - good
 
-                # Convert HybridSearchResult to legacy dict format
-                # Enrich metadata with top-level fields so downstream code can find everything in meta
-                docs = []
-                for r in hybrid_results:
-                    display_name = get_display_name(r.resume_metadata)
+            stat1, stat2, stat3, stat4, stat5 = st.columns(5)
+            with stat1:
+                with st.container(border=True):
+                    st.markdown(f"<p class='muted' style='margin:0; font-size:0.75rem;'>Indexed Resumes</p>", unsafe_allow_html=True)
+                    st.markdown(f"<p style='margin:0; font-weight:700;'>{total}</p>", unsafe_allow_html=True)
+            with stat2:
+                with st.container(border=True):
+                    st.markdown(f"<p class='muted' style='margin:0; font-size:0.75rem;'>Results</p>", unsafe_allow_html=True)
+                    st.markdown(f"<p style='margin:0; font-weight:700;'>{n_results}</p>", unsafe_allow_html=True)
+            with stat3:
+                with st.container(border=True):
+                    st.markdown(f"<p class='muted' style='margin:0; font-size:0.75rem;'>High Match (≥90%)</p>", unsafe_allow_html=True)
+                    st.markdown(f"<p style='margin:0; font-weight:700; color:#22C55E;'>{high}</p>", unsafe_allow_html=True)
+            with stat4:
+                with st.container(border=True):
+                    st.markdown(f"<p class='muted' style='margin:0; font-size:0.75rem;'>Good Match (70-89%)</p>", unsafe_allow_html=True)
+                    st.markdown(f"<p style='margin:0; font-weight:700; color:#F59E0B;'>{good}</p>", unsafe_allow_html=True)
+            with stat5:
+                with st.container(border=True):
+                    st.markdown(f"<p class='muted' style='margin:0; font-size:0.75rem;'>Fair Match (<70%)</p>", unsafe_allow_html=True)
+                    st.markdown(f"<p style='margin:0; font-weight:700; color:#94A3B8;'>{fair}</p>", unsafe_allow_html=True)
 
-                    # Merge top-level fields into metadata for unified downstream access
-                    enriched_meta = dict(r.metadata) if r.metadata else {}
-                    enriched_meta.setdefault("candidate_name", display_name)
-                    enriched_meta.setdefault("resume_id", r.resume_id)
-                    enriched_meta.setdefault("section", r.section)
+        # Results
+        for i, candidate in enumerate(st.session_state.search_results):
+            with st.container(border=True):
+                r1, r2, r3 = st.columns([0.12, 0.58, 0.30])
 
-                    # Extract highlighted evidence snippet and offset from matched chunks
-                    matched_text = ""
-                    offset = 0
-                    if r.matched_chunks:
-                        matched_text = r.matched_chunks[0].matched_text or matched_text
-                        offset = r.matched_chunks[0].offset or 0
-                    # Fallback: reconstruct snippet from full chunk text if necessary
-                    if not matched_text:
-                        full_text = enriched_meta.get("text") or enriched_meta.get("text_preview") or ""
-                        matched_text = str(full_text)[:400]
-                        offset = 0
+                with r1:
+                    st.markdown(f"<div class='avatar-circle'>{_initials(candidate.get('name', ''))}</div>", unsafe_allow_html=True)
 
-                    docs.append({
-                        "id": r.resume_id,
-                        "text": enriched_meta.get("text", ""),
-                        "resume": enriched_meta.get("text", ""),
-                        "matched_text": matched_text,
-                        "evidence": matched_text,
-                        "offset": offset,
-                        "score": r.rrf_score,
-                        "section": r.section,
-                        "candidate_name": display_name,
-                        "chunk_id": r.chunk_id,
-                        "metadata": enriched_meta,
-                    })
+                with r2:
+                    st.markdown(f"<h4 style='margin:0; color:#F8FAFC;'>{html.escape(candidate.get('name', 'Unknown'))}</h4>", unsafe_allow_html=True)
+                    role = html.escape(str(candidate.get('role') or 'Role not specified'))
+                    loc = html.escape(str(candidate.get('location') or 'Location not specified'))
+                    exp = html.escape(str(candidate.get('experience') or 'Experience not specified'))
+                    edu = html.escape(str(candidate.get('education')[0] if candidate.get('education') else 'Education not specified'))
+                    st.markdown(f"<p class='muted' style='margin:0; font-size:0.8rem;'>{role} • {loc} • {exp} • {edu}</p>", unsafe_allow_html=True)
 
-                # Deduplicate by resume_id before rendering; keep the highest-scored entry.
-                seen_ids: set[str] = set()
-                docs = [d for d in docs if d.get("id") and d.get("id") not in seen_ids and not seen_ids.add(d.get("id"))]
+                    if candidate.get('top_skills'):
+                        chips = []
+                        for s in candidate.get('top_skills', [])[:8]:
+                            matched = s.lower() in [m.lower() for m in candidate.get('matched_skills', [])]
+                            cls = "skill-chip matched" if matched else "skill-chip"
+                            chips.append(f"<span class='{cls}'>{html.escape(s)}</span>")
+                        st.markdown("".join(chips), unsafe_allow_html=True)
 
-                if docs:
-                    print(f"  AFTER:  {len(docs)} docs, top score = {docs[0]['score']:.6f}")
-                    print(f"  AFTER META: keys={list(docs[0]['metadata'].keys())}")
+                    preview = html.escape(str(candidate.get('resume_preview', '') or candidate.get('summary', '') or ''))
+                    st.markdown(f"<p class='summary'>{preview}</p>", unsafe_allow_html=True)
 
-                # ── Score mapping: docs[] → scored_results ─────────────────────
-                print()
-                print("[SCORE TRACE] Mapping docs[] → scored_results")
-                print("[META TRACE] Mapping docs[] → scored_results")
-                scored_results = []
-                for i, d in enumerate(docs):
-                    meta = d.get("metadata", {}) or {}
-                    doc_text = d.get("text", "")
-                    rrf_score = d.get("score", 0.0)          # retrieval score from pipeline
-
-                    if i < 3:  # log first 3 for meta trace
-                        print(f"  [{i}] meta keys = {list(meta.keys())}")
-                    
-                    # Build candidate card directly from ResumeDocument metadata
-                    # No frontend heuristics — all fields come from the production dataset.
-                    candidate = build_candidate_card(
-                        resume_id=d.get("id", ""),
-                        rrf_score=rrf_score,
-                        jd_skills=jd_skills,
-                        matched_text=d.get("matched_text", ""),
-                        evidence_offset=d.get("offset", 0),
-                        section=d.get("section") or meta.get("section") or "unknown",
-                        query=user_query,
+                with r3:
+                    pct = int(round(candidate.get('overall_match', 0)))
+                    conf = _confidence_label(float(candidate.get('confidence', 0)))
+                    st.markdown(
+                        f"""
+                        <div class='match-circle' style='--pct:{pct}%;'>
+                          <div class='match-circle-inner'>
+                            <span class='match-number'>{pct}%</span>
+                            <span class='match-label'>{conf}</span>
+                          </div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
                     )
+                    b1, b2 = st.columns(2)
+                    with b1:
+                        if st.button("View", key=f"view_search_{i}", use_container_width=True):
+                            st.session_state.selected_candidate = candidate
+                            st.rerun()
+                    with b2:
+                        if st.button("Shortlist", key=f"short_search_{i}", use_container_width=True, type="primary"):
+                            _add_to_shortlist(candidate)
+                            st.toast("Added to shortlist")
 
-                    if not candidate:
-                        print(f"  [{i}] No ResumeDocument found for resume_id={d.get('id', '')}; skipping")
-                        continue
+# ── SHORTLIST VIEW ──────────────────────────────────────────────────────────
 
-                    if i < 3:  # log first 3 for meta trace
-                        print(f"  [{i}] name={candidate['name']}, role={candidate['role']}, "
-                              f"location={candidate['location']}, skills={candidate['top_skills'][:3]}, "
-                              f"email={candidate.get('email')}")
+elif st.session_state.page == "Shortlist":
+    with main_col:
+        st.markdown("<h1 style='margin-bottom:0.25rem;'>Shortlist</h1>", unsafe_allow_html=True)
+        st.markdown("<p class='muted' style='margin-bottom:1.5rem;'>Saved candidates for this search session.</p>", unsafe_allow_html=True)
 
-                    if i < 5:  # log first 5 for trace
-                        print(f"  [{i}] {candidate['name']:<25}  rrf={rrf_score:.6f}  "
-                              f"overall={candidate.get('overall_match', 0):.1f}%  "
-                              f"role={candidate.get('role_match', 0):.1f}%  "
-                              f"skill={candidate.get('skill_match', 'N/A')}{'%' if isinstance(candidate.get('skill_match'), (int, float)) else ''}  "
-                              f"matched={candidate['matched_skills']}")
+        if not st.session_state.shortlist:
+            st.info("No candidates have been shortlisted yet.")
+        else:
+            for i, cid in enumerate(st.session_state.shortlist):
+                candidate = st.session_state.shortlist_map.get(cid)
+                if not candidate:
+                    continue
+                with st.container(border=True):
+                    r1, r2, r3 = st.columns([0.12, 0.58, 0.30])
 
-                    scored_results.append(candidate)
-                
-                # Sort by retrieval score (descending)
-                scored_results = sorted(scored_results, key=lambda x: x["score"], reverse=True)
-                
-                if scored_results:
-                    print(f"  AFTER:  top candidate = {scored_results[0]['name']}, "
-                          f"score = {scored_results[0]['score']:.6f}")
-                    _c0 = scored_results[0]
-                    print(f"  AFTER META: name={_c0['name']}, role={_c0.get('role')}, "
-                          f"location={_c0.get('location')}, skills={_c0.get('skills', [])[:3]}, "
-                          f"email={_c0.get('email')}, phone={_c0.get('phone')}")
-                
-                # ── STAGE 11 — FINAL RANKING ──────────────────────────────────────
-                _s11_start = time.perf_counter()
-                log_stage_start(11, "FINAL RANKING", Total_Candidates=len(scored_results))
-                
-                # Print ranking table
-                if scored_results:
-                    print(f"  {'Rank':<6}{'Candidate':<25}{'RRF':<12}{'Skill%':<10}")
-                    print(f"  {'-'*53}")
-                    for rank_i, c in enumerate(scored_results[:10]):
-                        print(f"  {rank_i+1:<6}{c['name']:<25}{c['score']:<12.6f}{c.get('match_pct',0):<10.1f}")
-                
-                _s11_sample = None
-                if scored_results:
-                    _s11_sample = {
-                        "Rank_1": scored_results[0]["name"],
-                        "RRF_Score": f"{scored_results[0]['score']:.6f}",
-                        "Skill_Match": f"{scored_results[0].get('match_pct', 0):.1f}%",
-                    }
-                
-                log_stage_end(11, "FINAL RANKING",
-                    status="SUCCESS",
-                    time_ms=(time.perf_counter() - _s11_start) * 1000,
-                    output_count=len(scored_results),
-                    sample=_s11_sample,
-                    extra={"Scoring": "RRF retrieval score (primary) + skill-match % (supplementary)"},
-                )
-                
-                # Store in session state
-                st.session_state.search_results = scored_results
-                
-                # Debug: Show first candidate details
-                if scored_results:
-                    with st.expander("🔍 Debug: Matching Details"):
-                        first = scored_results[0]
-                        st.write("**JD Skills:**", jd_skills)
-                        st.write("**Candidate Name:**", first["name"])
-                        st.write("**Candidate Skills:**", first["skills"])
-                        st.write("**Matched Skills:**", first["matched_skills"])
-                        st.write("**Score:**", first["score"])
-                        
-                        # Show first 3 candidates for comparison
-                        st.write("---")
-                        st.write("**First 3 Candidates:**")
-                        for i, c in enumerate(scored_results[:3]):
-                            st.write(f"{i+1}. {c['name']}: {c['skills']} → {c['matched_skills']} ({c['score']}%)")
-                
-            except Exception as e:
-                log_error(12, "UI OUTPUT", e, reraise=False)
-                st.warning("Some components could not load properly. Please try again.")
+                    with r1:
+                        st.markdown(f"<div class='avatar-circle'>{_initials(candidate.get('name', ''))}</div>", unsafe_allow_html=True)
 
-        # ── STAGE 12 — UI OUTPUT ─────────────────────────────────────────────
-        _ui_elapsed = (time.perf_counter() - _ui_start) * 1000
-        _results_count = len(st.session_state.get("search_results", []))
-        if _results_count > 0:
-            log_stage_end(12, "UI OUTPUT",
-                status="SUCCESS",
-                time_ms=_ui_elapsed,
-                output_count=_results_count,
-                sample={
-                    "Top_Candidate": st.session_state.search_results[0].get("name", "N/A") if _results_count else "N/A",
-                    "Top_Score": st.session_state.search_results[0].get("score", 0) if _results_count else 0,
-                },
-                extra={"Cards_Rendered": _results_count, "Total_Latency_ms": f"{_ui_elapsed:.1f}"},
+                    with r2:
+                        st.markdown(f"<h4 style='margin:0; color:#F8FAFC;'>{html.escape(candidate.get('name', 'Unknown'))}</h4>", unsafe_allow_html=True)
+                        role = html.escape(str(candidate.get('role') or 'Role not specified'))
+                        loc = html.escape(str(candidate.get('location') or 'Location not specified'))
+                        st.markdown(f"<p class='muted' style='margin:0; font-size:0.8rem;'>{role} • {loc}</p>", unsafe_allow_html=True)
+
+                        chips = [f"<span class='skill-chip'>{html.escape(s)}</span>" for s in candidate.get('top_skills', [])[:6]]
+                        st.markdown("".join(chips), unsafe_allow_html=True)
+
+                    with r3:
+                        pct = int(round(candidate.get('overall_match', 0)))
+                        conf = _confidence_label(float(candidate.get('confidence', 0)))
+                        st.markdown(
+                            f"""
+                            <div class='match-circle' style='--pct:{pct}%;'>
+                              <div class='match-circle-inner'>
+                                <span class='match-number'>{pct}%</span>
+                                <span class='match-label'>{conf}</span>
+                              </div>
+                            </div>
+                            """,
+                            unsafe_allow_html=True,
+                        )
+                        b1, b2 = st.columns(2)
+                        with b1:
+                            if st.button("View", key=f"view_short_{i}", use_container_width=True):
+                                st.session_state.selected_candidate = candidate
+                                st.rerun()
+                        with b2:
+                            if st.button("Remove", key=f"remove_short_{i}", use_container_width=True, type="secondary"):
+                                _remove_from_shortlist(cid)
+                                st.rerun()
+
+# ── RIGHT-SIDE DRAWER ───────────────────────────────────────────────────────
+
+with drawer_col:
+    if st.session_state.selected_candidate:
+        c = st.session_state.selected_candidate
+        with st.container(border=True):
+            st.markdown("<h3 style='margin:0 0 1rem 0;'>Match Breakdown</h3>", unsafe_allow_html=True)
+
+            pct = int(round(c.get('overall_match', 0)))
+            conf = _confidence_label(float(c.get('confidence', 0)))
+            st.markdown(
+                f"""
+                <div class='match-circle' style='--pct:{pct}%; width:120px; height:120px;'>
+                  <div class='match-circle-inner' style='width:96px; height:96px;'>
+                    <span class='match-number' style='font-size:2rem;'>{pct}%</span>
+                    <span class='match-label'>{conf}</span>
+                  </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
             )
 
-    # Always read from session state
-    results = st.session_state.search_results
-    
-    if results:
-        st.markdown("### 🎯 Matched Candidates")
-        
-        # Export option
-        df = pd.DataFrame([{
-            "name": r["name"],
-            "score": r["score"],
-            "role": r["role"],
-            "matched_skills": ", ".join(r["matched_skills"])
-        } for r in results])
-        st.download_button("📁 Export Results", df.to_csv(index=False), "candidates.csv", key="export_search")
+            st.markdown("<p style='font-weight:600; color:#F8FAFC; margin:1rem 0 0.5rem;'>Components</p>", unsafe_allow_html=True)
+            components = [
+                ("Role", c.get('role_match', 0) / 100 if isinstance(c.get('role_match'), (int, float)) else 0),
+                ("Skills", c.get('skill_match', 0) / 100 if isinstance(c.get('skill_match'), (int, float)) else 0),
+                ("Experience", c.get('experience_match', 0) / 100 if isinstance(c.get('experience_match'), (int, float)) else 0),
+                ("Industry", c.get('industry_match', 0) / 100 if isinstance(c.get('industry_match'), (int, float)) else 0),
+                ("Education", c.get('education_match', 0) / 100 if isinstance(c.get('education_match'), (int, float)) else 0),
+                ("Location", c.get('location_match', 0) / 100 if isinstance(c.get('location_match'), (int, float)) else 0),
+            ]
+            for label, val in components:
+                if val > 0:
+                    st.caption(f"{label}: {int(round(val*100))}%")
+                    st.progress(min(1.0, val), text="")
 
-        # Display candidate cards
-        for i, candidate in enumerate(results):
-            render_candidate_card(candidate, i)
-    
-    # Display selected candidate if any
-    if st.session_state.selected_candidate:
-        st.markdown("---")
-        st.markdown("### 📄 Resume Details")
-        st.json(st.session_state.selected_candidate)
-        
-        if st.button("Close Resume", key="close_resume"):
-            st.session_state.selected_candidate = None
-            st.rerun()
+            st.markdown("<p style='font-weight:600; color:#F8FAFC; margin:1rem 0 0.5rem;'>Why this matched</p>", unsafe_allow_html=True)
+            for reason in _why_matched(c):
+                st.markdown(f"<p style='margin:0.15rem 0; color:#94A3B8; font-size:0.85rem;'>✓ {html.escape(reason)}</p>", unsafe_allow_html=True)
 
+            if c.get('top_skills'):
+                st.markdown("<p style='font-weight:600; color:#F8FAFC; margin:1rem 0 0.5rem;'>Top Skills</p>", unsafe_allow_html=True)
+                chips = [f"<span class='skill-chip'>{html.escape(s)}</span>" for s in c.get('top_skills', [])[:12]]
+                st.markdown("".join(chips), unsafe_allow_html=True)
 
-# Upload & Rank tab
-with tab_upload:
-    st.markdown("## 📁 Upload Resumes & Rank Candidates")
-    
-    # Job Description input (moved above)
-    jd = st.text_area(
-        "Enter Job Description",
-        placeholder="Paste job description here...",
-        height=150
-    )
-    
-    # File upload
-    uploaded_files = st.file_uploader(
-        "Upload Resumes",
-        type=["pdf", "docx", "txt"],
-        accept_multiple_files=True
-    )
-    
-    # Run ranking button
-    run_ranking = st.button("🚀 Rank Candidates")
-    
-    # Process files when button is clicked
-    if run_ranking and uploaded_files and jd.strip():
-        # 🧹 Remove error spam - validate inputs first
-        if not uploaded_files:
-            st.warning("Please upload resumes (PDF, DOCX, TXT)")
-            st.stop()
-        
-        if not jd.strip():
-            st.warning("Enter Job Description")
-            st.stop()
-        
-        # 🛡️ Filter valid files
-        valid_files = [f for f in uploaded_files if f.name.endswith(("pdf", "docx", "txt"))]
-        
-        if not valid_files:
-            st.error("No valid resume files found. Please upload PDF, DOCX, or TXT files.")
-            st.stop()
-        
-        st.success(f"{len(valid_files)} files uploaded successfully")
-        
-        # 🧪 Add loading state
-        with st.spinner("Analyzing resumes..."):
-            # Parse job description
-            jd_data = parse_jd(jd)
-            
-            # ✅ FIXED: Extract skills from JD text as fallback
-            jd_data["skills"] = extract_jd_skills(jd)
-            
-            # Ensure JD skills are never empty
-            if not jd_data["skills"]:
-                st.warning("⚠️ No skills detected in JD. Using default tech skills.")
-                jd_data["skills"] = ["python", "sql", "aws"]
-            
-            # Debug info
-            with st.expander("🔍 Debug: Upload Skill Matching"):
-                st.write("**JD Skills:**", jd_data["skills"])
-                st.write("**JD Text Length:**", len(jd))
-            
-            scored_results = []
-            failed_files = []
-            
-            # Process each uploaded resume with full error protection
-            for file in valid_files:
-                try:
-                    text = extract_text(file)
-                    
-                    # ❌ Skip broken files with proper error handling
-                    if text.startswith("ERROR") or len(text.strip()) < 50:
-                        failed_files.append(file.name)
-                        continue
-                    
-                    # ✅ CRITICAL FIX: Parse resume with proper skill extraction
-                    parsed = {
-                        "skills": extract_skills_from_text(text),
-                        "experience": extract_experience(text) if hasattr(extract_experience, '__call__') else "Not specified",
-                        "location": extract_location(text) if hasattr(extract_location, '__call__') else "Not specified",
-                        "role": extract_role(text) if hasattr(extract_role, '__call__') else "Software Developer"
-                    }
-                    
-                    # Ensure candidate has at least some skills
-                    if not parsed["skills"]:
-                        parsed["skills"] = ["unknown"]
-                    
-                    # Score the candidate
-                    score, matched_skills = compute_match_score(
-                        parsed["skills"],
-                        jd_data["skills"]
-                    )
-                    
-                    candidate = {
-                        "id": file.name,
-                        "name": file.name,
-                        "score": score,
-                        "skills": parsed["skills"],
-                        "matched_skills": matched_skills,
-                        "experience": parsed["experience"],
-                        "location": parsed["location"],
-                        "role": parsed["role"],
-                        "reasons": generate_reasons(parsed, jd_data)
-                    }
-                    
-                    scored_results.append(candidate)
-                
-                except Exception:
-                    # Never let individual file failures break whole pipeline
-                    failed_files.append(file.name)
-                    continue
-            
-            # ✅ Sort results by score (descending)
-            scored_results = sorted(scored_results, key=lambda x: x["score"], reverse=True)
-            
-            # Store in session state
-            st.session_state.upload_results = scored_results
-            
-            # Show failed files warning (no red stacktrace)
-            if failed_files:
-                st.warning(f"⚠️ {len(failed_files)} resumes could not be processed")
-                with st.expander("View failed files"):
-                    st.write(failed_files)
-    
-    elif run_ranking:
-        if not uploaded_files:
-            st.error("Please upload resume PDFs, DOCX, or TXT files first.")
-        if not jd.strip():
-            st.error("Please enter a job description first.")
-    
-    # Always read from session state
-    results = st.session_state.upload_results
-    
-    if results:
-        st.markdown("### 🎯 Ranked Candidates")
-        
-        # Export option
-        df = pd.DataFrame([{
-            "name": r["name"],
-            "score": r["score"],
-            "role": r["role"],
-            "matched_skills": ", ".join(r["matched_skills"])
-        } for r in results])
-        st.download_button("📁 Export Results", df.to_csv(index=False), "ranked_candidates.csv", key="export_upload")
+            with st.expander("View Full Resume"):
+                summary = html.escape(str(c.get('summary') or c.get('resume_preview') or 'No preview available.'))
+                st.markdown(f"<p class='summary' style='-webkit-line-clamp: unset;'>{summary}</p>", unsafe_allow_html=True)
 
-        # Display clean candidate cards
-        for i, candidate in enumerate(results):
-            render_candidate_card(candidate, i)
-    
-    # Display selected candidate if any
-    if st.session_state.selected_candidate:
-        st.markdown("---")
-        st.markdown("### 📄 Resume Details")
-        st.json(st.session_state.selected_candidate)
-        
-        if st.button("Close Resume", key="close_upload_resume"):
-            st.session_state.selected_candidate = None
-            st.rerun()
-
+            if st.button("Close", use_container_width=True):
+                st.session_state.selected_candidate = None
+                st.rerun()

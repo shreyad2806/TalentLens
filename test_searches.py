@@ -31,7 +31,7 @@ def main():
     bundle = create_retrieval_bundle()
     search_service = SearchService(hybrid_service=bundle.hybrid_service)
 
-    queries = ["python", "java", "banking", "spring boot", "excel", "python developer"]
+    queries = ["python", "java", "banking", "spring boot", "excel"]
     report_path = PROJECT_ROOT / "test_search_report.txt"
 
     with open(report_path, "w", encoding="utf-8") as report:
