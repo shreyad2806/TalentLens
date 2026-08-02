@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from src.models import ResumeDocument
 
@@ -20,20 +20,20 @@ class EraMatchAdapter(BaseDatasetAdapter):
 
     source_name = "eramatch"
 
-    def __init__(self, source_path: Optional[str] = None) -> None:
+    def __init__(self, source_path: str | None = None) -> None:
         super().__init__(source_path)
 
-    def load(self) -> List[Dict[str, Any]]:
+    def load(self) -> list[dict[str, Any]]:
         raise NotImplementedError(
             "EraMatchAdapter.load() is not implemented: dataset not yet downloaded."
         )
 
-    def validate(self, record: Dict[str, Any]) -> bool:
+    def validate(self, record: dict[str, Any]) -> bool:
         raise NotImplementedError(
             "EraMatchAdapter.validate() is not implemented: dataset not yet downloaded."
         )
 
-    def convert(self, record: Dict[str, Any]) -> ResumeDocument:
+    def convert(self, record: dict[str, Any]) -> ResumeDocument:
         raise NotImplementedError(
             "EraMatchAdapter.convert() is not implemented: dataset not yet downloaded."
         )

@@ -6,7 +6,6 @@ models (cross-encoder/ms-marco-MiniLM-L-6-v2 by default).
 
 import logging
 import os
-from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -14,7 +13,7 @@ logger = logging.getLogger(__name__)
 class CrossEncoderReranker:
     """Rerank (query, passage) pairs using a cross-encoder model."""
 
-    def __init__(self, model_name: Optional[str] = None):
+    def __init__(self, model_name: str | None = None):
         self.model_name = model_name or os.getenv(
             "RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2"
         )
@@ -36,7 +35,7 @@ class CrossEncoderReranker:
                 self._model = None
         return self._model
 
-    def rerank(self, query: str, texts: List[str], top_k: Optional[int] = None) -> List[float]:
+    def rerank(self, query: str, texts: list[str], top_k: int | None = None) -> list[float]:
         """Return a normalized relevance score for each (query, text) pair."""
         if not texts:
             return []

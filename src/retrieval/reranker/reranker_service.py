@@ -40,14 +40,16 @@ SOLID Principles Applied:
 
 import logging
 import time
-from typing import List, Dict, Any, Optional
-from .schema import RerankedResult, RerankMetrics, RerankEvidence
-from .model_loader import ModelLoader, RerankerModel
-from .cache import RerankCache
-from .validator import RerankerValidator, ValidationError
+from typing import Any
+
+from src.debug_logger import log_error, log_stage_end, log_stage_start
+
 from .batch_processor import BatchProcessor
+from .cache import RerankCache
+from .model_loader import ModelLoader, RerankerModel
+from .schema import RerankedResult, RerankEvidence
 from .scorer import CrossEncoderScorer
-from src.debug_logger import log_stage_start, log_stage_end, log_error
+from .validator import RerankerValidator, ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +95,7 @@ class RerankerService:
         cache_max_size: int = 1000,
         cache_ttl_seconds: int = 3600,
         batch_size: int = 32,
-        normalize_scores: Optional[str] = None
+        normalize_scores: str | None = None
     ):
         """
         Initialize the reranker service.
@@ -145,9 +147,9 @@ class RerankerService:
     def rerank(
         self,
         query: str,
-        candidates: List[Any],
-        top_k: Optional[int] = None
-    ) -> List[RerankedResult]:
+        candidates: list[Any],
+        top_k: int | None = None
+    ) -> list[RerankedResult]:
         """
         Rerank candidates using cross-encoder.
         
@@ -304,7 +306,7 @@ class RerankerService:
         cache_hits: int,
         cache_misses: int,
         total_time: float,
-        scores: List[float]
+        scores: list[float]
     ) -> None:
         """
         Log reranking metrics.
@@ -334,7 +336,7 @@ class RerankerService:
             f"total_time={total_time:.4f}s"
         )
     
-    def get_metrics(self) -> Dict[str, Any]:
+    def get_metrics(self) -> dict[str, Any]:
         """
         Get reranker service metrics.
         
@@ -359,7 +361,7 @@ class RerankerService:
             self.cache.clear()
             logger.info("Reranker cache cleared")
     
-    def get_model_info(self) -> Dict[str, Any]:
+    def get_model_info(self) -> dict[str, Any]:
         """
         Get information about the loaded model.
         

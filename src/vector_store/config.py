@@ -16,7 +16,6 @@ SOLID Principles Applied:
 """
 
 import os
-from typing import Optional
 from enum import Enum
 
 # Import embedding dimension from config to ensure alignment
@@ -217,7 +216,7 @@ class VectorStoreConfig:
 
 # Global configuration instance
 # This follows the Singleton pattern for configuration
-_config_instance: Optional[VectorStoreConfig] = None
+_config_instance: VectorStoreConfig | None = None
 
 
 def get_config() -> VectorStoreConfig:

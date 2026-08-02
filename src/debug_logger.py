@@ -25,9 +25,7 @@ import os
 import re
 import sys
 import time
-import traceback
-from typing import Any, Dict, Optional
-
+from typing import Any
 
 # ── Logger setup ─────────────────────────────────────────────────────────────
 
@@ -96,7 +94,7 @@ def _format_value(value: Any, max_len: int = 120) -> str:
     return text
 
 
-def _format_fields(fields: Dict[str, Any], indent: int = 2) -> str:
+def _format_fields(fields: dict[str, Any], indent: int = 2) -> str:
     """Format key=value pairs with sensitive values redacted."""
     if not fields:
         return ""
@@ -139,10 +137,10 @@ def log_stage_end(
     stage_num: int,
     stage_name: str,
     status: str = "SUCCESS",
-    time_ms: Optional[float] = None,
-    output_count: Optional[int] = None,
+    time_ms: float | None = None,
+    output_count: int | None = None,
     sample: Any = None,
-    extra: Optional[Dict[str, Any]] = None,
+    extra: dict[str, Any] | None = None,
 ) -> None:
     """
     Log an END banner for a pipeline stage.
@@ -248,9 +246,9 @@ class StageTimer:
         self.stage_name = stage_name
         self.input_fields = input_fields
         self._start_time: float = 0.0
-        self._output_count: Optional[int] = None
+        self._output_count: int | None = None
         self._sample: Any = None
-        self._extra: Dict[str, Any] = {}
+        self._extra: dict[str, Any] = {}
         self._status: str = "SUCCESS"
 
     def __enter__(self) -> "StageTimer":
@@ -279,7 +277,7 @@ class StageTimer:
 
     def set_output(
         self,
-        count: Optional[int] = None,
+        count: int | None = None,
         sample: Any = None,
         status: str = "SUCCESS",
         **extra: Any,

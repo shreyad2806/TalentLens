@@ -14,19 +14,19 @@ Modules:
 - cache: In-memory cache for search results
 """
 
-from .schema import BM25Document
 from .bm25_index import BM25Index
+from .cache import BM25Cache, SearchResult
 from .index_builder import IndexBuilder
+from .schema import BM25Document
 from .search_service import SearchService
 from .validator import BM25Validator
-from .cache import BM25Cache, SearchResult
 
 __all__ = [
+    'BM25Cache',
     'BM25Document',
     'BM25Index',
-    'IndexBuilder',
-    'SearchService',
-    'SearchResult',
     'BM25Validator',
-    'BM25Cache'
+    'IndexBuilder',
+    'SearchResult',
+    'SearchService'
 ]

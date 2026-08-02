@@ -24,7 +24,6 @@ SOLID Principles Applied:
 
 import logging
 import time
-from typing import List, Optional, Union
 
 from .cache import MetadataFilterCache
 from .filter_engine import FilterEngine
@@ -57,7 +56,7 @@ class MetadataService:
         cache_enabled: bool = True,
         cache_max_size: int = 1000,
         cache_ttl: int = 3600,
-        parser_strategy: Optional[FilterParserStrategy] = None,
+        parser_strategy: FilterParserStrategy | None = None,
     ) -> None:
         """
         Initialize the metadata filtering service.
@@ -129,7 +128,7 @@ class MetadataService:
     def apply_filters(
         self,
         filters: MetadataFilter,
-        candidates: List[CandidateMetadata],
+        candidates: list[CandidateMetadata],
     ) -> FilterResult:
         """
         Apply metadata filters to a candidate pool.
@@ -180,9 +179,9 @@ class MetadataService:
 
     def filter_candidates(
         self,
-        candidates: List[CandidateMetadata],
-        query: Optional[str] = None,
-        filters: Optional[MetadataFilter] = None,
+        candidates: list[CandidateMetadata],
+        query: str | None = None,
+        filters: MetadataFilter | None = None,
     ) -> FilterResult:
         """
         End-to-end metadata filtering: parse query (optional) and apply filters.
@@ -204,7 +203,7 @@ class MetadataService:
         """
         pipeline_start = time.perf_counter()
         total_before = len(candidates)
-        parse_latency_ms: Optional[float] = None
+        parse_latency_ms: float | None = None
 
         if filters is None and query is None:
             raise ValidationError(

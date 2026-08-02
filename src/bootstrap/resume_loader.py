@@ -7,11 +7,10 @@ and filters by supported file extensions. It also supports CSV ingestion
 from Resume.csv files.
 """
 
-import os
 import logging
-from pathlib import Path
-from typing import List, Optional, Dict, Any, Tuple
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -23,11 +22,11 @@ class LoadResult:
     valid_files: int
     invalid_files: int
     skipped_files: int
-    file_paths: List[str]
-    errors: List[str]
+    file_paths: list[str]
+    errors: list[str]
     load_time_seconds: float
     csv_detected: bool = False
-    csv_path: Optional[str] = None
+    csv_path: str | None = None
 
 
 class ResumeLoader:
@@ -50,7 +49,7 @@ class ResumeLoader:
         'data/resumes',
     ]
     
-    def __init__(self, resume_paths: Optional[List[str]] = None):
+    def __init__(self, resume_paths: list[str] | None = None):
         """
         Initialize the resume loader.
         
@@ -61,7 +60,7 @@ class ResumeLoader:
         self.resume_paths = resume_paths or self.DEFAULT_RESUME_PATHS
         logger.info(f"ResumeLoader initialized with paths: {self.resume_paths}")
     
-    def detect_csv_files(self, base_path: Optional[str] = None) -> List[Path]:
+    def detect_csv_files(self, base_path: str | None = None) -> list[Path]:
         """
         Detect Resume.csv files in configured directories.
         
@@ -73,7 +72,7 @@ class ResumeLoader:
             List of Path objects pointing to detected CSV files
         """
         base = Path(base_path) if base_path else Path.cwd()
-        csv_files: List[Path] = []
+        csv_files: list[Path] = []
         
         for resume_path in self.resume_paths:
             full_path = base / resume_path
@@ -89,7 +88,7 @@ class ResumeLoader:
         
         return csv_files
     
-    def discover_resumes(self, base_path: Optional[str] = None) -> List[Path]:
+    def discover_resumes(self, base_path: str | None = None) -> list[Path]:
         """
         Discover resume files from configured directories.
         
@@ -104,7 +103,7 @@ class ResumeLoader:
         start_time = time.time()
         
         base = Path(base_path) if base_path else Path.cwd()
-        discovered_files: List[Path] = []
+        discovered_files: list[Path] = []
         
         for resume_path in self.resume_paths:
             full_path = base / resume_path
@@ -127,7 +126,7 @@ class ResumeLoader:
         
         return discovered_files
     
-    def load_resumes(self, base_path: Optional[str] = None) -> LoadResult:
+    def load_resumes(self, base_path: str | None = None) -> LoadResult:
         """
         Load resume files from configured directories.
         
@@ -148,10 +147,10 @@ class ResumeLoader:
         csv_detected = len(csv_files) > 0
         csv_path = str(csv_files[0]) if csv_files else None
         
-        valid_files: List[str] = []
-        invalid_files: List[str] = []
-        skipped_files: List[str] = []
-        errors: List[str] = []
+        valid_files: list[str] = []
+        invalid_files: list[str] = []
+        skipped_files: list[str] = []
+        errors: list[str] = []
         
         for file_path in discovered_files:
             try:
@@ -181,9 +180,9 @@ class ResumeLoader:
                 valid_files.append(str(file_path))
                 
             except Exception as e:
-                errors.append(f"Error loading {file_path}: {str(e)}")
+                errors.append(f"Error loading {file_path}: {e!s}")
                 invalid_files.append(str(file_path))
-                logger.error(f"Error loading {file_path}: {str(e)}")
+                logger.error(f"Error loading {file_path}: {e!s}")
         
         load_time = time.time() - start_time
         
@@ -211,7 +210,7 @@ class ResumeLoader:
         
         return result
     
-    def get_resume_count(self, base_path: Optional[str] = None) -> int:
+    def get_resume_count(self, base_path: str | None = None) -> int:
         """
         Get the count of valid resume files.
         
@@ -224,7 +223,7 @@ class ResumeLoader:
         result = self.load_resumes(base_path)
         return result.valid_files
     
-    def validate_resume_paths(self, base_path: Optional[str] = None) -> Dict[str, Any]:
+    def validate_resume_paths(self, base_path: str | None = None) -> dict[str, Any]:
         """
         Validate that resume directories exist and are accessible.
         

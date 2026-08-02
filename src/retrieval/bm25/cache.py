@@ -5,10 +5,10 @@ This module provides the BM25Cache class for caching search query results
 to avoid redundant computations and improve performance.
 """
 
-import time
-from typing import List, Dict, Any, Optional
-from collections import OrderedDict
 import logging
+import time
+from collections import OrderedDict
+from typing import Any
 
 from .schema import BM25Document
 
@@ -33,7 +33,7 @@ class SearchResult:
         self.score = score
         self.rank = rank
     
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """
         Convert search result to dictionary.
         
@@ -67,7 +67,7 @@ class BM25Cache:
         self.ttl = ttl
         
         # OrderedDict for LRU cache
-        self.cache: OrderedDict[str, Dict[str, Any]] = OrderedDict()
+        self.cache: OrderedDict[str, dict[str, Any]] = OrderedDict()
         
         # Statistics
         self.hits = 0
@@ -76,7 +76,7 @@ class BM25Cache:
         
         logger.info(f"BM25Cache initialized with max_size={max_size}, ttl={ttl}s")
     
-    def get(self, key: str) -> Optional[List[SearchResult]]:
+    def get(self, key: str) -> list[SearchResult] | None:
         """
         Get cached results for a query.
         
@@ -106,7 +106,7 @@ class BM25Cache:
         logger.debug(f"Cache hit for key: {key}")
         return entry['results']
     
-    def set(self, key: str, results: List[SearchResult]) -> None:
+    def set(self, key: str, results: list[SearchResult]) -> None:
         """
         Cache search results for a query.
         
@@ -140,7 +140,7 @@ class BM25Cache:
         self.evictions = 0
         logger.info("Cache cleared")
     
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """
         Get cache statistics.
         

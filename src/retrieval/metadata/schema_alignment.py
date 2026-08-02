@@ -25,7 +25,7 @@ SOLID Principles Applied:
 """
 
 import logging
-from typing import Dict, Any, Optional, List
+from typing import Any
 
 from .schema import MetadataFilter
 
@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 class SchemaAlignmentError(Exception):
     """Custom exception for schema alignment errors."""
     
-    def __init__(self, message: str, field: Optional[str] = None):
+    def __init__(self, message: str, field: str | None = None):
         self.message = message
         self.field = field
         super().__init__(self.message)
@@ -70,7 +70,7 @@ class SchemaAlignment:
     }
     
     @staticmethod
-    def align_metadata_to_retrieval(metadata_filter: MetadataFilter) -> Dict[str, Any]:
+    def align_metadata_to_retrieval(metadata_filter: MetadataFilter) -> dict[str, Any]:
         """
         Align MetadataFilter to retrieval filter schema.
         
@@ -86,7 +86,7 @@ class SchemaAlignment:
         Raises:
             SchemaAlignmentError: If alignment fails
         """
-        retrieval_filters: Dict[str, Any] = {}
+        retrieval_filters: dict[str, Any] = {}
         
         # Map experience range to single experience field
         if metadata_filter.minimum_experience is not None or metadata_filter.maximum_experience is not None:
@@ -136,7 +136,7 @@ class SchemaAlignment:
         return retrieval_filters
     
     @staticmethod
-    def validate_retrieval_filters(filters: Dict[str, Any]) -> None:
+    def validate_retrieval_filters(filters: dict[str, Any]) -> None:
         """
         Validate retrieval filters against valid filter keys.
         
@@ -191,7 +191,7 @@ class SchemaAlignment:
         logger.info(f"Added custom retrieval filter key: {key}")
     
     @staticmethod
-    def align_and_validate(metadata_filter: MetadataFilter) -> Dict[str, Any]:
+    def align_and_validate(metadata_filter: MetadataFilter) -> dict[str, Any]:
         """
         Align metadata filter to retrieval schema and validate.
         
@@ -270,7 +270,7 @@ class FilterKeyNormalizer:
         return key
     
     @staticmethod
-    def normalize_filter_dict(filters: Dict[str, Any]) -> Dict[str, Any]:
+    def normalize_filter_dict(filters: dict[str, Any]) -> dict[str, Any]:
         """
         Normalize all keys in a filter dictionary.
         

@@ -8,9 +8,9 @@ capabilities.
 """
 
 import logging
-from typing import List, Union, Optional, Callable
-from pathlib import Path
+from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -32,8 +32,8 @@ class IngestionResult:
     valid_files: int
     invalid_files: int
     skipped_files: int
-    file_paths: List[Path]
-    errors: List[str]
+    file_paths: list[Path]
+    errors: list[str]
 
 
 class ResumeIngestor:
@@ -48,7 +48,7 @@ class ResumeIngestor:
     # Supported resume file extensions
     SUPPORTED_EXTENSIONS = {'.pdf', '.docx', '.doc', '.txt'}
     
-    def __init__(self, supported_extensions: Optional[set] = None):
+    def __init__(self, supported_extensions: set | None = None):
         """
         Initialize the resume ingestor.
         
@@ -61,9 +61,9 @@ class ResumeIngestor:
     
     def ingest_from_directory(
         self,
-        directory: Union[str, Path],
+        directory: str | Path,
         recursive: bool = True,
-        filter_fn: Optional[Callable[[Path], bool]] = None
+        filter_fn: Callable[[Path], bool] | None = None
     ) -> IngestionResult:
         """
         Discover and ingest resume files from a directory.
@@ -135,7 +135,7 @@ class ResumeIngestor:
                 file_path.stat()
                 valid_files.append(file_path)
             except Exception as e:
-                error_msg = f"Cannot read file {file_path}: {str(e)}"
+                error_msg = f"Cannot read file {file_path}: {e!s}"
                 errors.append(error_msg)
                 invalid_files.append(file_path)
                 logger.warning(error_msg)
@@ -160,8 +160,8 @@ class ResumeIngestor:
     
     def ingest_from_list(
         self,
-        file_paths: List[Union[str, Path]],
-        filter_fn: Optional[Callable[[Path], bool]] = None
+        file_paths: list[str | Path],
+        filter_fn: Callable[[Path], bool] | None = None
     ) -> IngestionResult:
         """
         Ingest resume files from a list of file paths.
@@ -214,7 +214,7 @@ class ResumeIngestor:
                 file_path.stat()
                 valid_files.append(file_path)
             except Exception as e:
-                error_msg = f"Cannot read file {file_path}: {str(e)}"
+                error_msg = f"Cannot read file {file_path}: {e!s}"
                 errors.append(error_msg)
                 invalid_files.append(file_path)
                 logger.warning(error_msg)
@@ -237,7 +237,7 @@ class ResumeIngestor:
         
         return result
     
-    def ingest_single_file(self, file_path: Union[str, Path]) -> IngestionResult:
+    def ingest_single_file(self, file_path: str | Path) -> IngestionResult:
         """
         Ingest a single resume file.
         
@@ -251,9 +251,9 @@ class ResumeIngestor:
     
     def filter_by_extension(
         self,
-        file_paths: List[Union[str, Path]],
+        file_paths: list[str | Path],
         extensions: set
-    ) -> List[Path]:
+    ) -> list[Path]:
         """
         Filter file paths by extension.
         
@@ -275,10 +275,10 @@ class ResumeIngestor:
     
     def filter_by_size(
         self,
-        file_paths: List[Union[str, Path]],
+        file_paths: list[str | Path],
         min_size_bytes: int = 0,
-        max_size_bytes: Optional[int] = None
-    ) -> List[Path]:
+        max_size_bytes: int | None = None
+    ) -> list[Path]:
         """
         Filter file paths by size.
         

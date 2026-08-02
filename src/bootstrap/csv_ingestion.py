@@ -7,15 +7,15 @@ mapping Resume_str to raw_text and candidate fields to metadata.
 """
 
 import csv
-import logging
-from pathlib import Path
-from typing import List, Optional, Dict, Any
-from dataclasses import dataclass
-import uuid
-from datetime import datetime
 import json
-import pickle
+import logging
 import re
+import uuid
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
 import numpy as np
 
 from src.models import ResumeMetadata
@@ -31,7 +31,7 @@ class CSVIngestionResult:
     chunks_generated: int
     vectors_indexed: int
     bm25_documents_indexed: int
-    errors: List[str]
+    errors: list[str]
     load_time_seconds: float
 
 
@@ -51,7 +51,38 @@ class CSVIngestionService:
         """Initialize the CSV ingestion service."""
         self.cache_dir = Path("data/cache")
         self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self.extraction_stats = {
+            "total": 0,
+            "names_found": 0,
+            "unknown_names": 0,
+            "invalid_emails": 0,
+            "invalid_phones": 0,
+            "linkedin_found": 0,
+            "raw_skills_total": 0,
+            "normalized_skills_total": 0,
+        }
         logger.info("CSVIngestionService initialized")
+
+    def _print_extraction_stats(self):
+        """Print extraction statistics after CSV processing."""
+        stats = self.extraction_stats
+        if stats["total"] == 0:
+            return
+        total = stats["total"]
+        names_pct = (stats["names_found"] / total) * 100 if total else 0
+        unknown_pct = (stats["unknown_names"] / total) * 100 if total else 0
+        print("\n" + "=" * 60)
+        print("EXTRACTION STATISTICS")
+        print("=" * 60)
+        print(f"  Resumes processed       : {total}")
+        print(f"  Names found             : {stats['names_found']} ({names_pct:.1f}%)")
+        print(f"  Unknown names           : {stats['unknown_names']} ({unknown_pct:.1f}%)")
+        print(f"  Invalid emails          : {stats['invalid_emails']}")
+        print(f"  Invalid phones          : {stats['invalid_phones']}")
+        print(f"  LinkedIn profiles found : {stats['linkedin_found']}")
+        print(f"  Raw skills extracted    : {stats['raw_skills_total']}")
+        print(f"  Normalized skills       : {stats['normalized_skills_total']}")
+        print("=" * 60)
     
     def _save_cache(self, chunks, embeddings, bm25_index, indexed_documents):
         """Save cache to disk."""
@@ -119,7 +150,7 @@ class CSVIngestionService:
                 indexed_documents = json.load(f)
             
             logger.info(f"Cache loaded: {len(chunks_data)} chunks, {len(embeddings_array)} embeddings")
-            print(f"CACHE HIT")
+            print("CACHE HIT")
             print(f"Loaded {len(embeddings_array)} vectors")
             
             return {
@@ -140,8 +171,8 @@ class CSVIngestionService:
         source_document: str,
         chunk_size: int = 1000,
         overlap: int = 100,
-        extraction_notes: Optional[str] = None
-    ) -> List:
+        extraction_notes: str | None = None
+    ) -> list:
         """Chunk raw text into smaller pieces, attaching the canonical ResumeMetadata unchanged."""
         from src.chunks.schema import Chunk, ChunkMetadata, EmbeddingStatus
 
@@ -267,7 +298,7 @@ class CSVIngestionService:
         re.IGNORECASE,
     )
 
-    def _extract_candidate_name(self, raw_text: str, document, record: Dict[str, Any]) -> tuple:
+    def _extract_candidate_name(self, raw_text: str, document, record: dict[str, Any]) -> tuple:
         """
         Extract the best available candidate name from a CSV resume blob.
 
@@ -320,7 +351,7 @@ class CSVIngestionService:
         if text:
             first_line = text.split("\n")[0].strip()
             tokens = first_line.split()
-            phrase: List[str] = []
+            phrase: list[str] = []
             for token in tokens:
                 token = token.strip(".,;/|-—")
                 if not token:
@@ -385,8 +416,8 @@ class CSVIngestionService:
         """Convert HTML resume content to plain text when Resume_str is empty."""
         if not html:
             return ""
-        text = re.sub(r"<script.*?</script>", " ", html, flags=re.S | re.I)
-        text = re.sub(r"<style.*?</style>", " ", text, flags=re.S | re.I)
+        text = re.sub(r"<script.*?</script>", " ", html, flags=re.DOTALL | re.IGNORECASE)
+        text = re.sub(r"<style.*?</style>", " ", text, flags=re.DOTALL | re.IGNORECASE)
         text = re.sub(r"<[^>]+>", " ", text)
         text = re.sub(r"\s+", " ", text).strip()
         return text
@@ -402,7 +433,7 @@ class CSVIngestionService:
         normalized = re.sub(r"\n{3,}", "\n\n", normalized)
         return normalized
 
-    def _extract_resume_metadata(self, raw_text: str, record: Dict[str, Any]) -> "ResumeMetadata":
+    def _extract_resume_metadata(self, raw_text: str, record: dict[str, Any]) -> "ResumeMetadata":
         """Extract a single canonical ResumeMetadata from the resume text."""
         from src.models import ResumeMetadata
 
@@ -410,7 +441,10 @@ class CSVIngestionService:
         document = parser.parse_text(raw_text, record)
         record_id = str(record.get("ID", ""))
 
-        def _clean(value: Optional[str]) -> Optional[str]:
+        # Track aggregate extraction statistics
+        self.extraction_stats["total"] += 1
+
+        def _clean(value: str | None) -> str | None:
             if value is None:
                 return None
             v = value.strip()
@@ -420,10 +454,32 @@ class CSVIngestionService:
 
         # candidate_name
         candidate_name = _clean(document.name)
+        if candidate_name:
+            self.extraction_stats["names_found"] += 1
+        else:
+            self.extraction_stats["unknown_names"] += 1
 
         # contact
         email = _clean(document.email)
         phone = _clean(document.phone)
+
+        # LinkedIn from contact metadata if present
+        contact_meta = document.metadata.get("contact", {}) if document.metadata else {}
+        linkedin = _clean(contact_meta.get("linkedin"))
+
+        # Use extraction stats from the parser
+        stats = document.metadata.get("extraction_stats", {}) if document.metadata else {}
+        self.extraction_stats["raw_skills_total"] += stats.get("raw_skills_count", 0)
+        self.extraction_stats["normalized_skills_total"] += stats.get("normalized_skills_count", 0)
+        if email:
+            self.extraction_stats["invalid_emails"] += 0  # already validated
+        else:
+            # Check whether an invalid email existed in the raw text
+            raw_email = re.search(r"[\w.-]+@[\w.-]+\.\w{2,}", raw_text)
+            if raw_email:
+                self.extraction_stats["invalid_emails"] += 1
+        if linkedin:
+            self.extraction_stats["linkedin_found"] += 1
 
         # skills are already a list of strings from the parser
         skills = [s for s in (document.skills or []) if s and s.strip() and s.strip().lower() != "unknown"]
@@ -499,6 +555,7 @@ class CSVIngestionService:
             certifications=certifications,
             email=email,
             phone=phone,
+            linkedin=linkedin,
             summary=summary,
         )
 
@@ -506,7 +563,7 @@ class CSVIngestionService:
 
         return metadata
 
-    def detect_csv_file(self, directory: Path) -> Optional[Path]:
+    def detect_csv_file(self, directory: Path) -> Path | None:
         """
         Detect Resume.csv in the specified directory.
         
@@ -525,7 +582,7 @@ class CSVIngestionService:
         logger.debug(f"No Resume.csv found in: {directory}")
         return None
     
-    def load_csv_records(self, csv_path: Path) -> List[Dict[str, Any]]:
+    def load_csv_records(self, csv_path: Path) -> list[dict[str, Any]]:
         """
         Load all resume records from CSV file.
         
@@ -551,7 +608,7 @@ class CSVIngestionService:
             logger.error(f"Failed to load CSV file {csv_path}: {e}")
             raise
     
-    def convert_to_resume_document(self, record: Dict[str, Any], record_id: str) -> Dict[str, Any]:
+    def convert_to_resume_document(self, record: dict[str, Any], record_id: str) -> dict[str, Any]:
         """
         Convert a CSV record to ResumeDocument schema.
         
@@ -572,7 +629,7 @@ class CSVIngestionService:
                            'Salary', 'Notice_Period', 'Category']
         
         for field in candidate_fields:
-            if field in record and record[field]:
+            if record.get(field):
                 metadata[field] = record[field]
         
         # Build document structure compatible with ResumeDocument
@@ -587,7 +644,14 @@ class CSVIngestionService:
         
         return document
     
-    def process_csv_for_indexing(self, csv_path: Path, indexing_service, skip_embedding: bool = False, use_cache: bool = True) -> CSVIngestionResult:
+    def process_csv_for_indexing(
+        self,
+        csv_path: Path,
+        indexing_service,
+        skip_embedding: bool = False,
+        use_cache: bool = True,
+        clear_existing: bool = False
+    ) -> CSVIngestionResult:
         """
         Process CSV file through the indexing pipeline.
         
@@ -609,7 +673,7 @@ class CSVIngestionService:
         """
         import time
         import uuid
-        from src.resume_parser.schema import ResumeDocument
+
         
         start_time = time.time()
         errors = []
@@ -618,10 +682,22 @@ class CSVIngestionService:
         total_vectors = 0
         total_bm25_docs = 0
         
+        # Pre-flight: clear existing indexes if requested (rebuild mode)
+        if clear_existing:
+            print("[CSV-INGESTION-TRACE] clear_existing=True: clearing indexes")
+            if indexing_service._bm25_index is not None:
+                print("[CSV-INGESTION-TRACE] Clearing BM25 index")
+                indexing_service._bm25_index.clear()
+            if indexing_service._vector_store_service is not None:
+                print("[CSV-INGESTION-TRACE] Clearing vector store collection")
+                indexing_service._vector_store_service.clear()
+
         # Check for cache
+        print(f"[CSV-INGESTION-TRACE] use_cache={use_cache}, skip_embedding={skip_embedding}")
         if use_cache and not skip_embedding:
             cache_data = self._load_cache()
             if cache_data:
+                print("[CSV-INGESTION-TRACE] Cache hit: loading chunks and embeddings")
                 # Cache hit - load data into indexing service
                 chunks_data = cache_data["chunks_data"]
                 embeddings_array = cache_data["embeddings_array"]
@@ -643,8 +719,9 @@ class CSVIngestionService:
                 
                 # Upsert cached vectors to the shared vector store service
                 print("Upserting cached vectors to vector store...")
-                from src.vector_store.schema import VectorRecord
                 import uuid
+
+                from src.vector_store.schema import VectorRecord
                 
                 vector_store_service = indexing_service._vector_store_service
                 if vector_store_service is None:
@@ -659,21 +736,28 @@ class CSVIngestionService:
                         print("Legacy cache missing resume_metadata; aborting cache load")
                         return None
                     resume_metadata = ResumeMetadata.model_validate(resume_metadata_data)
+                    chunk_id = chunk_data.get("chunk_id", "")
+                    chunk_text = chunk_data.get("text", "")
                     record = VectorRecord(
-                        id=str(uuid.uuid4()),
-                        chunk_id=chunk_data.get("chunk_id", ""),
+                        id=chunk_id,
+                        chunk_id=chunk_id,
                         section=chunk_data.get("section", ""),
+                        text=chunk_text,
+                        chunk_text=chunk_text,
+                        original_text=chunk_text,
                         vector=embedding_vector.tolist(),
                         resume_metadata=resume_metadata
                     )
                     records.append(record)
-                
+
                 # Batch upsert
                 if vector_store_service is not None:
+                    print(f"[CSV-INGESTION-TRACE] Upserting {len(records)} cached vectors in batches of 100")
                     batch_size = 100
                     for i in range(0, len(records), batch_size):
                         batch = records[i:i+batch_size]
                         try:
+                            print(f"[CSV-INGESTION-TRACE]  batch {i//batch_size + 1}: {len(batch)} vectors")
                             vector_store_service.upsert(batch)
                         except Exception as e:
                             print(f"  Warning: Batch upsert failed: {e}")
@@ -682,7 +766,7 @@ class CSVIngestionService:
 
                 # Update vector count in indexing service
                 indexing_service._vector_count = len(records)
-                print(f"Upserted {len(records)} vectors to vector store")
+                print(f"[CSV-INGESTION-TRACE] Upserted {len(records)} vectors to vector store")
                 
                 # Update counts
                 total_chunks = len(chunks_data)
@@ -815,10 +899,11 @@ class CSVIngestionService:
                         if vector_store_service is not None:
                             try:
                                 vector_upsert_start = time.time()
-                                print(f"[BOOTSTRAP-TRACE][csv_ingestion.py] ENTERING vector_store upsert for record {idx + 1}")
+                                print(f"[CSV-INGESTION-TRACE] record {idx + 1}: building {len(embedding_records)} VectorRecords")
                                 vector_records = indexing_service._embedding_records_to_vector_records(embedding_records)
+                                print(f"[CSV-INGESTION-TRACE] record {idx + 1}: upserting {len(vector_records)} vectors")
                                 vector_store_service.upsert(vector_records)
-                                print(f"[BOOTSTRAP-TRACE][csv_ingestion.py] EXITING vector_store upsert for record {idx + 1}")
+                                print(f"[CSV-INGESTION-TRACE] record {idx + 1}: vector upsert complete")
                                 vector_upsert_time = time.time() - vector_upsert_start
                                 total_vector_upsert_time += vector_upsert_time
                                 
@@ -829,7 +914,7 @@ class CSVIngestionService:
                                     print(f"FIRST SUCCESSFUL VECTOR INSERTION at record {idx + 1}")
                                     first_vector_insertion_logged = True
                             except Exception as e:
-                                error_msg = f"Vector store upsert failed for record {record_id}: {str(e)}"
+                                error_msg = f"Vector store upsert failed for record {record_id}: {e!s}"
                                 errors.append(error_msg)
                                 logger.error(error_msg)
                         else:
@@ -846,7 +931,7 @@ class CSVIngestionService:
                             )
 
                         for chunk in chunks:
-
+                            print(f"[CSV-INGESTION-TRACE] record {idx + 1}: BM25 add chunk_id={chunk.chunk_id} resume_id={chunk.resume_id}")
                             bm25_doc, tokens = indexing_service.index_builder.chunk_to_document(chunk)
                             indexing_service._bm25_index.add_document(
                                 document_id=bm25_doc.document_id,
@@ -860,7 +945,7 @@ class CSVIngestionService:
                                 print(f"FIRST SUCCESSFUL BM25 INSERTION at record {idx + 1}")
                                 first_bm25_insertion_logged = True
                     except Exception as e:
-                        error_msg = f"BM25 indexing failed for record {record_id}: {str(e)}"
+                        error_msg = f"BM25 indexing failed for record {record_id}: {e!s}"
                         errors.append(error_msg)
                         logger.error(error_msg)
                     bm25_time = time.time() - bm25_start
@@ -884,7 +969,7 @@ class CSVIngestionService:
                     logger.debug(f"Processed CSV record {idx + 1}/{csv_rows_loaded}: {record_id}")
                     
                 except Exception as e:
-                    error_msg = f"Failed to process CSV record {idx + 1}: {str(e)}"
+                    error_msg = f"Failed to process CSV record {idx + 1}: {e!s}"
                     errors.append(error_msg)
                     logger.error(error_msg)
             
@@ -892,6 +977,7 @@ class CSVIngestionService:
             
             # Save cache if embeddings were generated
             if not skip_embedding and use_cache and all_chunks and all_embeddings:
+                print(f"[CSV-INGESTION-TRACE] Saving cache: {len(all_chunks)} chunks, {len(all_embeddings)} embeddings")
                 self._save_cache(all_chunks, all_embeddings, indexing_service._bm25_index, indexing_service._indexed_documents)
             
             # Print timing summary
@@ -913,6 +999,8 @@ class CSVIngestionService:
                 load_time_seconds=load_time
             )
             
+            self._print_extraction_stats()
+
             logger.info(
                 f"CSV ingestion complete: "
                 f"rows={csv_rows_loaded}, "
@@ -926,7 +1014,7 @@ class CSVIngestionService:
             
         except Exception as e:
             load_time = time.time() - start_time
-            error_msg = f"CSV ingestion failed: {str(e)}"
+            error_msg = f"CSV ingestion failed: {e!s}"
             errors.append(error_msg)
             logger.error(error_msg, exc_info=True)
             

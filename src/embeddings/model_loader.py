@@ -17,14 +17,14 @@ Features:
 - Comprehensive logging: Logs all loading operations
 """
 
-from typing import Optional, Dict, Any
-from threading import Lock
-import os
 import logging
-from pathlib import Path
+import os
 import time
-import psutil
+from pathlib import Path
+from threading import Lock
+from typing import Any, Optional
 
+import psutil
 
 try:
     from sentence_transformers import SentenceTransformer
@@ -34,7 +34,6 @@ except Exception:
 
 class ModelLoadingError(RuntimeError):
     """Raised when a model cannot be loaded, with a caller-friendly message."""
-    pass
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +78,7 @@ class ModelLoader:
     _load_time: float = 0.0
     _device: str = "cpu"
     _memory_usage_mb: float = 0.0
-    _last_error: Optional[str] = None
+    _last_error: str | None = None
     
     def __new__(cls) -> 'ModelLoader':
         """
@@ -117,6 +116,10 @@ class ModelLoader:
         
         The actual model loading happens on first access via get_model().
         """
+        # Singleton init guard: do not reset an already-initialized/loaded model.
+        if getattr(self, '_initialized', False):
+            return
+
         # Load configuration from environment variables
         from ..config import EMBEDDING_MODEL
         
@@ -129,13 +132,13 @@ class ModelLoader:
         # Build full model path
         self._full_model_path = os.path.join(self._model_path, self._model_name.replace('/', '-'))
 
-        # Reset load state so repeated `ModelLoader()` calls in tests/CLI pick up a
-        # fresh state each time while the underlying singleton remains the same.
+        # Reset load state on first initialization only.
         self._is_loaded = False
         self._model = None
         self._last_error = None
         self._load_time = 0.0
         self._memory_usage_mb = 0.0
+        self._initialized = True
 
         logger.info(f"ModelLoader initialized with model: {self._model_name}")
         logger.info(f"Model cache path: {self._full_model_path}")
@@ -292,6 +295,7 @@ class ModelLoader:
         if self._check_local_cache():
             logger.info("Local cache found")
             if self._load_from_local():
+                self._warmup()
                 return True
             else:
                 logger.warning("Local cache exists but failed to load")
@@ -299,6 +303,7 @@ class ModelLoader:
         # Try downloading if not in offline mode
         if not self._offline_mode:
             if self._download_model():
+                self._warmup()
                 return True
 
         # If we get here, all attempts failed
@@ -316,6 +321,27 @@ class ModelLoader:
 
         raise ModelLoadingError(self._last_error)
     
+    def _warmup(self):
+        """
+        Run a lightweight forward pass so the model's first user-facing
+        inference is already hot (tokenization/weights/CPU thread pools).
+        """
+        if not self._is_loaded or self._model is None:
+            return
+        try:
+            logger.info("Warming up embedding model...")
+            start = time.time()
+            self._model.encode(
+                ["warmup query", "warmup query 2"],
+                batch_size=2,
+                show_progress_bar=False,
+                convert_to_numpy=True,
+                normalize_embeddings=False,
+            )
+            logger.info(f"Model warmup completed in {time.time() - start:.2f}s")
+        except Exception as e:
+            logger.warning(f"Model warmup failed (non-fatal): {e}")
+
     def get_model(self):
         """
         Get the loaded embedding model.
@@ -347,7 +373,7 @@ class ModelLoader:
         """
         return self._full_model_path
     
-    def get_diagnostics(self) -> Dict[str, Any]:
+    def get_diagnostics(self) -> dict[str, Any]:
         """
         Get diagnostic information about the model loader.
 
@@ -440,7 +466,7 @@ class ModelLoader:
 
 
 # Global singleton instance
-_model_loader: Optional[ModelLoader] = None
+_model_loader: ModelLoader | None = None
 _model_loader_lock: Lock = Lock()
 
 

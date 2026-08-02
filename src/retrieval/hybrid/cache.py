@@ -18,8 +18,8 @@ SOLID Principles Applied:
 
 import logging
 import time
-from typing import List, Dict, Any, Optional
 from collections import OrderedDict
+from typing import Any
 
 from .schema import HybridSearchResult
 
@@ -58,7 +58,7 @@ class HybridResultCache:
         
         self.max_size = max_size
         self.ttl = ttl
-        self.cache: OrderedDict[str, Dict[str, Any]] = OrderedDict()
+        self.cache: OrderedDict[str, dict[str, Any]] = OrderedDict()
         self.hits = 0
         self.misses = 0
         
@@ -67,7 +67,7 @@ class HybridResultCache:
     def _generate_key(
         self,
         query: str,
-        filters: Optional[Dict[str, Any]] = None
+        filters: dict[str, Any] | None = None
     ) -> str:
         """
         Generate a cache key for the query.
@@ -87,8 +87,8 @@ class HybridResultCache:
     def get(
         self,
         query: str,
-        filters: Optional[Dict[str, Any]] = None
-    ) -> Optional[List[HybridSearchResult]]:
+        filters: dict[str, Any] | None = None
+    ) -> list[HybridSearchResult] | None:
         """
         Get cached results for a query.
         
@@ -125,8 +125,8 @@ class HybridResultCache:
     def put(
         self,
         query: str,
-        results: List[HybridSearchResult],
-        filters: Optional[Dict[str, Any]] = None
+        results: list[HybridSearchResult],
+        filters: dict[str, Any] | None = None
     ) -> None:
         """
         Cache results for a query.
@@ -160,7 +160,7 @@ class HybridResultCache:
         
         logger.info("HybridResultCache cleared")
     
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """
         Get cache statistics.
         

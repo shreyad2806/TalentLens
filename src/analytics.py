@@ -1,7 +1,8 @@
 import os
 import re
 from collections import Counter
-from typing import Iterable, Union
+from collections.abc import Iterable
+
 import pandas as pd
 
 
@@ -35,7 +36,7 @@ def load_data(csv_path: str = "Resume/Resume.csv") -> pd.DataFrame:
     return df
 
 
-def _to_iterable(resumes: Union[pd.Series, Iterable]) -> Iterable:
+def _to_iterable(resumes: pd.Series | Iterable) -> Iterable:
     if resumes is None:
         return []
     if hasattr(resumes, "fillna"):
@@ -43,7 +44,7 @@ def _to_iterable(resumes: Union[pd.Series, Iterable]) -> Iterable:
     return resumes
 
 
-def extract_skills(resumes: Union[pd.Series, Iterable]) -> Counter:
+def extract_skills(resumes: pd.Series | Iterable) -> Counter:
     """Extract common skills and return counts as a Counter."""
     skills = [
         "python", "java", "c++", "sql", "machine learning", "deep learning",
@@ -60,7 +61,7 @@ def extract_skills(resumes: Union[pd.Series, Iterable]) -> Counter:
     return counter
 
 
-def extract_locations(resumes: Union[pd.Series, Iterable]) -> Counter:
+def extract_locations(resumes: pd.Series | Iterable) -> Counter:
     """Find known city/location mentions in resumes and return counts."""
     pattern = r"\b(bangalore|bengaluru|blr|mumbai|delhi|hyderabad|pune|chennai|kolkata|bangalore)\b"
     counter = Counter()
@@ -76,7 +77,7 @@ def extract_locations(resumes: Union[pd.Series, Iterable]) -> Counter:
     return counter
 
 
-def category_distribution(df: pd.DataFrame) -> Union[pd.Series, dict]:
+def category_distribution(df: pd.DataFrame) -> pd.Series | dict:
     """Return value counts for candidate categories if present."""
     if df is None or df.empty:
         return pd.Series([], dtype=int)

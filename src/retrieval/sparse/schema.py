@@ -14,9 +14,9 @@ SOLID Principles Applied:
 - Open/Closed: Open for extension with new fields
 """
 
-from typing import Optional, Dict, Any, List
+from typing import Any
+
 from pydantic import BaseModel, Field, computed_field, field_validator
-from datetime import datetime
 
 from src.models import ResumeMetadata
 
@@ -29,7 +29,7 @@ class SparseSearchResult(BaseModel):
     section: str = Field(..., description="Section of the resume")
     bm25_score: float = Field(..., ge=0.0, description="BM25 relevance score")
     resume_metadata: ResumeMetadata = Field(..., description="Canonical resume metadata")
-    matched_terms: List[str] = Field(default_factory=list, description="Terms from query that matched")
+    matched_terms: list[str] = Field(default_factory=list, description="Terms from query that matched")
     matched_text: str = Field(..., description="Text content that matched the query")
     offset: int = Field(default=0, ge=0, description="Character offset of matched_text in the original chunk text")
     rank: int = Field(..., ge=0, description="Rank position in the results")
@@ -41,12 +41,12 @@ class SparseSearchResult(BaseModel):
 
     @computed_field
     @property
-    def candidate_name(self) -> Optional[str]:
+    def candidate_name(self) -> str | None:
         return self.resume_metadata.candidate_name
 
     @computed_field
     @property
-    def metadata(self) -> Dict[str, Any]:
+    def metadata(self) -> dict[str, Any]:
         """Legacy compatibility: expose resume metadata as a flat dict."""
         return self.resume_metadata.model_dump(mode="json")
 
@@ -72,7 +72,7 @@ class BM25Document(BaseModel):
     chunk_id: str = Field(..., description="Unique chunk identifier")
     section: str = Field(..., description="Section name")
     text: str = Field(..., description="Original text content")
-    tokens: List[str] = Field(..., description="Tokenized text")
+    tokens: list[str] = Field(..., description="Tokenized text")
     document_length: int = Field(..., ge=0, description="Number of tokens")
     resume_metadata: ResumeMetadata = Field(..., description="Canonical resume metadata")
 
@@ -83,12 +83,12 @@ class BM25Document(BaseModel):
 
     @computed_field
     @property
-    def candidate_name(self) -> Optional[str]:
+    def candidate_name(self) -> str | None:
         return self.resume_metadata.candidate_name
 
     @computed_field
     @property
-    def metadata(self) -> Dict[str, Any]:
+    def metadata(self) -> dict[str, Any]:
         """Legacy compatibility: expose resume metadata as a flat dict."""
         return self.resume_metadata.model_dump(mode="json")
 
@@ -153,7 +153,7 @@ class RetrievalMetrics(BaseModel):
     documents_searched: int = Field(..., ge=0, description="Number of documents searched")
     vocabulary_size: int = Field(..., ge=0, description="Size of vocabulary")
     cache_hit: bool = Field(default=False, description="Whether query was served from cache")
-    cache_hit_latency: Optional[float] = Field(None, description="Cache hit latency")
+    cache_hit_latency: float | None = Field(None, description="Cache hit latency")
 
     class Config:
         frozen = True

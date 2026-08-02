@@ -1,8 +1,8 @@
-from enum import Enum
-from typing import Literal
 import re
+from enum import Enum
 
 from .config import CATEGORIES
+
 
 class CategoryEnum(str, Enum):
     HR = "HR"

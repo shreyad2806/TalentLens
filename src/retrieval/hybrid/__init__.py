@@ -51,25 +51,25 @@ SOLID Principles:
 - Dependency Inversion: Depends on abstractions, not concretions
 """
 
-from .schema import (
-    HybridSearchResult,
-    MatchedChunk,
-    RetrievalSource,
-    FusionMetrics,
-    FusionStrategy
-)
-from .rrf import ReciprocalRankFusion
-from .scorer import RRFScorer
+from .cache import HybridResultCache
 from .fusion_service import (
     FusionService,
     FusionStrategyBase,
     RRFFusionStrategy,
+    ScoreAveragingFusionStrategy,
     WeightedFusionStrategy,
-    ScoreAveragingFusionStrategy
 )
-from .validator import HybridRetrievalValidator, ValidationError
-from .cache import HybridResultCache
 from .hybrid_retrieval_service import HybridRetrievalService
+from .rrf import ReciprocalRankFusion
+from .schema import (
+    FusionMetrics,
+    FusionStrategy,
+    HybridSearchResult,
+    MatchedChunk,
+    RetrievalSource,
+)
+from .scorer import RRFScorer
+from .validator import HybridRetrievalValidator, ValidationError
 
 __all__ = [
     # Schema

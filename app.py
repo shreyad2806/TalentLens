@@ -14,6 +14,7 @@ import docx
 
 from src.debug_logger import log_stage_start, log_stage_end, log_error
 from src.cards import build_candidate_card
+from src.models import get_display_name
 
 st.set_page_config(page_title="Talentlens", page_icon="🎯", layout="wide")
 
@@ -472,8 +473,14 @@ def render_candidate_card(candidate, idx):
             st.caption(" • ".join(contact))
 
     with col2:
-        st.markdown(f"### {candidate['match_pct']:.0f}%")
-        st.caption("Match Score")
+        st.markdown(f"### {candidate.get('overall_match', 0):.0f}%")
+        st.caption("Overall Match")
+        st.markdown(
+            f"Role {candidate.get('role_match', 0):.0f}%  •  "
+            f"Skill {candidate.get('skill_match', 'N/A')}{'%' if isinstance(candidate.get('skill_match'), (int, float)) else ''}  •  "
+            f"Exp {candidate.get('experience_match', 0):.0f}%  •  "
+            f"Loc {candidate.get('location_match', 0):.0f}%"
+        )
         st.markdown(f"**{candidate['confidence']*100:.0f}%**")
         st.caption("Confidence")
 
@@ -496,7 +503,7 @@ def render_candidate_card(candidate, idx):
         st.markdown("🎯 **Matched Skills:** " + " ".join([f"`{s}`" for s in candidate['matched_skills']]))
         st.success(f"✅ {len(candidate['matched_skills'])} skill match{'es' if len(candidate['matched_skills']) != 1 else ''}")
     else:
-        st.caption("❌ No skill matches")
+        st.caption("No skill matches")
 
     with st.expander("📝 Resume Preview"):
         st.caption(f"Matched section: {candidate['section']} | offset {candidate['evidence_offset']}")
@@ -527,8 +534,8 @@ with tab_search:
             for cid in ss:
                 item = smap.get(cid, {})
                 score_pct = item.get("match_pct", 0)
-                st.markdown(f"**{item.get('name', 'Unknown')}**")
-                st.caption(f"{item.get('role', 'Unknown')} • RRF {item.get('score', 0):.4f}")
+                st.markdown(f"**{item.get('name') or f'Resume #{cid}'}**")
+                st.caption(f"{item.get('role') or 'Role not specified'} • RRF {item.get('score', 0):.4f}")
         else:
             st.caption("No shortlisted candidates yet")
 
@@ -633,12 +640,14 @@ with tab_search:
                 print("[META TRACE] Mapping HybridSearchResult → docs[]")
                 if hybrid_results:
                     print(f"  BEFORE: {len(hybrid_results)} HybridSearchResult objects")
-                    print(f"  BEFORE: top rrf_score = {hybrid_results[0].rrf_score:.6f}  "
-                          f"({hybrid_results[0].candidate_name})")
-                    _h0 = hybrid_results[0]
-                    print(f"  BEFORE META: keys={list(_h0.metadata.keys()) if _h0.metadata else '[]'}")
-                    print(f"  BEFORE META: candidate_name={_h0.candidate_name}, "
-                          f"resume_id={_h0.resume_id}")
+                    _top = hybrid_results[0]
+                    _top_name = get_display_name(_top.resume_metadata)
+                    print(f"  BEFORE: top rrf_score = {_top.rrf_score:.6f}  "
+                          f"({_top_name})")
+                    print(f"  BEFORE META: keys={list(_top.metadata.keys()) if _top.metadata else '[]'}")
+                    print(f"  BEFORE META: candidate_name={_top.candidate_name}, "
+                          f"display_name={_top_name}, "
+                          f"resume_id={_top.resume_id}")
                 else:
                     print("  BEFORE: no hybrid results")
 
@@ -646,9 +655,11 @@ with tab_search:
                 # Enrich metadata with top-level fields so downstream code can find everything in meta
                 docs = []
                 for r in hybrid_results:
+                    display_name = get_display_name(r.resume_metadata)
+
                     # Merge top-level fields into metadata for unified downstream access
                     enriched_meta = dict(r.metadata) if r.metadata else {}
-                    enriched_meta.setdefault("candidate_name", r.candidate_name)
+                    enriched_meta.setdefault("candidate_name", display_name)
                     enriched_meta.setdefault("resume_id", r.resume_id)
                     enriched_meta.setdefault("section", r.section)
 
@@ -673,7 +684,7 @@ with tab_search:
                         "offset": offset,
                         "score": r.rrf_score,
                         "section": r.section,
-                        "candidate_name": r.candidate_name,
+                        "candidate_name": display_name,
                         "chunk_id": r.chunk_id,
                         "metadata": enriched_meta,
                     })
@@ -708,6 +719,7 @@ with tab_search:
                         matched_text=d.get("matched_text", ""),
                         evidence_offset=d.get("offset", 0),
                         section=d.get("section") or meta.get("section") or "unknown",
+                        query=user_query,
                     )
 
                     if not candidate:
@@ -721,7 +733,9 @@ with tab_search:
 
                     if i < 5:  # log first 5 for trace
                         print(f"  [{i}] {candidate['name']:<25}  rrf={rrf_score:.6f}  "
-                              f"skill_match={candidate['match_pct']:.1f}%  "
+                              f"overall={candidate.get('overall_match', 0):.1f}%  "
+                              f"role={candidate.get('role_match', 0):.1f}%  "
+                              f"skill={candidate.get('skill_match', 'N/A')}{'%' if isinstance(candidate.get('skill_match'), (int, float)) else ''}  "
                               f"matched={candidate['matched_skills']}")
 
                     scored_results.append(candidate)

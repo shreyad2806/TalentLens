@@ -9,10 +9,9 @@ be rebuilt.
 
 import hashlib
 import json
-import os
 import logging
+import os
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +21,7 @@ DEFAULT_HASH_PATH = Path("data/cache/dataset_hash.json")
 class DatasetHashManager:
     """Manages the persistent dataset hash."""
 
-    def __init__(self, hash_path: Optional[str] = None):
+    def __init__(self, hash_path: str | None = None):
         self.hash_path = Path(hash_path) if hash_path else DEFAULT_HASH_PATH
 
     def _file_signature(self, file_path: Path) -> dict:
@@ -34,7 +33,7 @@ class DatasetHashManager:
             "mtime_ns": int(stat.st_mtime_ns),
         }
 
-    def compute_hash(self, file_paths: list, csv_path: Optional[str] = None) -> str:
+    def compute_hash(self, file_paths: list, csv_path: str | None = None) -> str:
         """
         Compute a SHA-256 hash of the dataset.
 
@@ -62,7 +61,7 @@ class DatasetHashManager:
         canonical = json.dumps(records, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
-    def load_hash(self) -> Optional[str]:
+    def load_hash(self) -> str | None:
         """Load the previously saved dataset hash, if any."""
         if not self.hash_path.exists():
             return None

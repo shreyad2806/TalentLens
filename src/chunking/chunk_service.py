@@ -5,9 +5,8 @@ This module provides the main ChunkService class that orchestrates the entire
 chunking pipeline: semantic chunking, chunk generation, and validation.
 """
 
-from typing import List, Optional
-import uuid
 import logging
+import uuid
 
 from ..resume_parser.schema import ResumeDocument
 from .chunk_generator import ChunkGenerator
@@ -30,7 +29,7 @@ class ChunkService:
     while keeping the underlying components modular and testable.
     """
     
-    def __init__(self, max_chunk_length: Optional[int] = None):
+    def __init__(self, max_chunk_length: int | None = None):
         """
         Initialize the chunk service with component modules.
         
@@ -41,7 +40,7 @@ class ChunkService:
         self.chunk_generator = ChunkGenerator()
         self.chunk_validator = ChunkValidator(max_chunk_length=max_chunk_length)
     
-    def generate_chunks(self, document: ResumeDocument, resume_id: Optional[str] = None) -> List[Chunk]:
+    def generate_chunks(self, document: ResumeDocument, resume_id: str | None = None) -> list[Chunk]:
         """
         Generate semantic chunks from a ResumeDocument.
         
@@ -81,7 +80,7 @@ class ChunkService:
         return valid_chunks
     
     def generate_chunks_with_stats(self, document: ResumeDocument, 
-                                   resume_id: Optional[str] = None) -> dict:
+                                   resume_id: str | None = None) -> dict:
         """
         Generate chunks and return with validation statistics.
         

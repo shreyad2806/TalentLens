@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import json
-import os
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from src.dataset import AdapterFactory
 from src.models import ResumeDocument
@@ -33,13 +32,13 @@ class DatasetMerger:
 
     def __init__(
         self,
-        dataset_configs: List[Tuple[str, Optional[str]]],
-        output_path: Optional[str] = None,
+        dataset_configs: list[tuple[str, str | None]],
+        output_path: str | None = None,
     ) -> None:
         _maybe_add_project_root()
         self.dataset_configs = dataset_configs
         self.output_path = Path(output_path or "combined/production_dataset.json")
-        self.stats: Dict[str, Any] = {
+        self.stats: dict[str, Any] = {
             "datasets": {},
             "total_loaded": 0,
             "total_invalid": 0,
@@ -49,12 +48,12 @@ class DatasetMerger:
         }
 
     def _load_one_dataset(
-        self, dataset_type: str, source_path: Optional[str]
-    ) -> List[ResumeDocument]:
+        self, dataset_type: str, source_path: str | None
+    ) -> list[ResumeDocument]:
         adapter = AdapterFactory.get_adapter(dataset_type, source_path)
         raw_docs = adapter.convert_all()
 
-        valid_docs: List[ResumeDocument] = []
+        valid_docs: list[ResumeDocument] = []
         invalid = 0
         for doc in raw_docs:
             try:
@@ -75,16 +74,16 @@ class DatasetMerger:
         self.stats["total_invalid"] += invalid
         return valid_docs
 
-    def load_all(self) -> List[ResumeDocument]:
-        all_docs: List[ResumeDocument] = []
+    def load_all(self) -> list[ResumeDocument]:
+        all_docs: list[ResumeDocument] = []
         for dataset_type, source_path in self.dataset_configs:
             docs = self._load_one_dataset(dataset_type, source_path)
             all_docs.extend(docs)
         return all_docs
 
-    def deduplicate(self, docs: List[ResumeDocument]) -> List[ResumeDocument]:
+    def deduplicate(self, docs: list[ResumeDocument]) -> list[ResumeDocument]:
         seen: set[str] = set()
-        unique: List[ResumeDocument] = []
+        unique: list[ResumeDocument] = []
 
         for doc in docs:
             key = f"{doc.source_dataset}:{doc.candidate_id}"
@@ -97,13 +96,13 @@ class DatasetMerger:
 
         return unique
 
-    def merge(self) -> List[ResumeDocument]:
+    def merge(self) -> list[ResumeDocument]:
         docs = self.load_all()
         final = self.deduplicate(docs)
         self.stats["final_count"] = len(final)
         return final
 
-    def save(self, docs: List[ResumeDocument]) -> None:
+    def save(self, docs: list[ResumeDocument]) -> None:
         self.output_path.parent.mkdir(parents=True, exist_ok=True)
         with open(self.output_path, "w", encoding="utf-8") as f:
             json.dump([d.to_dict() for d in docs], f, indent=2)

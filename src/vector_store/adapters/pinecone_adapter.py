@@ -18,14 +18,15 @@ SOLID Principles Applied:
 - Interface Segregation: Implements only required methods
 """
 
+import logging
 import os
 import time
-import logging
-from typing import List, Dict, Any, Optional
+from typing import Any
+
+from ...config import EMBEDDING_DIM
+from ..config import VectorStoreConfig
 from ..interface import VectorStore, VectorStoreError
 from ..schema import VectorRecord
-from ..config import VectorStoreConfig
-from ...config import EMBEDDING_DIM
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +57,7 @@ class PineconeAdapter(VectorStore):
     - retry_delay: Initial retry delay in seconds (default: 1.0)
     """
     
-    def __init__(self, config: Optional[VectorStoreConfig] = None, batch_size: int = 100):
+    def __init__(self, config: VectorStoreConfig | None = None, batch_size: int = 100):
         """
         Initialize the Pinecone adapter.
         
@@ -134,7 +135,7 @@ class PineconeAdapter(VectorStore):
             ) from e
         except Exception as e:
             raise VectorStoreError(
-                f"Failed to connect to Pinecone: {str(e)}",
+                f"Failed to connect to Pinecone: {e!s}",
                 adapter_name="PineconeAdapter",
                 original_error=e
             ) from e
@@ -178,21 +179,21 @@ class PineconeAdapter(VectorStore):
                 if self._is_retryable_error(e):
                     delay = self._retry_delay * (2 ** attempt)
                     logger.warning(
-                        f"Retryable error (attempt {attempt + 1}/{self._max_retries}): {str(e)}. "
+                        f"Retryable error (attempt {attempt + 1}/{self._max_retries}): {e!s}. "
                         f"Retrying in {delay:.2f}s..."
                     )
                     time.sleep(delay)
                 else:
                     # Non-retryable error, raise immediately
                     raise VectorStoreError(
-                        f"Non-retryable error: {str(e)}",
+                        f"Non-retryable error: {e!s}",
                         adapter_name="PineconeAdapter",
                         original_error=e
                     ) from e
         
         # All retries exhausted
         raise VectorStoreError(
-            f"Operation failed after {self._max_retries} retries: {str(last_error)}",
+            f"Operation failed after {self._max_retries} retries: {last_error!s}",
             adapter_name="PineconeAdapter",
             original_error=last_error
         )
@@ -238,7 +239,7 @@ class PineconeAdapter(VectorStore):
         
         return any(keyword in error_str for keyword in retryable_keywords)
     
-    def _convert_to_pinecone_format(self, record: VectorRecord) -> Dict[str, Any]:
+    def _convert_to_pinecone_format(self, record: VectorRecord) -> dict[str, Any]:
         """
         Convert internal VectorRecord to Pinecone format.
         
@@ -278,7 +279,7 @@ class PineconeAdapter(VectorStore):
             "metadata": metadata
         }
     
-    def _convert_from_pinecone_format(self, pinecone_record: Dict[str, Any]) -> VectorRecord:
+    def _convert_from_pinecone_format(self, pinecone_record: dict[str, Any]) -> VectorRecord:
         """
         Convert Pinecone response to internal VectorRecord schema.
         
@@ -316,7 +317,7 @@ class PineconeAdapter(VectorStore):
             created_at=metadata.get("created_at", "")
         )
     
-    def upsert(self, records: List[VectorRecord]) -> Dict[str, Any]:
+    def upsert(self, records: list[VectorRecord]) -> dict[str, Any]:
         """
         Insert or update vector records in Pinecone with batch processing.
         
@@ -347,7 +348,7 @@ class PineconeAdapter(VectorStore):
         batch_count = 0
         errors = []
         
-        def _upsert_batch(batch: List[Dict[str, Any]]):
+        def _upsert_batch(batch: list[dict[str, Any]]):
             """Upsert a single batch of vectors."""
             self._index.upsert(
                 vectors=batch,
@@ -389,14 +390,14 @@ class PineconeAdapter(VectorStore):
             raise
         except Exception as e:
             latency = time.time() - start_time
-            logger.error(f"Pinecone upsert failed after {latency:.3f}s: {str(e)}")
+            logger.error(f"Pinecone upsert failed after {latency:.3f}s: {e!s}")
             raise VectorStoreError(
-                f"Upsert operation failed: {str(e)}",
+                f"Upsert operation failed: {e!s}",
                 adapter_name="PineconeAdapter",
                 original_error=e
             ) from e
     
-    def query(self, vector: List[float], k: int = 10, filters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    def query(self, vector: list[float], k: int = 10, filters: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         """
         Query Pinecone for similar vectors.
         
@@ -469,14 +470,14 @@ class PineconeAdapter(VectorStore):
             raise
         except Exception as e:
             latency = time.time() - start_time
-            logger.error(f"Pinecone query failed after {latency:.3f}s: {str(e)}")
+            logger.error(f"Pinecone query failed after {latency:.3f}s: {e!s}")
             raise VectorStoreError(
-                f"Query operation failed: {str(e)}",
+                f"Query operation failed: {e!s}",
                 adapter_name="PineconeAdapter",
                 original_error=e
             ) from e
     
-    def fetch(self, id: str) -> Optional[VectorRecord]:
+    def fetch(self, id: str) -> VectorRecord | None:
         """
         Fetch a single vector record by its ID from Pinecone.
         
@@ -520,14 +521,14 @@ class PineconeAdapter(VectorStore):
         except VectorStoreError:
             raise
         except Exception as e:
-            logger.error(f"Pinecone fetch failed: {str(e)}")
+            logger.error(f"Pinecone fetch failed: {e!s}")
             raise VectorStoreError(
-                f"Fetch operation failed: {str(e)}",
+                f"Fetch operation failed: {e!s}",
                 adapter_name="PineconeAdapter",
                 original_error=e
             ) from e
     
-    def fetch_resume(self, resume_id: str) -> List[VectorRecord]:
+    def fetch_resume(self, resume_id: str) -> list[VectorRecord]:
         """
         Fetch all vector records for a specific resume from Pinecone.
         
@@ -583,14 +584,14 @@ class PineconeAdapter(VectorStore):
         except VectorStoreError:
             raise
         except Exception as e:
-            logger.error(f"Pinecone fetch_resume failed: {str(e)}")
+            logger.error(f"Pinecone fetch_resume failed: {e!s}")
             raise VectorStoreError(
-                f"Fetch resume operation failed: {str(e)}",
+                f"Fetch resume operation failed: {e!s}",
                 adapter_name="PineconeAdapter",
                 original_error=e
             ) from e
     
-    def delete(self, ids: List[str]) -> Dict[str, Any]:
+    def delete(self, ids: list[str]) -> dict[str, Any]:
         """
         Delete vector records by their IDs from Pinecone.
         
@@ -638,14 +639,14 @@ class PineconeAdapter(VectorStore):
             raise
         except Exception as e:
             latency = time.time() - start_time
-            logger.error(f"Pinecone delete failed after {latency:.3f}s: {str(e)}")
+            logger.error(f"Pinecone delete failed after {latency:.3f}s: {e!s}")
             raise VectorStoreError(
-                f"Delete operation failed: {str(e)}",
+                f"Delete operation failed: {e!s}",
                 adapter_name="PineconeAdapter",
                 original_error=e
             ) from e
     
-    def delete_resume(self, resume_id: str) -> Dict[str, Any]:
+    def delete_resume(self, resume_id: str) -> dict[str, Any]:
         """
         Delete all vector records for a specific resume from Pinecone.
         
@@ -708,9 +709,9 @@ class PineconeAdapter(VectorStore):
             raise
         except Exception as e:
             latency = time.time() - start_time
-            logger.error(f"Pinecone delete_resume failed after {latency:.3f}s: {str(e)}")
+            logger.error(f"Pinecone delete_resume failed after {latency:.3f}s: {e!s}")
             raise VectorStoreError(
-                f"Delete resume operation failed: {str(e)}",
+                f"Delete resume operation failed: {e!s}",
                 adapter_name="PineconeAdapter",
                 original_error=e
             ) from e
@@ -743,14 +744,14 @@ class PineconeAdapter(VectorStore):
         except VectorStoreError:
             raise
         except Exception as e:
-            logger.error(f"Pinecone count failed: {str(e)}")
+            logger.error(f"Pinecone count failed: {e!s}")
             raise VectorStoreError(
-                f"Count operation failed: {str(e)}",
+                f"Count operation failed: {e!s}",
                 adapter_name="PineconeAdapter",
                 original_error=e
             ) from e
     
-    def clear(self) -> Dict[str, Any]:
+    def clear(self) -> dict[str, Any]:
         """
         Clear all vector records from Pinecone.
         
@@ -808,14 +809,14 @@ class PineconeAdapter(VectorStore):
             raise
         except Exception as e:
             latency = time.time() - start_time
-            logger.error(f"Pinecone clear failed after {latency:.3f}s: {str(e)}")
+            logger.error(f"Pinecone clear failed after {latency:.3f}s: {e!s}")
             raise VectorStoreError(
-                f"Clear operation failed: {str(e)}",
+                f"Clear operation failed: {e!s}",
                 adapter_name="PineconeAdapter",
                 original_error=e
             ) from e
     
-    def health(self) -> Dict[str, Any]:
+    def health(self) -> dict[str, Any]:
         """
         Check the health status of the Pinecone connection.
         
@@ -855,13 +856,40 @@ class PineconeAdapter(VectorStore):
             return {
                 "healthy": False,
                 "status": "unhealthy",
-                "message": f"Pinecone connection failed: {str(e)}",
+                "message": f"Pinecone connection failed: {e!s}",
                 "adapter": "PineconeAdapter",
                 "index_name": self.index_name,
                 "namespace": self.namespace or "default",
                 "record_count": 0,
                 "latency_ms": latency
             }
+    
+    def serialize(self) -> dict[str, Any]:
+        return {"success": False, "message": "Pinecone does not support local serialization"}
+    
+    def deserialize(self, data: dict[str, Any]) -> None:
+        pass
+    
+    def save(self, path: str | None = None) -> dict[str, Any]:
+        return {"success": True, "message": "Pinecone persistence is managed remotely"}
+    
+    def load(self, path: str | None = None) -> dict[str, Any]:
+        return {"success": True, "message": "Pinecone data is loaded remotely on init"}
+    
+    def integrity_check(self) -> dict[str, Any]:
+        try:
+            self._ensure_connected()
+            stats = self._index.describe_index_stats()
+            return {
+                "valid": True,
+                "dimension": self.config.dimension,
+                "count": stats.total_vector_count,
+                "metadata_count": stats.total_vector_count,
+                "errors": [],
+                "warnings": []
+            }
+        except Exception as e:
+            return {"valid": False, "dimension": self.config.dimension, "count": 0, "metadata_count": 0, "errors": [str(e)], "warnings": []}
     
     def close(self) -> None:
         """

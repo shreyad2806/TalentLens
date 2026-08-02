@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-from typing import Optional
 
 
 class LocationNormalizer:
@@ -42,7 +41,7 @@ class LocationNormalizer:
     ]
 
     @classmethod
-    def normalize(cls, location: Optional[str]) -> Optional[str]:
+    def normalize(cls, location: str | None) -> str | None:
         if not location:
             return None
         key = re.sub(r"[-_\s]+", " ", location.strip()).lower().strip()

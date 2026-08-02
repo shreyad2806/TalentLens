@@ -18,12 +18,14 @@ SOLID Principles Applied:
 - Interface Segregation: Implements only required methods
 """
 
-import os
 import logging
-from typing import List, Dict, Any, Optional
-from ..interface import VectorStore, VectorStoreError
-from ..schema import VectorRecord
+import os
+from typing import Any
+
 from ..config import VectorStoreConfig
+from ..interface import VectorStore, VectorStoreError
+from ..qdrant.schema import QdrantPayload
+from ..schema import VectorRecord
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +50,7 @@ class QdrantAdapter(VectorStore):
     - QDRANT_API_KEY: Optional Qdrant API key
     """
     
-    def __init__(self, config: Optional[VectorStoreConfig] = None):
+    def __init__(self, config: VectorStoreConfig | None = None):
         """
         Initialize the Qdrant adapter.
         
@@ -76,42 +78,44 @@ class QdrantAdapter(VectorStore):
         )
         
         logger.info(f"QdrantAdapter initialized - Collection: {qdrant_collection}")
+        
+        # Ensure the collection exists before any upsert/query operations.
+        # This is idempotent: it returns True if the collection already exists.
+        self._adapter.create_collection()
     
-    def _vector_record_to_payload(self, record: VectorRecord) -> Dict[str, Any]:
+    def _vector_record_to_payload(self, record: VectorRecord) -> dict[str, Any]:
         """Convert VectorRecord to QdrantPayload dictionary."""
+        resume_metadata = record.resume_metadata.model_dump(mode="json")
         return {
             "resume_id": record.resume_id,
             "candidate_name": record.candidate_name,
             "chunk_id": record.chunk_id,
             "section": record.section,
-            "skills": record.metadata.get("skills", []),
-            "experience": record.metadata.get("experience"),
-            "location": record.metadata.get("location"),
-            "education": record.metadata.get("education"),
-            "role": record.metadata.get("role"),
-            "salary": record.metadata.get("salary"),
-            "notice_period": record.metadata.get("notice_period"),
-            "metadata": record.metadata
+            "text": record.text,
+            "chunk_text": record.chunk_text,
+            "original_text": record.original_text,
+            "skills": resume_metadata.get("skills", []),
+            "experience": resume_metadata.get("experience"),
+            "location": resume_metadata.get("location"),
+            "education": resume_metadata.get("education"),
+            "role": resume_metadata.get("role"),
+            "salary": resume_metadata.get("salary"),
+            "notice_period": resume_metadata.get("notice_period"),
+            "metadata": resume_metadata
         }
     
-    def _search_result_to_dict(self, result) -> Dict[str, Any]:
+    def _search_result_to_dict(self, result) -> dict[str, Any]:
         """Convert SearchResult to dictionary format."""
+        payload_dict = result.payload
+        if isinstance(payload_dict, QdrantPayload):
+            payload_dict = payload_dict.model_dump(mode="json")
         return {
             "id": result.id,
             "score": result.score,
-            "record": VectorRecord(
-                id=result.id,
-                resume_id=result.payload.resume_id,
-                chunk_id=result.payload.chunk_id,
-                candidate_name=result.payload.candidate_name,
-                section=result.payload.section,
-                vector=[],  # Vector not returned in search
-                metadata=result.payload.metadata
-            ),
-            "metadata": result.payload.metadata
+            "metadata": payload_dict
         }
     
-    def upsert(self, records: List[VectorRecord]) -> Dict[str, Any]:
+    def upsert(self, records: list[VectorRecord]) -> dict[str, Any]:
         """
         Insert or update vector records in the store.
         
@@ -135,7 +139,7 @@ class QdrantAdapter(VectorStore):
                 "latency_seconds": result.latency_ms / 1000
             }
         except Exception as e:
-            logger.error(f"Upsert failed: {str(e)}")
+            logger.error(f"Upsert failed: {e!s}")
             return {
                 "success": False,
                 "upserted_count": 0,
@@ -143,7 +147,7 @@ class QdrantAdapter(VectorStore):
                 "latency_seconds": 0
             }
     
-    def query(self, vector: List[float], k: int = 10, filters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    def query(self, vector: list[float], k: int = 10, filters: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         """
         Query the vector store for similar vectors.
         
@@ -172,10 +176,10 @@ class QdrantAdapter(VectorStore):
             
             return [self._search_result_to_dict(result) for result in results]
         except Exception as e:
-            logger.error(f"Query failed: {str(e)}")
-            raise VectorStoreError(f"Query failed: {str(e)}", "QdrantAdapter", e)
+            logger.error(f"Query failed: {e!s}")
+            raise VectorStoreError(f"Query failed: {e!s}", "QdrantAdapter", e)
     
-    def delete(self, ids: List[str]) -> Dict[str, Any]:
+    def delete(self, ids: list[str]) -> dict[str, Any]:
         """
         Delete vector records by their IDs.
         
@@ -193,14 +197,14 @@ class QdrantAdapter(VectorStore):
                 "errors": []
             }
         except Exception as e:
-            logger.error(f"Delete failed: {str(e)}")
+            logger.error(f"Delete failed: {e!s}")
             return {
                 "success": False,
                 "deleted_count": 0,
                 "errors": [str(e)]
             }
     
-    def delete_resume(self, resume_id: str) -> Dict[str, Any]:
+    def delete_resume(self, resume_id: str) -> dict[str, Any]:
         """
         Delete all vector records for a specific resume.
         
@@ -218,33 +222,83 @@ class QdrantAdapter(VectorStore):
             "errors": ["delete_resume not yet implemented for Qdrant adapter"]
         }
     
-    def fetch(self, id: str) -> Optional[VectorRecord]:
+    def _payload_to_vector_record(self, payload: dict[str, Any], id: str, vector: list[float]) -> VectorRecord:
+        """Convert a Qdrant payload back into a VectorRecord."""
+        from src.models import ResumeMetadata
+        metadata = payload.get("metadata", {})
+        resume_metadata = ResumeMetadata.model_validate(metadata)
+        return VectorRecord(
+            id=id,
+            chunk_id=payload.get("chunk_id", id),
+            section=payload.get("section", "unknown"),
+            text=payload.get("text"),
+            chunk_text=payload.get("chunk_text"),
+            original_text=payload.get("original_text"),
+            vector=vector,
+            resume_metadata=resume_metadata
+        )
+
+    def fetch(self, id: str) -> VectorRecord | None:
         """
         Fetch a single vector record by its ID.
-        
+
         Args:
             id: Record ID to fetch
-            
+
         Returns:
             VectorRecord if found, None otherwise
         """
-        # This would require implementing a fetch by ID in the production adapter
-        # For now, we'll return None
-        return None
-    
-    def fetch_resume(self, resume_id: str) -> List[VectorRecord]:
+        try:
+            points = self._adapter.client.retrieve(
+                collection_name=self._adapter.collection_name,
+                ids=[id],
+                with_payload=True,
+                with_vectors=True,
+            )
+            if not points:
+                return None
+            point = points[0]
+            payload = point.payload if hasattr(point, "payload") else {}
+            if isinstance(payload, QdrantPayload):
+                payload = payload.model_dump(mode="json")
+            vector = point.vector if hasattr(point, "vector") else []
+            return self._payload_to_vector_record(payload, str(point.id), vector)
+        except Exception as e:
+            logger.error(f"Fetch failed for id={id}: {e!s}")
+            return None
+
+    def fetch_resume(self, resume_id: str) -> list[VectorRecord]:
         """
         Fetch all vector records for a specific resume.
-        
+
         Args:
             resume_id: ID of the resume to fetch
-            
+
         Returns:
             List of VectorRecord objects for the resume
         """
-        # This would require implementing a fetch by resume_id in the production adapter
-        # For now, we'll return empty list
-        return []
+        try:
+            from qdrant_client.models import FieldCondition, Filter, MatchValue
+            response = self._adapter.client.scroll(
+                collection_name=self._adapter.collection_name,
+                scroll_filter=Filter(
+                    must=[FieldCondition(key="resume_id", match=MatchValue(value=resume_id))]
+                ),
+                with_payload=True,
+                with_vectors=True,
+            )
+            points = response[0] if isinstance(response, tuple) else response
+            records = []
+            for point in points:
+                payload = point.payload if hasattr(point, "payload") else {}
+                if isinstance(payload, QdrantPayload):
+                    payload = payload.model_dump(mode="json")
+                vector = point.vector if hasattr(point, "vector") else []
+                records.append(self._payload_to_vector_record(payload, str(point.id), vector))
+            return records
+        except Exception as e:
+            logger.error(f"fetch_resume failed for resume_id={resume_id}: {e!s}")
+            return []
     
     def count(self) -> int:
         """
@@ -256,10 +310,10 @@ class QdrantAdapter(VectorStore):
         try:
             return self._adapter.count()
         except Exception as e:
-            logger.error(f"Count failed: {str(e)}")
+            logger.error(f"Count failed: {e!s}")
             return 0
     
-    def clear(self) -> Dict[str, Any]:
+    def clear(self) -> dict[str, Any]:
         """
         Clear all vector records from the store.
         
@@ -277,14 +331,14 @@ class QdrantAdapter(VectorStore):
                 "errors": []
             }
         except Exception as e:
-            logger.error(f"Clear failed: {str(e)}")
+            logger.error(f"Clear failed: {e!s}")
             return {
                 "success": False,
                 "cleared_count": 0,
                 "errors": [str(e)]
             }
     
-    def health(self) -> Dict[str, Any]:
+    def health(self) -> dict[str, Any]:
         """
         Check the health status of the vector store.
         
@@ -301,7 +355,7 @@ class QdrantAdapter(VectorStore):
                 "record_count": health_status.vector_count
             }
         except Exception as e:
-            logger.error(f"Health check failed: {str(e)}")
+            logger.error(f"Health check failed: {e!s}")
             return {
                 "healthy": False,
                 "status": "unhealthy",
@@ -310,9 +364,68 @@ class QdrantAdapter(VectorStore):
                 "record_count": 0
             }
     
+    def save(self, path: str | None = None) -> dict[str, Any]:
+        """Qdrant local-mode persistence is handled by the client; this is a no-op."""
+        return {
+            "success": True,
+            "path": path or self._adapter.path,
+            "vectors_saved": self._adapter.count(),
+            "message": "Qdrant persistence is managed automatically by the client"
+        }
+    
+    def load(self, path: str | None = None) -> dict[str, Any]:
+        """Qdrant local-mode data is loaded automatically on client init."""
+        return {
+            "success": True,
+            "path": path or self._adapter.path,
+            "vectors_restored": self._adapter.count(),
+            "message": "Qdrant data is loaded automatically on adapter initialization"
+        }
+    
+    def serialize(self) -> dict[str, Any]:
+        """Serialization is not applicable for the Qdrant adapter."""
+        return {"success": False, "message": "Qdrant does not support manual serialization"}
+    
+    def deserialize(self, data: dict[str, Any]) -> None:
+        """Deserialization is not applicable for the Qdrant adapter."""
+    
+    def integrity_check(self) -> dict[str, Any]:
+        """Validate Qdrant collection integrity."""
+        errors = []
+        warnings = []
+        
+        try:
+            count = self._adapter.count()
+            health = self._adapter.health_check()
+            
+            if not health.collection_exists:
+                errors.append("Qdrant collection does not exist")
+            
+            if health.vector_count != count:
+                warnings.append(f"Health count ({health.vector_count}) differs from count() ({count})")
+            
+            return {
+                "valid": len(errors) == 0 and health.collection_exists,
+                "dimension": self.config.dimension,
+                "count": count,
+                "metadata_count": count,
+                "collection_exists": health.collection_exists,
+                "connection_healthy": health.connection_healthy,
+                "errors": errors,
+                "warnings": warnings
+            }
+        except Exception as e:
+            return {
+                "valid": False,
+                "dimension": self.config.dimension,
+                "count": 0,
+                "metadata_count": 0,
+                "errors": [str(e)],
+                "warnings": []
+            }
+    
     def close(self) -> None:
         """
         Close the vector store connection and release resources.
         """
         # Qdrant client doesn't need explicit closing
-        pass

@@ -28,12 +28,11 @@ SOLID Principles Applied:
 
 import logging
 import time
-from typing import Callable, Dict, List, Optional, Set
+from collections.abc import Callable
 
 from .schema import (
     CandidateMetadata,
     FilterCondition,
-    FilterLogic,
     FilterOperator,
     FilterResult,
     MetadataFilter,
@@ -48,21 +47,21 @@ def _normalize(value: str) -> str:
     return value.strip().lower()
 
 
-def _list_intersects(candidate_values: List[str], filter_values: List[str]) -> bool:
+def _list_intersects(candidate_values: list[str], filter_values: list[str]) -> bool:
     """Return True when candidate and filter lists share at least one value."""
     candidate_set = {_normalize(v) for v in candidate_values}
     filter_set = {_normalize(v) for v in filter_values}
     return bool(candidate_set & filter_set)
 
 
-def _contains(haystack: Optional[str], needle: str) -> bool:
+def _contains(haystack: str | None, needle: str) -> bool:
     """Case-insensitive substring match."""
     if not haystack:
         return False
     return _normalize(needle) in _normalize(haystack)
 
 
-def _exact_match(candidate_value: Optional[str], filter_value: str) -> bool:
+def _exact_match(candidate_value: str | None, filter_value: str) -> bool:
     """Case-insensitive exact match."""
     if not candidate_value:
         return False
@@ -80,7 +79,7 @@ class FilterEngine:
 
     def __init__(self) -> None:
         self._validator = MetadataFilterValidator()
-        self._field_evaluators: Dict[str, Callable[[CandidateMetadata, FilterCondition], bool]] = {
+        self._field_evaluators: dict[str, Callable[[CandidateMetadata, FilterCondition], bool]] = {
             "experience_years": self._eval_numeric_field,
             "location": self._eval_string_field,
             "skills": self._eval_list_field,
@@ -101,7 +100,7 @@ class FilterEngine:
     def apply(
         self,
         filters: MetadataFilter,
-        candidates: List[CandidateMetadata],
+        candidates: list[CandidateMetadata],
     ) -> FilterResult:
         """
         Apply filters to candidates and return filtered candidate IDs.

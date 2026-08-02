@@ -12,11 +12,11 @@ Modules:
 """
 
 from .indexing_service import IndexingService
-from .resume_ingestor import ResumeIngestor
 from .pipeline import IndexingPipeline
+from .resume_ingestor import ResumeIngestor
 
 __all__ = [
+    'IndexingPipeline',
     'IndexingService',
-    'ResumeIngestor',
-    'IndexingPipeline'
+    'ResumeIngestor'
 ]

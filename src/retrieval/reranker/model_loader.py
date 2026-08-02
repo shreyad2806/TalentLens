@@ -31,11 +31,11 @@ SOLID Principles Applied:
 
 import logging
 import os
-import time
 import threading
-from typing import Optional, Dict, Any
-from pathlib import Path
+import time
 from enum import Enum
+from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -95,14 +95,14 @@ class ModelLoader:
     """
     
     # Class-level singleton instances and locks
-    _instances: Dict[str, 'ModelLoader'] = {}
-    _locks: Dict[str, threading.Lock] = {}
+    _instances: dict[str, 'ModelLoader'] = {}
+    _locks: dict[str, threading.Lock] = {}
     
     def __new__(
         cls,
         model_name: str = RerankerModel.MINILM_V2.value,
         offline_mode: bool = False,
-        cache_dir: Optional[str] = None
+        cache_dir: str | None = None
     ):
         """
         Create or get singleton instance for the given model name.
@@ -148,7 +148,7 @@ class ModelLoader:
         self,
         model_name: str = RerankerModel.MINILM_V2.value,
         offline_mode: bool = False,
-        cache_dir: Optional[str] = None
+        cache_dir: str | None = None
     ):
         """
         Initialize the model loader.
@@ -161,7 +161,7 @@ class ModelLoader:
             offline_mode: Whether to operate in offline mode
             cache_dir: Directory for caching models
         """
-        pass  # Initialization handled in __new__
+        # Initialization handled in __new__
     
     def get_model(self):
         """
@@ -275,7 +275,7 @@ class ModelLoader:
         cls._instances.clear()
         cls._locks.clear()
     
-    def get_model_info(self) -> Dict[str, Any]:
+    def get_model_info(self) -> dict[str, Any]:
         """
         Get information about the loaded model.
         

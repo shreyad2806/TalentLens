@@ -19,13 +19,13 @@ SOLID Principles Applied:
 
 import logging
 import time
-from typing import List, Dict, Any, Optional
+
 from src.chunks.schema import Chunk
 
-from .schema import BM25Document, BM25IndexStats
 from .bm25_index import BM25Index
-from .tokenizer import Tokenizer
+from .schema import BM25Document
 from .scorer import BM25Scorer
+from .tokenizer import Tokenizer
 
 logger = logging.getLogger(__name__)
 
@@ -54,8 +54,8 @@ class IndexBuilder:
     
     def __init__(
         self,
-        tokenizer: Optional[Tokenizer] = None,
-        scorer: Optional[BM25Scorer] = None
+        tokenizer: Tokenizer | None = None,
+        scorer: BM25Scorer | None = None
     ):
         """
         Initialize the index builder.
@@ -69,7 +69,7 @@ class IndexBuilder:
         
         logger.info("IndexBuilder initialized")
     
-    def build_index(self, chunks: List[Chunk]) -> BM25Index:
+    def build_index(self, chunks: list[Chunk]) -> BM25Index:
         """
         Build a BM25 index from a list of Chunk objects.
         
@@ -120,7 +120,7 @@ class IndexBuilder:
         
         return index
     
-    def _chunk_to_document(self, chunk: Chunk) -> Optional[BM25Document]:
+    def _chunk_to_document(self, chunk: Chunk) -> BM25Document | None:
         """
         Convert a Chunk object to a BM25Document.
         
@@ -186,7 +186,7 @@ class IndexBuilder:
     def build_index_incremental(
         self,
         index: BM25Index,
-        chunks: List[Chunk]
+        chunks: list[Chunk]
     ) -> BM25Index:
         """
         Incrementally add chunks to an existing index.
@@ -357,7 +357,7 @@ class IndexBuilder:
         
         return index
     
-    def rebuild_index(self, index: BM25Index, chunks: List[Chunk]) -> BM25Index:
+    def rebuild_index(self, index: BM25Index, chunks: list[Chunk]) -> BM25Index:
         """
         Rebuild the index from scratch with new chunks.
         

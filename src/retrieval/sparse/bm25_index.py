@@ -18,13 +18,12 @@ SOLID Principles Applied:
 - Dependency Inversion: Depends on index interface
 """
 
+import json
 import logging
 import time
-import json
-from typing import Dict, List, Set, Optional, Any
 from collections import defaultdict
 from pathlib import Path
-import math
+from typing import Any
 
 from pydantic import ValidationError
 
@@ -34,7 +33,6 @@ from .scorer import BM25Scorer
 
 class IncompatibleIndexError(Exception):
     """Raised when a persisted index cannot be loaded under the current schema."""
-    pass
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +58,7 @@ class BM25Index:
         total_documents: int - Total number of documents
     """
     
-    def __init__(self, scorer: Optional[BM25Scorer] = None):
+    def __init__(self, scorer: BM25Scorer | None = None):
         """
         Initialize the BM25 index.
         
@@ -70,10 +68,10 @@ class BM25Index:
         self.scorer = scorer or BM25Scorer()
         
         # Index structures
-        self.vocabulary: Set[str] = set()
-        self.document_frequency: Dict[str, int] = defaultdict(int)
-        self.posting_lists: Dict[str, List[str]] = defaultdict(list)
-        self.document_store: Dict[str, BM25Document] = {}
+        self.vocabulary: set[str] = set()
+        self.document_frequency: dict[str, int] = defaultdict(int)
+        self.posting_lists: dict[str, list[str]] = defaultdict(list)
+        self.document_store: dict[str, BM25Document] = {}
         
         # Statistics
         self.total_documents: int = 0
@@ -82,7 +80,7 @@ class BM25Index:
         
         logger.info("BM25Index initialized")
     
-    def add_document(self, document: BM25Document = None, *, document_id: str = None, tokens: List[str] = None, **kwargs) -> None:
+    def add_document(self, document: BM25Document = None, *, document_id: str = None, tokens: list[str] = None, **kwargs) -> None:
         """
         Add a document to the index incrementally.
         
@@ -147,7 +145,7 @@ class BM25Index:
             f"avg_doc_length={self.average_document_length:.2f}"
         )
     
-    def add_documents(self, documents: List[BM25Document]) -> None:
+    def add_documents(self, documents: list[BM25Document]) -> None:
         """
         Add multiple documents to the index.
         
@@ -317,7 +315,7 @@ class BM25Index:
         
         return True
     
-    def get_document(self, doc_id: str) -> Optional[BM25Document]:
+    def get_document(self, doc_id: str) -> BM25Document | None:
         """
         Get a document from the index.
         
@@ -329,7 +327,7 @@ class BM25Index:
         """
         return self.document_store.get(doc_id)
     
-    def get_posting_list(self, term: str) -> List[str]:
+    def get_posting_list(self, term: str) -> list[str]:
         """
         Get the posting list for a term.
         
@@ -353,7 +351,7 @@ class BM25Index:
         """
         return self.document_frequency.get(term, 0)
     
-    def get_vocabulary(self) -> Set[str]:
+    def get_vocabulary(self) -> set[str]:
         """
         Get the vocabulary of the index.
         
@@ -384,7 +382,7 @@ class BM25Index:
         else:
             self.average_document_length = 0.0
     
-    def rebuild(self, documents: List[BM25Document]) -> None:
+    def rebuild(self, documents: list[BM25Document]) -> None:
         """
         Rebuild the index from scratch.
         
@@ -437,10 +435,10 @@ class BM25Index:
     
     def search(
         self,
-        query_terms: List[str],
+        query_terms: list[str],
         top_k: int = 10,
         explain: bool = False
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Search the index for documents matching the query terms.
         

@@ -5,8 +5,9 @@ This module defines the BM25Document schema used for storing and retrieving
 documents in the BM25 sparse retrieval index.
 """
 
-from typing import Dict, Any, Optional
 from datetime import datetime
+from typing import Any
+
 from pydantic import BaseModel, Field, validator
 
 
@@ -24,7 +25,7 @@ class BM25Document(BaseModel):
     candidate_name: str = Field(..., description="Name of the candidate")
     section: str = Field(..., description="Section of the resume (e.g., skills, experience)")
     text: str = Field(..., description="Text content of the chunk")
-    metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
+    metadata: dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
     token_count: int = Field(default=0, description="Number of tokens in the document")
     created_at: str = Field(default_factory=lambda: datetime.now().isoformat(), description="Timestamp when document was created")
     
@@ -42,7 +43,7 @@ class BM25Document(BaseModel):
             raise ValueError("Token count must be non-negative")
         return v
     
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """
         Convert the BM25Document to a dictionary.
         

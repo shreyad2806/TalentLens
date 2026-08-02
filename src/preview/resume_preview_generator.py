@@ -7,7 +7,6 @@ ResumeDocument into a concise, recruiter-friendly plain-text preview.
 from __future__ import annotations
 
 import re
-from typing import List, Optional
 
 from src.models import ResumeDocument
 
@@ -26,7 +25,7 @@ class ResumePreviewGenerator:
         skills = self._format_skills(resume.skills)
         summary = self._format_summary(resume)
 
-        parts: List[str] = []
+        parts: list[str] = []
         if role:
             parts.append(role)
         if experience:
@@ -42,17 +41,17 @@ class ResumePreviewGenerator:
 
         return self._truncate_to(preview, self.MAX_LENGTH)
 
-    def _format_role(self, role: Optional[str]) -> str:
+    def _format_role(self, role: str | None) -> str:
         return (role or "").strip()
 
-    def _format_experience(self, years: Optional[float]) -> str:
+    def _format_experience(self, years: float | None) -> str:
         if years is None or years <= 0:
             return ""
         if years == 1.0:
             return "1 year experience"
         return f"{years:g} years experience"
 
-    def _format_skills(self, skills: Optional[List[str]]) -> str:
+    def _format_skills(self, skills: list[str] | None) -> str:
         if not skills:
             return ""
         clean = [s.strip() for s in skills if s and s.strip()]

@@ -9,6 +9,7 @@ Architecture Notes:
 - Factory Pattern for adapter instantiation
 - Reads configuration from environment
 - Returns appropriate adapter based on provider
+- Caches the created adapter to avoid duplicate Qdrant client instances
 - Follows Dependency Inversion Principle
 
 SOLID Principles Applied:
@@ -17,9 +18,14 @@ SOLID Principles Applied:
 - Dependency Inversion: Depends on abstraction (VectorStore interface)
 """
 
-from typing import Optional
+
+from .config import VectorStoreConfig, VectorStoreProvider, get_config
 from .interface import VectorStore
-from .config import VectorStoreConfig, get_config, VectorStoreProvider
+
+# Module-level singleton cache to prevent duplicate Qdrant client
+# initializations (embedded Qdrant locks the storage directory).
+_vector_store_instance: VectorStore | None = None
+_vector_store_config_key: object | None = None
 
 
 class VectorStoreFactory:
@@ -43,7 +49,7 @@ class VectorStoreFactory:
     - Interface Segregation: Focused factory interface
     """
     
-    def __init__(self, config: Optional[VectorStoreConfig] = None):
+    def __init__(self, config: VectorStoreConfig | None = None):
         """
         Initialize the factory with configuration.
         
@@ -131,12 +137,14 @@ class VectorStoreFactory:
         return MemoryVectorStore(config=self.config)
     
     @staticmethod
-    def create(config: Optional[VectorStoreConfig] = None) -> VectorStore:
+    def create(config: VectorStoreConfig | None = None) -> VectorStore:
         """
-        Static method to create a vector store adapter.
+        Static method to create (or reuse) a vector store adapter.
         
         This is a convenience method that creates a factory instance
-        and returns the vector store adapter in one call.
+        and returns the vector store adapter in one call. The result is
+        cached per configuration to avoid duplicate Qdrant client
+        initializations.
         
         Args:
             config: Optional configuration. If None, uses global config.
@@ -148,12 +156,14 @@ class VectorStoreFactory:
         return factory.create_vector_store()
 
 
-def create_vector_store(config: Optional[VectorStoreConfig] = None) -> VectorStore:
+def create_vector_store(config: VectorStoreConfig | None = None) -> VectorStore:
     """
-    Convenience function to create a vector store adapter.
+    Convenience function to create (or reuse) a vector store adapter.
     
     This function provides a simple interface for creating vector store
-    adapters without needing to instantiate the factory explicitly.
+    adapters without needing to instantiate the factory explicitly. The
+    result is cached per configuration so the application never opens more
+    than one embedded Qdrant client per storage path.
     
     Args:
         config: Optional configuration. If None, uses global config.
@@ -166,4 +176,21 @@ def create_vector_store(config: Optional[VectorStoreConfig] = None) -> VectorSto
         >>> vector_store = create_vector_store()
         >>> result = vector_store.upsert(records)
     """
-    return VectorStoreFactory.create(config)
+    global _vector_store_instance, _vector_store_config_key
+
+    config = config or get_config()
+    key = (
+        config.provider,
+        getattr(config, "qdrant_path", None),
+        getattr(config, "qdrant_url", None),
+        getattr(config, "qdrant_api_key", None),
+        getattr(config, "collection_name", None),
+        config.dimension,
+    )
+
+    if _vector_store_instance is not None and _vector_store_config_key == key:
+        return _vector_store_instance
+
+    _vector_store_config_key = key
+    _vector_store_instance = VectorStoreFactory.create(config)
+    return _vector_store_instance

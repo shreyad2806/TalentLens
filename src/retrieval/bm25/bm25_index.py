@@ -6,13 +6,11 @@ retrieval. It maintains an inverted index and computes relevance scores for
 document-query pairs.
 """
 
-import math
 import json
-import pickle
-from pathlib import Path
-from typing import Dict, List, Tuple, Set
-from collections import defaultdict
 import logging
+import math
+from collections import defaultdict
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -43,16 +41,16 @@ class BM25Index:
         self.b = b
         
         # Inverted index: term -> {document_id: term_frequency}
-        self.inverted_index: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
+        self.inverted_index: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
         
         # Document store: document_id -> BM25Document
-        self.documents: Dict[str, 'BM25Document'] = {}
+        self.documents: dict[str, BM25Document] = {}
         
         # Document lengths: document_id -> token_count
-        self.document_lengths: Dict[str, int] = {}
+        self.document_lengths: dict[str, int] = {}
         
         # Vocabulary: set of all unique terms
-        self.vocabulary: Set[str] = set()
+        self.vocabulary: set[str] = set()
         
         # Statistics
         self.num_documents: int = 0
@@ -61,7 +59,7 @@ class BM25Index:
         
         logger.info(f"BM25Index initialized with k1={k1}, b={b}")
     
-    def add_document(self, document_id: str, tokens: List[str], document: 'BM25Document') -> None:
+    def add_document(self, document_id: str, tokens: list[str], document: 'BM25Document') -> None:
         """
         Add a document to the index.
         
@@ -133,7 +131,7 @@ class BM25Index:
             return 0
         return self.inverted_index[term][document_id]
     
-    def score(self, query_tokens: List[str], document_id: str) -> float:
+    def score(self, query_tokens: list[str], document_id: str) -> float:
         """
         Calculate the BM25 score for a document-query pair.
         
@@ -177,7 +175,7 @@ class BM25Index:
         
         return score
     
-    def search(self, query_tokens: List[str], k: int = 10) -> List[Tuple[str, float]]:
+    def search(self, query_tokens: list[str], k: int = 10) -> list[tuple[str, float]]:
         """
         Search the index for documents matching the query.
         
@@ -216,7 +214,7 @@ class BM25Index:
         """
         return self.documents.get(document_id)
     
-    def get_statistics(self) -> Dict[str, any]:
+    def get_statistics(self) -> dict[str, any]:
         """
         Get index statistics.
         

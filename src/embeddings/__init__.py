@@ -17,8 +17,8 @@ The embedding layer follows SOLID principles and is designed to be modular,
 testable, and production-ready.
 """
 
-from .schema import EmbeddingRecord
 from .embedding_service import EmbeddingService
+from .schema import EmbeddingRecord
 
 __all__ = [
     "EmbeddingRecord",

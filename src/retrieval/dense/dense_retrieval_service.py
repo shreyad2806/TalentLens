@@ -22,18 +22,19 @@ SOLID Principles Applied:
 import logging
 import re
 import time
-from typing import List, Dict, Any, Optional, Tuple
-from .schema import DenseSearchResult, RetrievalMetrics
+from typing import Any
+
+from src.debug_logger import log_error, log_stage_end, log_stage_start
+from src.embeddings.embedding_service import EmbeddingService
+from src.vector_store import VectorStoreService
+
 from ...models import ResumeMetadata
-from .validator import RetrievalValidator, ValidationError
 from .cache import QueryCache
-from .score_normalizer import ScoreNormalizer, NormalizationStrategy
 from .candidate_aggregator import CandidateAggregator
 from .query_embedder import QueryEmbedder
-from src.vector_store import VectorStoreService
-from src.embeddings.embedding_service import EmbeddingService
-from src.debug_logger import log_stage_start, log_stage_end, log_error
-
+from .schema import DenseSearchResult
+from .score_normalizer import NormalizationStrategy, ScoreNormalizer
+from .validator import RetrievalValidator
 
 logger = logging.getLogger(__name__)
 
@@ -72,14 +73,14 @@ class DenseRetrievalService:
     
     def __init__(
         self,
-        vector_store_service: Optional[VectorStoreService] = None,
-        embedding_service: Optional[EmbeddingService] = None,
+        vector_store_service: VectorStoreService | None = None,
+        embedding_service: EmbeddingService | None = None,
 
         cache_enabled: bool = True,
         cache_max_size: int = 1000,
         cache_ttl_seconds: int = 3600,
         normalization_strategy: NormalizationStrategy = NormalizationStrategy.COSINE,
-        section_weights: Optional[Dict[str, float]] = None
+        section_weights: dict[str, float] | None = None
     ):
 
         """
@@ -127,7 +128,7 @@ class DenseRetrievalService:
         )
 
     
-    def search(self, query: str, top_k: int = 10, filters: Optional[Dict[str, Any]] = None) -> List[DenseSearchResult]:
+    def search(self, query: str, top_k: int = 10, filters: dict[str, Any] | None = None) -> list[DenseSearchResult]:
         """
         Perform dense semantic search.
         
@@ -189,8 +190,15 @@ class DenseRetrievalService:
             logger.info(f"Incoming Filters: {filters}")
             log_stage_start(6, "DENSE RETRIEVAL", Top_K=top_k, Filters=filters)
             
+            try:
+                dense_count = self.vector_store_service.count()
+                print(f"[DIAGNOSTIC][DenseRetrievalService] vector store count before query: {dense_count}")
+            except Exception as e:
+                print(f"[DIAGNOSTIC][DenseRetrievalService] vector store count unavailable: {e}")
+            
             vector_start = time.perf_counter()
             vector_results = self.vector_store_service.query(query_vector, k=top_k, filters=filters)
+            print(f"[DIAGNOSTIC][DenseRetrievalService] dense candidates returned: {len(vector_results)}")
             vector_latency = time.perf_counter() - vector_start
             
             logger.info(f"Applied Filters: {list(filters.keys()) if filters else 'None'}")
@@ -278,7 +286,7 @@ class DenseRetrievalService:
             log_error(6, "DENSE RETRIEVAL", e, reraise=True)
             raise RuntimeError(f"Search failed: {e}") from e
     
-    def search_aggregated(self, query: str, top_k: int = 10, filters: Optional[Dict[str, Any]] = None) -> List[DenseSearchResult]:
+    def search_aggregated(self, query: str, top_k: int = 10, filters: dict[str, Any] | None = None) -> list[DenseSearchResult]:
         """
         Perform dense semantic search with candidate aggregation.
         
@@ -333,7 +341,7 @@ class DenseRetrievalService:
         
         return final_results
     
-    def _extract_matched_text(self, query: str, text: Optional[str]) -> Tuple[str, int]:
+    def _extract_matched_text(self, query: str, text: str | None) -> tuple[str, int]:
         """
         Extract a query-relevant snippet and its character offset from chunk text.
 
@@ -358,9 +366,9 @@ class DenseRetrievalService:
     def _convert_to_dense_results(
         self,
         query: str,
-        vector_results: List[Dict[str, Any]],
-        normalized_scores: List[float]
-    ) -> List[DenseSearchResult]:
+        vector_results: list[dict[str, Any]],
+        normalized_scores: list[float]
+    ) -> list[DenseSearchResult]:
         """
         Convert vector store results to DenseSearchResult objects.
         
@@ -451,7 +459,7 @@ class DenseRetrievalService:
             f"cache_hit={cache_hit}"
         )
     
-    def get_cache_stats(self) -> Optional[Dict[str, Any]]:
+    def get_cache_stats(self) -> dict[str, Any] | None:
         """
         Get cache statistics.
         

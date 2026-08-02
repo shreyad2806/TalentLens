@@ -7,14 +7,14 @@ and BM25 index. It provides a high-level interface for batch indexing operations
 """
 
 import logging
-from typing import List, Union, Optional, Dict, Any
 from pathlib import Path
+from typing import Any
 
-from .indexing_service import IndexingService
-from .resume_ingestor import ResumeIngestor, IngestionResult
 from ..config import EMBEDDING_DIM
 from ..embeddings.embedding_service import EmbeddingService
 from ..retrieval.sparse.bm25_index import BM25Index as SparseBM25Index
+from .indexing_service import IndexingService
+from .resume_ingestor import ResumeIngestor
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +36,7 @@ class IndexingPipeline:
     def __init__(
         self,
         *,
-        embedding_dim: Optional[int] = None,
+        embedding_dim: int | None = None,
         bm25_index=None,
         embedding_service=None,
         vector_store_service=None,
@@ -74,10 +74,10 @@ class IndexingPipeline:
     
     def index_directory(
         self,
-        directory: Union[str, Path],
+        directory: str | Path,
         recursive: bool = True,
         verbose: bool = True
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Index all resume files in a directory.
         
@@ -134,7 +134,7 @@ class IndexingPipeline:
         print(f"[BOOTSTRAP-TRACE][indexing_pipeline.py] index_directory: indexing complete - successful={indexing_result.get('successful')}, failed={indexing_result.get('failed')}, total_chunks={indexing_result.get('total_chunks')}, total_embeddings={indexing_result.get('total_embeddings')}")
         
         if verbose:
-            print(f"✅ Indexing complete:")
+            print("✅ Indexing complete:")
             print(f"   - Successful: {indexing_result['successful']}")
             print(f"   - Failed: {indexing_result['failed']}")
             print(f"   - Total chunks: {indexing_result['total_chunks']}")
@@ -155,9 +155,9 @@ class IndexingPipeline:
     
     def index_files(
         self,
-        file_paths: List[Union[str, Path]],
+        file_paths: list[str | Path],
         verbose: bool = True
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Index a specific list of resume files.
         
@@ -190,7 +190,7 @@ class IndexingPipeline:
         
         # Step 2: Index all files
         if verbose:
-            print(f"\n🚀 Starting indexing pipeline...")
+            print("\n🚀 Starting indexing pipeline...")
         
         indexing_result = self.indexing_service.index_resumes(
             file_paths=ingestion_result.file_paths
@@ -198,7 +198,7 @@ class IndexingPipeline:
         print(f"[BOOTSTRAP-TRACE][indexing_pipeline.py] index_files: indexing complete - successful={indexing_result.get('successful')}, failed={indexing_result.get('failed')}, total_chunks={indexing_result.get('total_chunks')}, total_embeddings={indexing_result.get('total_embeddings')}")
         
         if verbose:
-            print(f"✅ Indexing complete:")
+            print("✅ Indexing complete:")
             print(f"   - Successful: {indexing_result['successful']}")
             print(f"   - Failed: {indexing_result['failed']}")
             print(f"   - Total chunks: {indexing_result['total_chunks']}")
@@ -219,9 +219,9 @@ class IndexingPipeline:
     
     def index_single_file(
         self,
-        file_path: Union[str, Path],
+        file_path: str | Path,
         verbose: bool = True
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Index a single resume file.
         
@@ -241,7 +241,7 @@ class IndexingPipeline:
         if ingestion_result.valid_files == 0:
             logger.warning("File validation failed")
             if verbose:
-                print(f"❌ File validation failed")
+                print("❌ File validation failed")
                 for error in ingestion_result.errors:
                     print(f"   Error: {error}")
             return {
@@ -252,7 +252,7 @@ class IndexingPipeline:
         
         # Step 2: Index the file
         if verbose:
-            print(f"\n🚀 Starting indexing pipeline...")
+            print("\n🚀 Starting indexing pipeline...")
         
         indexing_result = self.indexing_service.index_resume(
             file_path=ingestion_result.file_paths[0]
@@ -260,11 +260,11 @@ class IndexingPipeline:
         
         if verbose:
             if indexing_result['errors']:
-                print(f"⚠️  Indexing completed with errors:")
+                print("⚠️  Indexing completed with errors:")
                 for error in indexing_result['errors']:
                     print(f"   Error: {error}")
             else:
-                print(f"✅ Indexing successful:")
+                print("✅ Indexing successful:")
                 print(f"   - Chunks: {indexing_result['chunks_count']}")
                 print(f"   - Embeddings: {indexing_result['embeddings_count']}")
                 print(f"   - Vector store: {'✓' if indexing_result['vector_store_success'] else '✗'}")
@@ -282,7 +282,7 @@ class IndexingPipeline:
             'statistics': statistics
         }
     
-    def rebuild_all(self, verbose: bool = True) -> Dict[str, Any]:
+    def rebuild_all(self, verbose: bool = True) -> dict[str, Any]:
         """
         Rebuild the entire index from scratch.
         
@@ -293,12 +293,12 @@ class IndexingPipeline:
             Dictionary with rebuild results
         """
         if verbose:
-            print(f"\n🔄 Rebuilding index from scratch...")
+            print("\n🔄 Rebuilding index from scratch...")
         
         rebuild_result = self.indexing_service.rebuild_index()
         
         if verbose:
-            print(f"✅ Rebuild complete:")
+            print("✅ Rebuild complete:")
             print(f"   - BM25 cleared: {'✓' if rebuild_result['bm25_cleared'] else '✗'}")
             print(f"   - Vector store cleared: {'✓' if rebuild_result['vector_store_cleared'] else '✗'}")
         
@@ -312,7 +312,7 @@ class IndexingPipeline:
             'statistics': statistics
         }
     
-    def get_statistics(self) -> Dict[str, Any]:
+    def get_statistics(self) -> dict[str, Any]:
         """
         Get current indexing statistics.
         
@@ -339,7 +339,7 @@ class IndexingPipeline:
         
         if 'bm25_stats' in stats:
             bm25_stats = stats['bm25_stats']
-            print(f"\nBM25 Statistics:")
+            print("\nBM25 Statistics:")
             print(f"  Vocabulary Size: {bm25_stats['vocabulary_size']}")
             print(f"  Average Doc Length: {bm25_stats['avg_doc_length']:.2f}")
             print(f"  Total Tokens: {bm25_stats['total_tokens']}")
@@ -353,21 +353,21 @@ class IndexingPipeline:
             print("⚠️  Indexing incomplete - run indexing pipeline")
         print("="*50 + "\n")
     
-    def _print_statistics(self, statistics: Dict[str, Any]) -> None:
+    def _print_statistics(self, statistics: dict[str, Any]) -> None:
         """
         Print indexing statistics.
         
         Args:
             statistics: Statistics dictionary
         """
-        print(f"\n📊 Current Index Statistics:")
+        print("\n📊 Current Index Statistics:")
         print(f"   - Indexed Documents: {statistics['indexed_documents']}")
         print(f"   - Vector Count: {statistics['vector_count']}")
         print(f"   - BM25 Count: {statistics['bm25_count']}")
         
         if 'bm25_stats' in statistics:
             bm25_stats = statistics['bm25_stats']
-            print(f"\n   BM25 Details:")
+            print("\n   BM25 Details:")
             print(f"   - Vocabulary Size: {bm25_stats['vocabulary_size']}")
             print(f"   - Average Doc Length: {bm25_stats['avg_doc_length']:.2f}")
             print(f"   - Total Tokens: {bm25_stats['total_tokens']}")

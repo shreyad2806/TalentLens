@@ -7,11 +7,11 @@ unique identifiers.
 """
 
 import uuid
-from typing import List, Dict, Any, Optional
 from datetime import datetime
+from typing import Any
 
-from ..resume_parser.schema import ResumeDocument
 from ..models import ResumeMetadata
+from ..resume_parser.schema import ResumeDocument
 from .schema import Chunk, ChunkMetadata, EmbeddingStatus
 
 
@@ -38,7 +38,7 @@ class ChunkFactory:
         self.chunk_order_counter = 0
     
     def create_chunks(self, document: ResumeDocument, resume_id: str, 
-                     source_document: Optional[str] = None) -> List[Chunk]:
+                     source_document: str | None = None) -> list[Chunk]:
         """
         Create Chunk objects from a ResumeDocument.
         
@@ -151,7 +151,7 @@ class ChunkFactory:
         
         return chunks
     
-    def _extract_base_metadata(self, document: ResumeDocument) -> Dict[str, Any]:
+    def _extract_base_metadata(self, document: ResumeDocument) -> dict[str, Any]:
         """
         Extract base metadata from ResumeDocument.
         
@@ -198,9 +198,9 @@ class ChunkFactory:
             "summary": document.summary,
         }
     
-    def _create_chunk(self, section: str, text: str, metadata: Dict[str, Any],
-                     resume_id: str, candidate_name: Optional[str],
-                     source_document: Optional[str] = None) -> Chunk:
+    def _create_chunk(self, section: str, text: str, metadata: dict[str, Any],
+                     resume_id: str, candidate_name: str | None,
+                     source_document: str | None = None) -> Chunk:
         """
         Create a single Chunk object.
         

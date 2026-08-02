@@ -18,9 +18,10 @@ SOLID Principles Applied:
 
 import logging
 import uuid
-from typing import List, Optional
-from src.embeddings.embedding_service import EmbeddingService
+from typing import Optional
+
 from src.config import EMBEDDING_DIM
+from src.embeddings.embedding_service import EmbeddingService
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +51,7 @@ class QueryEmbedder:
     
     def __init__(
         self,
-        expected_dimension: Optional[int] = None,
+        expected_dimension: int | None = None,
         embedding_service: Optional["EmbeddingService"] = None,
     ):
 
@@ -77,7 +78,7 @@ class QueryEmbedder:
             raise
 
     
-    def embed_query(self, query: str) -> List[float]:
+    def embed_query(self, query: str) -> list[float]:
         """
         Generate embedding for a recruiter query.
         
@@ -132,7 +133,7 @@ class QueryEmbedder:
             logger.error(f"Failed to embed query: {e}")
             raise RuntimeError(f"Query embedding failed: {e}") from e
     
-    def embed_queries(self, queries: List[str]) -> List[List[float]]:
+    def embed_queries(self, queries: list[str]) -> list[list[float]]:
         """
         Generate embeddings for multiple queries.
         

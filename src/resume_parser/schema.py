@@ -5,8 +5,9 @@ This module defines Pydantic data models for structured resume data.
 These models provide type safety, validation, and serialization capabilities.
 """
 
-from typing import List, Optional, Dict, Any
 from datetime import datetime
+from typing import Any
+
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -23,12 +24,12 @@ class Experience(BaseModel):
         description: Job description and responsibilities
         current: Whether this is the current position
     """
-    company: Optional[str] = Field(None, description="Company name")
-    title: Optional[str] = Field(None, description="Job title")
-    location: Optional[str] = Field(None, description="Job location")
-    start_date: Optional[str] = Field(None, description="Start date (flexible format)")
-    end_date: Optional[str] = Field(None, description="End date (None if current)")
-    description: Optional[str] = Field(None, description="Job description")
+    company: str | None = Field(None, description="Company name")
+    title: str | None = Field(None, description="Job title")
+    location: str | None = Field(None, description="Job location")
+    start_date: str | None = Field(None, description="Start date (flexible format)")
+    end_date: str | None = Field(None, description="End date (None if current)")
+    description: str | None = Field(None, description="Job description")
     current: bool = Field(False, description="Whether this is current position")
     
     @field_validator('end_date')
@@ -54,14 +55,14 @@ class Education(BaseModel):
         gpa: Grade point average if applicable
         description: Additional details about education
     """
-    institution: Optional[str] = Field(None, description="Institution name")
-    degree: Optional[str] = Field(None, description="Degree obtained")
-    field_of_study: Optional[str] = Field(None, description="Major/field of study")
-    location: Optional[str] = Field(None, description="Institution location")
-    start_date: Optional[str] = Field(None, description="Start date")
-    end_date: Optional[str] = Field(None, description="Graduation date")
-    gpa: Optional[str] = Field(None, description="Grade point average")
-    description: Optional[str] = Field(None, description="Additional details")
+    institution: str | None = Field(None, description="Institution name")
+    degree: str | None = Field(None, description="Degree obtained")
+    field_of_study: str | None = Field(None, description="Major/field of study")
+    location: str | None = Field(None, description="Institution location")
+    start_date: str | None = Field(None, description="Start date")
+    end_date: str | None = Field(None, description="Graduation date")
+    gpa: str | None = Field(None, description="Grade point average")
+    description: str | None = Field(None, description="Additional details")
 
 
 class Project(BaseModel):
@@ -77,13 +78,13 @@ class Project(BaseModel):
         end_date: Project end date
         url: Project URL/link if available
     """
-    name: Optional[str] = Field(None, description="Project name")
-    description: Optional[str] = Field(None, description="Project description")
-    technologies: List[str] = Field(default_factory=list, description="Technologies used")
-    role: Optional[str] = Field(None, description="Role in project")
-    start_date: Optional[str] = Field(None, description="Project start date")
-    end_date: Optional[str] = Field(None, description="Project end date")
-    url: Optional[str] = Field(None, description="Project URL")
+    name: str | None = Field(None, description="Project name")
+    description: str | None = Field(None, description="Project description")
+    technologies: list[str] = Field(default_factory=list, description="Technologies used")
+    role: str | None = Field(None, description="Role in project")
+    start_date: str | None = Field(None, description="Project start date")
+    end_date: str | None = Field(None, description="Project end date")
+    url: str | None = Field(None, description="Project URL")
 
 
 class Certification(BaseModel):
@@ -98,12 +99,12 @@ class Certification(BaseModel):
         credential_id: Credential ID if applicable
         url: Certification verification URL
     """
-    name: Optional[str] = Field(None, description="Certification name")
-    issuer: Optional[str] = Field(None, description="Issuing organization")
-    issue_date: Optional[str] = Field(None, description="Issue date")
-    expiration_date: Optional[str] = Field(None, description="Expiration date")
-    credential_id: Optional[str] = Field(None, description="Credential ID")
-    url: Optional[str] = Field(None, description="Verification URL")
+    name: str | None = Field(None, description="Certification name")
+    issuer: str | None = Field(None, description="Issuing organization")
+    issue_date: str | None = Field(None, description="Issue date")
+    expiration_date: str | None = Field(None, description="Expiration date")
+    credential_id: str | None = Field(None, description="Credential ID")
+    url: str | None = Field(None, description="Verification URL")
 
 
 class ResumeDocument(BaseModel):
@@ -128,36 +129,36 @@ class ResumeDocument(BaseModel):
         metadata: Additional metadata (parsing timestamps, sources, etc.)
     """
     # Contact Information
-    name: Optional[str] = Field(None, description="Full name of candidate")
-    email: Optional[str] = Field(None, description="Email address")
-    phone: Optional[str] = Field(None, description="Phone number")
+    name: str | None = Field(None, description="Full name of candidate")
+    email: str | None = Field(None, description="Email address")
+    phone: str | None = Field(None, description="Phone number")
     
     # Professional Summary
-    summary: Optional[str] = Field(None, description="Professional summary")
+    summary: str | None = Field(None, description="Professional summary")
     
     # Skills
-    skills: List[str] = Field(default_factory=list, description="List of skills")
+    skills: list[str] = Field(default_factory=list, description="List of skills")
     
     # Experience
-    experience: List[Experience] = Field(default_factory=list, description="Work experience")
+    experience: list[Experience] = Field(default_factory=list, description="Work experience")
     
     # Projects
-    projects: List[Project] = Field(default_factory=list, description="Projects")
+    projects: list[Project] = Field(default_factory=list, description="Projects")
     
     # Education
-    education: List[Education] = Field(default_factory=list, description="Education")
+    education: list[Education] = Field(default_factory=list, description="Education")
     
     # Certifications
-    certifications: List[Certification] = Field(default_factory=list, description="Certifications")
+    certifications: list[Certification] = Field(default_factory=list, description="Certifications")
     
     # Languages
-    languages: List[str] = Field(default_factory=list, description="Languages spoken")
+    languages: list[str] = Field(default_factory=list, description="Languages spoken")
     
     # Raw Data
     raw_text: str = Field(..., description="Original raw text from document")
     
     # Metadata
-    metadata: Dict[str, Any] = Field(
+    metadata: dict[str, Any] = Field(
         default_factory=dict,
         description="Additional metadata (parsing info, sources, etc.)"
     )
@@ -168,7 +169,7 @@ class ResumeDocument(BaseModel):
         }
     }
     
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """
         Convert the ResumeDocument to a dictionary.
         

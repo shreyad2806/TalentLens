@@ -8,9 +8,9 @@ prevent hallucinations and support verifiable answers.
 """
 
 import logging
-from typing import Dict, Any, List
+from typing import Any
 
-from src.retrieval.hybrid.schema import HybridSearchResult, MatchedChunk
+from src.retrieval.hybrid.schema import HybridSearchResult
 
 logger = logging.getLogger(__name__)
 
@@ -20,10 +20,10 @@ class ContextBuilder:
 
     def build_context(
         self,
-        hybrid_results: List[HybridSearchResult],
+        hybrid_results: list[HybridSearchResult],
         top_k: int = 5,
         max_snippet_length: int = 400
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Build a context payload from a list of HybridSearchResult objects.
 
@@ -47,7 +47,7 @@ class ContextBuilder:
                 - context_length: character length of the formatted context
                 - top_k: effective top-k used
         """
-        entries: List[Dict[str, Any]] = []
+        entries: list[dict[str, Any]] = []
         seen_chunk_ids: set = set()
 
         for result in hybrid_results:
@@ -91,7 +91,7 @@ class ContextBuilder:
         # Sort by score descending and keep only the best chunk per candidate.
         entries.sort(key=lambda x: x["score"], reverse=True)
 
-        unique_candidate_entries: List[Dict[str, Any]] = []
+        unique_candidate_entries: list[dict[str, Any]] = []
         seen_resume_ids: set = set()
         for entry in entries:
             resume_id = entry["resume_id"]
@@ -103,7 +103,7 @@ class ContextBuilder:
         # Top-k refers to the number of unique candidates now.
         top_entries = unique_candidate_entries[:top_k]
 
-        context_parts: List[str] = []
+        context_parts: list[str] = []
         for i, entry in enumerate(top_entries, start=1):
             citation = (
                 f"[{i}] Candidate: {entry['candidate_name']} | "
@@ -134,7 +134,7 @@ class ContextBuilder:
         return result
 
     @staticmethod
-    def _fallback_text(metadata: Dict[str, Any], max_length: int) -> str:
+    def _fallback_text(metadata: dict[str, Any], max_length: int) -> str:
         """Return a fallback text snippet from result metadata."""
         text = metadata.get("text") or metadata.get("text_preview") or metadata.get("source_text") or ""
         return str(text)[:max_length].strip()

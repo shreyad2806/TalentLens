@@ -7,19 +7,18 @@ orchestrates the entire indexing pipeline and provides a clean API for
 indexing operations.
 """
 
-import uuid
 import logging
-from typing import List, Optional, Dict, Any, Union
+import uuid
 from pathlib import Path
+from typing import Any
 
-from ..resume_parser.parser_service import ParserService
 from ..chunks.service import ChunkService
 from ..embeddings.embedding_service import EmbeddingService
-from ..retrieval.bm25.index_builder import IndexBuilder as BM25IndexBuilder
+from ..resume_parser.parser_service import ParserService
 from ..retrieval.bm25.bm25_index import BM25Index as BM25IndexClass
-from ..retrieval.sparse.index_builder import IndexBuilder as SparseIndexBuilder
+from ..retrieval.bm25.index_builder import IndexBuilder as BM25IndexBuilder
 from ..retrieval.sparse.bm25_index import BM25Index as SparseBM25IndexClass
-
+from ..retrieval.sparse.index_builder import IndexBuilder as SparseIndexBuilder
 from ..vector_store.service import VectorStoreService
 
 logger = logging.getLogger(__name__)
@@ -43,9 +42,9 @@ class IndexingService:
     
     def __init__(
         self,
-        bm25_index: Union[BM25IndexClass, SparseBM25IndexClass],
+        bm25_index: BM25IndexClass | SparseBM25IndexClass,
         embedding_service: EmbeddingService,
-        vector_store_service: Optional[VectorStoreService] = None,
+        vector_store_service: VectorStoreService | None = None,
     ):
         """
         Initialize the indexing service with injected indexing dependencies.
@@ -64,21 +63,21 @@ class IndexingService:
         self.embedding_service = embedding_service
 
         # Injected indexing dependencies (owned by the caller / pipeline)
-        self._bm25_index: Union[BM25IndexClass, SparseBM25IndexClass] = bm25_index
-        self._vector_store_service: Optional[VectorStoreService] = vector_store_service
+        self._bm25_index: BM25IndexClass | SparseBM25IndexClass = bm25_index
+        self._vector_store_service: VectorStoreService | None = vector_store_service
 
         # Detect which BM25Index implementation is in use and choose matching builder
         if isinstance(bm25_index, SparseBM25IndexClass):
             self.index_builder = SparseIndexBuilder()
             self._bm25_interface = 'sparse'
-            print(f"[BOOTSTRAP-TRACE][indexing_service.py] Using sparse BM25Index interface")
+            print("[BOOTSTRAP-TRACE][indexing_service.py] Using sparse BM25Index interface")
         else:
             self.index_builder = BM25IndexBuilder()
             self._bm25_interface = 'bm25'
-            print(f"[BOOTSTRAP-TRACE][indexing_service.py] Using bm25 BM25Index interface")
+            print("[BOOTSTRAP-TRACE][indexing_service.py] Using bm25 BM25Index interface")
 
         # State tracking
-        self._indexed_documents: Dict[str, Any] = {}  # resume_id -> document metadata
+        self._indexed_documents: dict[str, Any] = {}  # resume_id -> document metadata
         self._vector_count: int = 0
 
         logger.info(
@@ -88,7 +87,7 @@ class IndexingService:
             type(vector_store_service).__name__ if vector_store_service else "None"
         )
     
-    def index_resume(self, file_path: Union[str, Path], resume_id: Optional[str] = None) -> Dict[str, Any]:
+    def index_resume(self, file_path: str | Path, resume_id: str | None = None) -> dict[str, Any]:
         """
         Index a single resume file.
         
@@ -131,8 +130,12 @@ class IndexingService:
             # Step 1: Parse resume
             document = self.parser.parse_file(file_path)
             candidate_name = document.name or "Unknown"
-            logger.info(f"Parsed resume for candidate: {candidate_name}")
-            print(f"[BOOTSTRAP-TRACE][indexing_service.py]   Step 1 PARSE complete: candidate_name={candidate_name}")
+            name_source = document.metadata.get("field_source", {}).get("candidate_name", "unknown")
+            logger.info(f"Parsed resume for candidate: {candidate_name} (source={name_source})")
+            print(f"[CANDIDATE NAME] Resume: {file_path.name}")
+            print(f"[CANDIDATE NAME]   Candidate Name: {candidate_name}")
+            print(f"[CANDIDATE NAME]   Source: {name_source}")
+            print(f"[BOOTSTRAP-TRACE][indexing_service.py]   Step 1 PARSE complete: candidate_name={candidate_name}, source={name_source}")
             
             # Step 2: Chunk document
             chunks = self.chunk_service.create_chunks(
@@ -160,7 +163,7 @@ class IndexingService:
                     logger.info("Successfully upserted to vector store")
                     print(f"[BOOTSTRAP-TRACE][indexing_service.py]   Step 4 VECTOR STORE UPSERT complete: vectors={len(embedding_records)}")
                 except Exception as e:
-                    error_msg = f"Vector store upsert failed: {str(e)}"
+                    error_msg = f"Vector store upsert failed: {e!s}"
                     result['errors'].append(error_msg)
                     logger.error(error_msg)
                     print(f"[BOOTSTRAP-TRACE][indexing_service.py]   Step 4 VECTOR STORE UPSERT FAILED: {e}")
@@ -186,7 +189,7 @@ class IndexingService:
                 logger.info("Successfully indexed in BM25")
                 print(f"[BOOTSTRAP-TRACE][indexing_service.py]   Step 5 BM25 INDEX complete: docs={len(chunks)}")
             except Exception as e:
-                error_msg = f"BM25 indexing failed: {str(e)}"
+                error_msg = f"BM25 indexing failed: {e!s}"
                 result['errors'].append(error_msg)
                 logger.error(error_msg)
                 print(f"[BOOTSTRAP-TRACE][indexing_service.py]   Step 5 BM25 INDEX FAILED: {e}")
@@ -203,14 +206,14 @@ class IndexingService:
             print(f"[BOOTSTRAP-TRACE][indexing_service.py] index_resume() END: resume_id={resume_id[:8]}, chunks={result['chunks_count']}, embeddings={result['embeddings_count']}, vector_store_success={result['vector_store_success']}, bm25_success={result['bm25_success']}")
             
         except Exception as e:
-            error_msg = f"Indexing failed: {str(e)}"
+            error_msg = f"Indexing failed: {e!s}"
             result['errors'].append(error_msg)
             logger.error(error_msg, exc_info=True)
             print(f"[BOOTSTRAP-TRACE][indexing_service.py] index_resume() FAILED: {error_msg}")
         
         return result
     
-    def index_resumes(self, file_paths: List[Union[str, Path]]) -> Dict[str, Any]:
+    def index_resumes(self, file_paths: list[str | Path]) -> dict[str, Any]:
         """
         Index multiple resume files.
         
@@ -263,7 +266,7 @@ class IndexingService:
         
         return aggregate_result
     
-    def rebuild_index(self) -> Dict[str, Any]:
+    def rebuild_index(self) -> dict[str, Any]:
         """
         Rebuild the entire index from scratch.
         
@@ -294,11 +297,20 @@ class IndexingService:
             result['bm25_cleared'] = True
             logger.info("BM25 index cleared")
             
-            # Note: Vector store clearing is not implemented here as it would
-            # require deleting all vectors from Pinecone, which is destructive.
-            # In production, you might want to implement this with caution.
-            result['vector_store_cleared'] = False
-            logger.warning("Vector store clearing not implemented (would be destructive)")
+            # Clear the vector store if a service is injected.
+            if self._vector_store_service is not None:
+                try:
+                    print("[INDEXING-TRACE] Clearing vector store collection")
+                    clear_result = self._vector_store_service.clear()
+                    result['vector_store_cleared'] = clear_result.get('success', False)
+                    logger.info(f"Vector store cleared: {clear_result}")
+                    print(f"[INDEXING-TRACE] Vector store cleared: {clear_result.get('success', False)}")
+                except Exception as e:
+                    result['errors'].append(f"Vector store clear failed: {e!s}")
+                    logger.error(f"Vector store clear failed: {e!s}")
+            else:
+                result['vector_store_cleared'] = False
+                logger.warning("No vector store service injected; skipping vector store clear")
             
             # Re-index all documents
             # Note: This requires having the original file paths stored
@@ -309,7 +321,7 @@ class IndexingService:
             logger.info("Index rebuild complete")
             
         except Exception as e:
-            error_msg = f"Rebuild failed: {str(e)}"
+            error_msg = f"Rebuild failed: {e!s}"
             result['errors'].append(error_msg)
             logger.error(error_msg, exc_info=True)
         
@@ -373,7 +385,7 @@ class IndexingService:
 
         return 0
     
-    def get_bm25_index(self) -> Optional[BM25IndexClass]:
+    def get_bm25_index(self) -> BM25IndexClass | None:
         """
         Get the BM25 index instance.
         
@@ -382,7 +394,7 @@ class IndexingService:
         """
         return self._bm25_index
     
-    def get_statistics(self) -> Dict[str, Any]:
+    def get_statistics(self) -> dict[str, Any]:
         """
         Get comprehensive indexing statistics.
         
@@ -402,15 +414,18 @@ class IndexingService:
         
         return stats
     
-    def _embedding_records_to_vector_records(self, embedding_records: List) -> List:
+    def _embedding_records_to_vector_records(self, embedding_records: list) -> list:
         """Convert EmbeddingRecord objects to VectorRecord objects."""
         from ..vector_store.schema import VectorRecord
         vector_records = []
         for record in embedding_records:
             vector_records.append(VectorRecord(
-                id=str(record.embedding_id),
+                id=str(record.chunk_id),
                 chunk_id=str(record.chunk_id),
                 section=record.section,
+                text=record.text,
+                chunk_text=record.text,
+                original_text=record.text,
                 vector=record.vector,
                 resume_metadata=record.resume_metadata
             ))

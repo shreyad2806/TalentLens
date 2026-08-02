@@ -1,17 +1,16 @@
 import time
-from typing import Dict, List, Tuple, Any
+from typing import Any
 
-from .llm import AnswerGenerator
-from .context_builder import ContextBuilder
 from .bootstrap.composition_root import create_retrieval_bundle
+from .context_builder import ContextBuilder
+from .llm import AnswerGenerator
 from .retrieval.dense.query_embedder import QueryEmbedder
-from .retrieval.hybrid.fusion_service import FusionService, FusionStrategy
 from .retrieval.dense.schema import DenseSearchResult
+from .retrieval.hybrid.fusion_service import FusionService, FusionStrategy
 from .retrieval.sparse.schema import SparseSearchResult
-from .debug_logger import StageTimer
 
 
-def _dense_result_to_dict(result: DenseSearchResult) -> Dict[str, Any]:
+def _dense_result_to_dict(result: DenseSearchResult) -> dict[str, Any]:
     """Convert DenseSearchResult to the dict format expected by FusionService."""
     return {
         "chunk_id": result.chunk_id,
@@ -26,7 +25,7 @@ def _dense_result_to_dict(result: DenseSearchResult) -> Dict[str, Any]:
     }
 
 
-def _sparse_result_to_dict(result: SparseSearchResult) -> Dict[str, Any]:
+def _sparse_result_to_dict(result: SparseSearchResult) -> dict[str, Any]:
     """Convert SparseSearchResult to the dict format expected by FusionService."""
     return {
         "chunk_id": result.chunk_id,
@@ -42,7 +41,7 @@ def _sparse_result_to_dict(result: SparseSearchResult) -> Dict[str, Any]:
     }
 
 
-def run(user_query: str, top_k: int = 5) -> Dict[str, Any]:
+def run(user_query: str, top_k: int = 5) -> dict[str, Any]:
     """
     End-to-end recruiter QA pipeline.
 
@@ -61,7 +60,7 @@ def run(user_query: str, top_k: int = 5) -> Dict[str, Any]:
             "trace": [{"step": "Input Validation", "error": "Empty query"}],
         }
 
-    trace: List[Dict[str, Any]] = []
+    trace: list[dict[str, Any]] = []
     t0_total = time.perf_counter()
 
     bundle = create_retrieval_bundle()
@@ -155,7 +154,7 @@ def run(user_query: str, top_k: int = 5) -> Dict[str, Any]:
 
 
 
-def answer(user_query: str, retrieved: Dict, top_k: int = 5) -> Dict:
+def answer(user_query: str, retrieved: dict, top_k: int = 5) -> dict:
     """
     Generate a cited, context-only answer from retrieved documents.
 

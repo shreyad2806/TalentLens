@@ -5,14 +5,13 @@ This module takes the output from the SemanticChunker and converts it into
 proper Chunk objects with unique IDs and proper metadata structure.
 """
 
-import uuid
-from typing import List
-
-from ..resume_parser.schema import ResumeDocument
-from ..models import ResumeMetadata
-from .semantic_chunker import SemanticChunker, ChunkData
-from .schema import Chunk, ChunkMetadata
 import logging
+import uuid
+
+from ..models import ResumeMetadata
+from ..resume_parser.schema import ResumeDocument
+from .schema import Chunk, ChunkMetadata
+from .semantic_chunker import ChunkData, SemanticChunker
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +34,7 @@ class ChunkGenerator:
         """
         self.semantic_chunker = SemanticChunker()
     
-    def generate_chunks(self, document: ResumeDocument, resume_id: str) -> List[Chunk]:
+    def generate_chunks(self, document: ResumeDocument, resume_id: str) -> list[Chunk]:
         """
         Generate Chunk objects from a ResumeDocument.
         

@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict
+from typing import Any
+
 from pydantic import BaseModel, Field, computed_field
 
 from .resume_metadata import ResumeMetadata
@@ -26,8 +27,8 @@ class ResumeDocument(BaseModel):
     resume_text: str = Field(..., min_length=1, description="Raw resume text")
     resume_metadata: ResumeMetadata = Field(..., description="Single canonical metadata object")
     source_dataset: str = Field(..., description="Dataset / adapter this resume came from")
-    metadata_confidence: Dict[str, float] = Field(default_factory=dict)
-    metadata_source: Dict[str, str] = Field(default_factory=dict)
+    metadata_confidence: dict[str, float] = Field(default_factory=dict)
+    metadata_source: dict[str, str] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -35,14 +36,14 @@ class ResumeDocument(BaseModel):
         "json_encoders": {datetime: lambda v: v.isoformat()},
     }
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return self.model_dump(mode="json")
 
     def to_json(self) -> str:
         return self.model_dump_json(indent=2)
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "ResumeDocument":
+    def from_dict(cls, data: dict[str, Any]) -> ResumeDocument:
         return cls.model_validate(data)
 
     @computed_field

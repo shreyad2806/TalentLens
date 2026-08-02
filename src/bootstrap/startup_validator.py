@@ -13,7 +13,7 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +48,7 @@ class StartupValidator:
     # Main entry point
     # ------------------------------------------------------------------
 
-    def validate(self) -> Dict[str, Any]:
+    def validate(self) -> dict[str, Any]:
         """
         Run the full startup validation suite.
 
@@ -154,7 +154,7 @@ class StartupValidator:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _make_result(status: str, message: str, **extra) -> Dict[str, Any]:
+    def _make_result(status: str, message: str, **extra) -> dict[str, Any]:
         return {
             "status": status,
             "message": message,
@@ -166,7 +166,7 @@ class StartupValidator:
     # Individual checks
     # ------------------------------------------------------------------
 
-    def _check_environment_variables(self) -> Dict[str, Any]:
+    def _check_environment_variables(self) -> dict[str, Any]:
         """Validate the presence of environment variables."""
         expected = [
             "VECTOR_STORE_PROVIDER",
@@ -211,10 +211,10 @@ class StartupValidator:
             provider=provider,
         )
 
-    def _check_configuration(self) -> Dict[str, Any]:
+    def _check_configuration(self) -> dict[str, Any]:
         """Validate the main configuration module loads and has sensible values."""
         try:
-            from ..config import EMBEDDING_MODEL, EMBEDDING_DIM, CATEGORIES
+            from ..config import CATEGORIES, EMBEDDING_DIM, EMBEDDING_MODEL
 
             issues = []
             if not EMBEDDING_MODEL:
@@ -245,7 +245,7 @@ class StartupValidator:
                 f"Failed to load application configuration: {exc}",
             )
 
-    def _check_dataset(self) -> Dict[str, Any]:
+    def _check_dataset(self) -> dict[str, Any]:
         """Validate that at least one resume data source is available."""
         from .resume_loader import ResumeLoader
 
@@ -284,7 +284,7 @@ class StartupValidator:
                 f"Dataset check failed: {exc}",
             )
 
-    def _check_resume_document_model(self) -> Dict[str, Any]:
+    def _check_resume_document_model(self) -> dict[str, Any]:
         """Validate that the ResumeDocument model is importable and can validate a sample."""
         try:
             from ..models import ResumeDocument
@@ -322,7 +322,7 @@ class StartupValidator:
                 f"ResumeDocument model could not be loaded: {exc}",
             )
 
-    def _check_chunk_cache(self) -> Dict[str, Any]:
+    def _check_chunk_cache(self) -> dict[str, Any]:
         """Validate chunk cache presence (optional for cold starts)."""
         cache_dir = Path("data/cache")
         indexed_docs_cache = cache_dir / "indexed_documents.json"
@@ -350,7 +350,7 @@ class StartupValidator:
             cache_file_count=len(cache_files),
         )
 
-    def _check_embedding_model(self) -> Dict[str, Any]:
+    def _check_embedding_model(self) -> dict[str, Any]:
         """Validate that the embedding model loader is reachable."""
         try:
             from ..embeddings.model_loader import get_model_loader
@@ -377,7 +377,7 @@ class StartupValidator:
                 f"Embedding model check failed: {exc}",
             )
 
-    def _check_vector_store(self) -> Dict[str, Any]:
+    def _check_vector_store(self) -> dict[str, Any]:
         """Validate the configured vector store service."""
         try:
             from ..vector_store import VectorStoreService
@@ -424,7 +424,7 @@ class StartupValidator:
                 f"Vector store service could not be initialized: {exc}",
             )
 
-    def _check_documents_indexed(self, stats: Dict[str, Any]) -> Dict[str, Any]:
+    def _check_documents_indexed(self, stats: dict[str, Any]) -> dict[str, Any]:
         """Check that documents are indexed."""
         doc_count = stats.get("indexed_documents", 0)
         if doc_count == 0:
@@ -439,7 +439,7 @@ class StartupValidator:
             count=doc_count,
         )
 
-    def _check_vectors_indexed(self, stats: Dict[str, Any]) -> Dict[str, Any]:
+    def _check_vectors_indexed(self, stats: dict[str, Any]) -> dict[str, Any]:
         """Check that vectors are indexed."""
         vector_count = stats.get("vector_count", 0)
         if vector_count == 0:
@@ -454,7 +454,7 @@ class StartupValidator:
             count=vector_count,
         )
 
-    def _check_bm25_indexed(self, stats: Dict[str, Any]) -> Dict[str, Any]:
+    def _check_bm25_indexed(self, stats: dict[str, Any]) -> dict[str, Any]:
         """Check that BM25 documents are indexed."""
         bm25_count = stats.get("bm25_count", 0)
         if bm25_count == 0:
@@ -469,7 +469,7 @@ class StartupValidator:
             count=bm25_count,
         )
 
-    def _check_services_healthy(self) -> Dict[str, Any]:
+    def _check_services_healthy(self) -> dict[str, Any]:
         """Check that the indexing service is available."""
         try:
             if self.indexing_pipeline.indexing_service is None:
@@ -487,7 +487,7 @@ class StartupValidator:
                 f"Indexing service check failed: {exc}",
             )
 
-    def _check_search_service(self) -> Dict[str, Any]:
+    def _check_search_service(self) -> dict[str, Any]:
         """Validate SearchService can respond without crashing."""
         try:
             from ..search import SearchService
@@ -504,7 +504,7 @@ class StartupValidator:
                 f"SearchService check failed: {exc}",
             )
 
-    def _check_hybrid_retriever(self) -> Dict[str, Any]:
+    def _check_hybrid_retriever(self) -> dict[str, Any]:
         """Validate the hybrid retriever can respond without crashing."""
         try:
             from ..bootstrap.composition_root import create_retrieval_bundle
@@ -529,7 +529,7 @@ class StartupValidator:
                 f"Hybrid retriever check failed: {exc}",
             )
 
-    def _check_consistency(self, stats: Dict[str, Any]) -> Dict[str, Any]:
+    def _check_consistency(self, stats: dict[str, Any]) -> dict[str, Any]:
         """Check consistency between document, vector, and BM25 counts."""
         doc_count = stats.get("indexed_documents", 0)
         vector_count = stats.get("vector_count", 0)

@@ -20,7 +20,7 @@ import json
 import logging
 import time
 from collections import OrderedDict
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from .schema import FilterResult, MetadataFilter, ParseResult
 
@@ -39,11 +39,11 @@ class _LRUCache:
         self.max_size = max_size
         self.ttl = ttl
         self.name = name
-        self._store: OrderedDict[str, Dict[str, Any]] = OrderedDict()
+        self._store: OrderedDict[str, dict[str, Any]] = OrderedDict()
         self.hits = 0
         self.misses = 0
 
-    def get(self, key: str) -> Optional[Any]:
+    def get(self, key: str) -> Any | None:
         if key not in self._store:
             self.misses += 1
             return None
@@ -71,7 +71,7 @@ class _LRUCache:
         self.hits = 0
         self.misses = 0
 
-    def stats(self) -> Dict[str, Any]:
+    def stats(self) -> dict[str, Any]:
         total = self.hits + self.misses
         return {
             "size": len(self._store),
@@ -97,10 +97,10 @@ class MetadataFilterCache:
         self,
         max_size: int = 1000,
         ttl: int = 3600,
-        parse_max_size: Optional[int] = None,
-        parse_ttl: Optional[int] = None,
-        result_max_size: Optional[int] = None,
-        result_ttl: Optional[int] = None,
+        parse_max_size: int | None = None,
+        parse_ttl: int | None = None,
+        result_max_size: int | None = None,
+        result_ttl: int | None = None,
     ) -> None:
         self.parse_cache = _LRUCache(
             max_size=parse_max_size or max_size,
@@ -129,12 +129,12 @@ class MetadataFilterCache:
         return hashlib.sha256(serialized.encode()).hexdigest()[:16]
 
     @staticmethod
-    def _candidate_pool_hash(candidate_ids: List[str]) -> str:
+    def _candidate_pool_hash(candidate_ids: list[str]) -> str:
         sorted_ids = sorted(candidate_ids)
         serialized = json.dumps(sorted_ids)
         return hashlib.sha256(serialized.encode()).hexdigest()[:16]
 
-    def get_parsed_filter(self, query: str) -> Optional[ParseResult]:
+    def get_parsed_filter(self, query: str) -> ParseResult | None:
         """
         Retrieve cached parse result for a recruiter query.
 
@@ -165,8 +165,8 @@ class MetadataFilterCache:
     def get_filter_result(
         self,
         filters: MetadataFilter,
-        candidate_ids: List[str],
-    ) -> Optional[FilterResult]:
+        candidate_ids: list[str],
+    ) -> FilterResult | None:
         """
         Retrieve cached filter result.
 
@@ -190,7 +190,7 @@ class MetadataFilterCache:
     def put_filter_result(
         self,
         filters: MetadataFilter,
-        candidate_ids: List[str],
+        candidate_ids: list[str],
         result: FilterResult,
     ) -> None:
         """
@@ -211,7 +211,7 @@ class MetadataFilterCache:
         self.result_cache.clear()
         logger.info("MetadataFilterCache cleared")
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Return combined cache statistics."""
         return {
             "parse_cache": self.parse_cache.stats(),

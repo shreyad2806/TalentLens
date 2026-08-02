@@ -9,12 +9,11 @@ The cache uses a simple dictionary-based approach with text as the key and
 the embedding vector as the value.
 """
 
-from typing import List, Optional
-from threading import Lock
 import hashlib
 import json
 import os
 from pathlib import Path
+from threading import Lock
 
 
 def _default_cache_path() -> Path:
@@ -35,7 +34,7 @@ class EmbeddingCache:
     - Reducing computational costs
     """
     
-    def __init__(self, cache_path: Optional[Path] = None):
+    def __init__(self, cache_path: Path | None = None):
         """
         Initialize the embedding cache and load any persisted entries.
         """
@@ -64,9 +63,8 @@ class EmbeddingCache:
         if not self.cache_path or not self._dirty:
             return
         self.cache_path.parent.mkdir(parents=True, exist_ok=True)
-        with self._lock:
-            with open(self.cache_path, "w", encoding="utf-8") as f:
-                json.dump(self._cache, f)
+        with self._lock, open(self.cache_path, "w", encoding="utf-8") as f:
+            json.dump(self._cache, f)
         self._dirty = False
     
     def _generate_key(self, text: str) -> str:
@@ -83,7 +81,7 @@ class EmbeddingCache:
         """
         return hashlib.sha256(text.encode('utf-8')).hexdigest()
     
-    def get(self, text: str) -> Optional[List[float]]:
+    def get(self, text: str) -> list[float] | None:
         """
         Get cached embedding for the given text.
         
@@ -103,7 +101,7 @@ class EmbeddingCache:
                 self._misses += 1
                 return None
     
-    def set(self, text: str, embedding: List[float]) -> None:
+    def set(self, text: str, embedding: list[float]) -> None:
         """
         Cache an embedding for the given text.
         
@@ -171,7 +169,7 @@ class EmbeddingCache:
 
 
 # Global singleton cache instance
-_embedding_cache: Optional[EmbeddingCache] = None
+_embedding_cache: EmbeddingCache | None = None
 _embedding_cache_lock: Lock = Lock()
 
 

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import List
-
 from src.models import Education, ResumeDocument
 
 from .degree_normalizer import DegreeNormalizer
@@ -24,7 +22,7 @@ class MetadataNormalizer:
 
     @classmethod
     def normalize(cls, doc: ResumeDocument) -> ResumeDocument:
-        normalized_education: List[Education] = []
+        normalized_education: list[Education] = []
         for edu in doc.education:
             normalized_education.append(
                 Education(
@@ -46,5 +44,5 @@ class MetadataNormalizer:
         )
 
     @classmethod
-    def normalize_all(cls, docs: List[ResumeDocument]) -> List[ResumeDocument]:
+    def normalize_all(cls, docs: list[ResumeDocument]) -> list[ResumeDocument]:
         return [cls.normalize(doc) for doc in docs]

@@ -34,12 +34,11 @@ SOLID Principles Applied:
 """
 
 import logging
-import time
 import threading
-from typing import Optional, Dict, Any, Tuple
+import time
 from collections import OrderedDict
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -129,7 +128,7 @@ class RerankCache:
         """
         self.max_size = max_size
         self.ttl_seconds = ttl_seconds
-        self._cache: OrderedDict[Tuple[str, str], CacheEntry] = OrderedDict()
+        self._cache: OrderedDict[tuple[str, str], CacheEntry] = OrderedDict()
         self._lock = threading.Lock()
         self._hits = 0
         self._misses = 0
@@ -139,7 +138,7 @@ class RerankCache:
             f"ttl={ttl_seconds}s"
         )
     
-    def _make_key(self, query: str, chunk_id: str) -> Tuple[str, str]:
+    def _make_key(self, query: str, chunk_id: str) -> tuple[str, str]:
         """
         Create a cache key from query and chunk_id.
         
@@ -155,7 +154,7 @@ class RerankCache:
         """
         return (query, chunk_id)
     
-    def get(self, query: str, chunk_id: str) -> Optional[float]:
+    def get(self, query: str, chunk_id: str) -> float | None:
         """
         Get a rerank score from the cache.
         
@@ -275,7 +274,7 @@ class RerankCache:
             
             return len(expired_keys)
     
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """
         Get cache statistics.
         

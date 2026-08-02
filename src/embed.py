@@ -1,10 +1,10 @@
+import json
+import os
+from pathlib import Path
+
+import numpy as np
 import streamlit as st
 from sentence_transformers import SentenceTransformer
-from typing import List
-import os
-import json
-from pathlib import Path
-import numpy as np
 
 
 @st.cache_resource
@@ -21,7 +21,7 @@ def _clean_text(text: str, max_len: int = 500) -> str:
 
 
 @st.cache_data(show_spinner=False)
-def embed_texts(texts: List[str]) -> List[List[float]]:
+def embed_texts(texts: list[str]) -> list[list[float]]:
     """Embed a list of texts and cache the result. Texts should be pre-cleaned.
 
     Returns list of embedding vectors as native Python lists to be JSON-serializable.
@@ -34,7 +34,7 @@ def embed_texts(texts: List[str]) -> List[List[float]]:
 
 
 @st.cache_data(show_spinner=False)
-def embed_text(text: str) -> List[float]:
+def embed_text(text: str) -> list[float]:
     """Embed single text and cache the embedding for repeated queries."""
     model = load_embedding_model()
     cleaned = _clean_text(text)
@@ -43,7 +43,7 @@ def embed_text(text: str) -> List[float]:
 
 
 @st.cache_data(show_spinner=False)
-def load_and_embed_resumes(resume_texts: List[str]) -> List[List[float]]:
+def load_and_embed_resumes(resume_texts: list[str]) -> list[list[float]]:
     """Convenience to embed many resumes once and cache the embeddings."""
     return embed_texts(resume_texts)
 

@@ -18,9 +18,11 @@ SOLID Principles Applied:
 """
 
 import logging
-from typing import List, Dict, Any, Optional
-from .schema import DenseSearchResult, AggregatedCandidateResult
+from typing import Any
+
 from src.config import EMBEDDING_DIM
+
+from .schema import AggregatedCandidateResult, DenseSearchResult
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +30,7 @@ logger = logging.getLogger(__name__)
 class ValidationError(Exception):
     """Custom exception for validation errors."""
     
-    def __init__(self, message: str, field: Optional[str] = None):
+    def __init__(self, message: str, field: str | None = None):
         """
         Initialize validation error.
         
@@ -63,7 +65,7 @@ class RetrievalValidator:
     - Scores: Valid range (0.0 - 1.0)
     """
     
-    def __init__(self, vector_dimension: Optional[int] = None):
+    def __init__(self, vector_dimension: int | None = None):
         """
         Initialize the validator.
         
@@ -96,7 +98,7 @@ class RetrievalValidator:
         
         logger.debug(f"Query validation passed: {query[:50]}...")
     
-    def validate_vector(self, vector: List[float]) -> None:
+    def validate_vector(self, vector: list[float]) -> None:
         """
         Validate vector.
         
@@ -132,7 +134,7 @@ class RetrievalValidator:
         
         logger.debug(f"Vector validation passed: dimension={len(vector)}")
     
-    def validate_search_results(self, results: List[DenseSearchResult]) -> None:
+    def validate_search_results(self, results: list[DenseSearchResult]) -> None:
         """
         Validate search results.
         
@@ -216,7 +218,7 @@ class RetrievalValidator:
                 field="rank"
             )
     
-    def validate_aggregated_candidates(self, candidates: List[AggregatedCandidateResult]) -> None:
+    def validate_aggregated_candidates(self, candidates: list[AggregatedCandidateResult]) -> None:
         """
         Validate aggregated candidate results.
         
@@ -287,7 +289,7 @@ class RetrievalValidator:
                     field="section_scores"
                 )
     
-    def validate_filters(self, filters: Optional[Dict[str, Any]]) -> None:
+    def validate_filters(self, filters: dict[str, Any] | None) -> None:
         """
         Validate search filters.
         

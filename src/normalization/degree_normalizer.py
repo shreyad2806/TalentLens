@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-from typing import Optional
 
 
 class DegreeNormalizer:
@@ -42,7 +41,7 @@ class DegreeNormalizer:
     ]
 
     @classmethod
-    def normalize(cls, degree: Optional[str]) -> Optional[str]:
+    def normalize(cls, degree: str | None) -> str | None:
         if not degree:
             return None
         value = degree.strip()

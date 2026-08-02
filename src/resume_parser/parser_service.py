@@ -5,15 +5,13 @@ This module provides the main ParserService class that orchestrates the entire
 parsing pipeline: text extraction, section detection, and metadata extraction.
 """
 
-from typing import Union, Optional
 from pathlib import Path
-from datetime import datetime
 
 from .extractor import TextExtractor
-from .section_parser import SectionParser
 from .metadata_parser import MetadataParser
 from .quality_extractor import QualityMetadataExtractor
 from .schema import ResumeDocument
+from .section_parser import SectionParser
 
 
 class ParserService:
@@ -39,7 +37,7 @@ class ParserService:
         self.metadata_parser = MetadataParser()
         self.quality_extractor = QualityMetadataExtractor()
     
-    def parse_file(self, file_path: Union[str, Path]) -> ResumeDocument:
+    def parse_file(self, file_path: str | Path) -> ResumeDocument:
         """
         Parse a resume from a file path.
         

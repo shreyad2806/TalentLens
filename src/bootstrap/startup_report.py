@@ -8,6 +8,8 @@ generating and printing startup statistics and validation results.
 import logging
 from typing import Dict, Any, Optional
 
+from .bootstrap_status import BootstrapStatus
+
 logger = logging.getLogger(__name__)
 
 
@@ -62,30 +64,30 @@ class StartupReport:
                 print(f"   Total Embeddings: {indexing.get('total_embeddings', 0)}")
         
         # Print final statistics
-        if validation_result:
-            stats = validation_result.get('statistics', {})
-            print("\n📊 Final Statistics:")
-            print(f"   Indexed Documents: {stats.get('indexed_documents', 0)}")
-            print(f"   Vector Count: {stats.get('vector_count', 0)}")
-            print(f"   BM25 Count: {stats.get('bm25_count', 0)}")
-            
-            # Add BM25 diagnostics from the already-computed statistics
-            try:
-                bm25_stats = stats.get('bm25_stats')
-                if bm25_stats:
-                    if hasattr(bm25_stats, 'num_documents'):
-                        bm25_docs = bm25_stats.num_documents
-                        bm25_vocab = bm25_stats.vocabulary_size
-                        bm25_avg = bm25_stats.average_document_length
-                    else:
-                        bm25_docs = bm25_stats.get('num_documents', 0)
-                        bm25_vocab = bm25_stats.get('vocabulary_size', len(bm25_stats.get('vocabulary', set())))
-                        bm25_avg = bm25_stats.get('avg_doc_length', bm25_stats.get('average_document_length', 0.0))
-                    print(f"   BM25 loaded documents: {bm25_docs}")
-                    print(f"   BM25 vocabulary size: {bm25_vocab}")
-                    print(f"   BM25 avg doc length: {bm25_avg:.2f}")
-            except Exception as e:
-                print(f"   BM25 diagnostics unavailable: {e}")
+        validation_result = validation_result or {}
+        stats = validation_result.get('statistics', {})
+        print("\n📊 Final Statistics:")
+        print(f"   Indexed Documents: {stats.get('indexed_documents', 0)}")
+        print(f"   Vector Count: {stats.get('vector_count', 0)}")
+        print(f"   BM25 Count: {stats.get('bm25_count', 0)}")
+        
+        # Add BM25 diagnostics from the already-computed statistics
+        try:
+            bm25_stats = stats.get('bm25_stats')
+            if bm25_stats:
+                if hasattr(bm25_stats, 'num_documents'):
+                    bm25_docs = bm25_stats.num_documents
+                    bm25_vocab = bm25_stats.vocabulary_size
+                    bm25_avg = bm25_stats.average_document_length
+                else:
+                    bm25_docs = bm25_stats.get('num_documents', 0)
+                    bm25_vocab = bm25_stats.get('vocabulary_size', len(bm25_stats.get('vocabulary', set())))
+                    bm25_avg = bm25_stats.get('avg_doc_length', bm25_stats.get('average_document_length', 0.0))
+                print(f"   BM25 loaded documents: {bm25_docs}")
+                print(f"   BM25 vocabulary size: {bm25_vocab}")
+                print(f"   BM25 avg doc length: {bm25_avg:.2f}")
+        except Exception as e:
+            print(f"   BM25 diagnostics unavailable: {e}")
         
         # Print embedding model info
         print("\n🤖 Embedding Model:")
@@ -104,6 +106,7 @@ class StartupReport:
         print(f"\n⏱️  Total Workflow Time: {workflow_time:.2f}s")
         
         # Print validation result
+        validation_result = validation_result or {}
         if validation_result:
             is_valid = validation_result.get('is_valid', False)
             print(f"\n✅ Validation: {'PASSED' if is_valid else 'FAILED'}")
@@ -117,14 +120,18 @@ class StartupReport:
         
         # Print final status
         print("\n" + "="*70)
-        if bootstrap_result.get('success', False):
-            print("🚀 Bootstrap Complete")
+        success = bootstrap_result.get('success', False)
+        status = bootstrap_result.get('status', BootstrapStatus.FAILED)
+        status_label = status.value if isinstance(status, BootstrapStatus) else str(status)
+        
+        if success:
+            print(f"🚀 Bootstrap Complete — Status: {status_label}")
             print(f"Indexed Documents: {validation_result.get('statistics', {}).get('indexed_documents', 0)}")
             print(f"Vectors: {validation_result.get('statistics', {}).get('vector_count', 0)}")
             print(f"BM25 Docs: {validation_result.get('statistics', {}).get('bm25_count', 0)}")
             print("System Ready")
         else:
-            print("❌ Bootstrap Failed")
+            print(f"❌ Bootstrap Failed — Status: {status_label}")
             reason = bootstrap_result.get('reason', 'Unknown')
             print(f"Reason: {reason}")
         print("="*70 + "\n")

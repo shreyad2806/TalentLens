@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-from typing import Optional, Union
 
 
 class ExperienceNormalizer:
@@ -24,7 +23,7 @@ class ExperienceNormalizer:
     ]
 
     @classmethod
-    def normalize(cls, value: Optional[Union[str, int, float]]) -> Optional[float]:
+    def normalize(cls, value: str | float | None) -> float | None:
         if value is None:
             return None
         if isinstance(value, (int, float)) and not isinstance(value, bool):

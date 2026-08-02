@@ -17,7 +17,6 @@ SOLID Principles Applied:
 """
 
 import logging
-from typing import Optional
 
 from .rrf import ReciprocalRankFusion
 
@@ -53,8 +52,8 @@ class RRFScorer:
     
     def calculate_score(
         self,
-        dense_rank: Optional[int],
-        sparse_rank: Optional[int]
+        dense_rank: int | None,
+        sparse_rank: int | None
     ) -> float:
         """
         Calculate RRF score for a document.

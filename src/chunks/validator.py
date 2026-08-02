@@ -5,7 +5,7 @@ This module implements validation logic for Chunk objects to ensure data quality
 before they are used for embedding or retrieval.
 """
 
-from typing import List, Set, Optional
+
 from .schema import Chunk
 
 
@@ -38,7 +38,7 @@ class ChunkValidator:
     # Default maximum chunk length (characters)
     DEFAULT_MAX_CHUNK_LENGTH = 5000
     
-    def __init__(self, max_chunk_length: Optional[int] = None):
+    def __init__(self, max_chunk_length: int | None = None):
         """
         Initialize the ChunkValidator.
         
@@ -48,7 +48,7 @@ class ChunkValidator:
         """
         self.max_chunk_length = max_chunk_length or self.DEFAULT_MAX_CHUNK_LENGTH
     
-    def validate_chunks(self, chunks: List[Chunk]) -> List[Chunk]:
+    def validate_chunks(self, chunks: list[Chunk]) -> list[Chunk]:
         """
         Validate a list of chunks and return only valid chunks.
         
@@ -86,7 +86,7 @@ class ChunkValidator:
         
         return valid_chunks
     
-    def _filter_duplicate_ids(self, chunks: List[Chunk]) -> List[Chunk]:
+    def _filter_duplicate_ids(self, chunks: list[Chunk]) -> list[Chunk]:
         """
         Remove chunks with duplicate chunk IDs.
         
@@ -96,7 +96,7 @@ class ChunkValidator:
         Returns:
             List of chunks with unique IDs
         """
-        seen_ids: Set[str] = set()
+        seen_ids: set[str] = set()
         unique_chunks = []
         
         for chunk in chunks:
@@ -106,7 +106,7 @@ class ChunkValidator:
         
         return unique_chunks
     
-    def _filter_duplicate_text(self, chunks: List[Chunk]) -> List[Chunk]:
+    def _filter_duplicate_text(self, chunks: list[Chunk]) -> list[Chunk]:
         """
         Remove chunks with duplicate text content.
         
@@ -116,7 +116,7 @@ class ChunkValidator:
         Returns:
             List of chunks with unique text
         """
-        seen_texts: Set[str] = set()
+        seen_texts: set[str] = set()
         unique_chunks = []
         
         for chunk in chunks:
@@ -127,7 +127,7 @@ class ChunkValidator:
         
         return unique_chunks
     
-    def _filter_empty_chunks(self, chunks: List[Chunk]) -> List[Chunk]:
+    def _filter_empty_chunks(self, chunks: list[Chunk]) -> list[Chunk]:
         """
         Remove chunks with empty or whitespace-only text.
         
@@ -139,7 +139,7 @@ class ChunkValidator:
         """
         return [chunk for chunk in chunks if chunk.text and chunk.text.strip()]
     
-    def _filter_empty_metadata(self, chunks: List[Chunk]) -> List[Chunk]:
+    def _filter_empty_metadata(self, chunks: list[Chunk]) -> list[Chunk]:
         """
         Remove chunks with empty metadata.
         
@@ -151,7 +151,7 @@ class ChunkValidator:
         """
         return [chunk for chunk in chunks if chunk.metadata is not None]
     
-    def _filter_invalid_sections(self, chunks: List[Chunk]) -> List[Chunk]:
+    def _filter_invalid_sections(self, chunks: list[Chunk]) -> list[Chunk]:
         """
         Remove chunks with invalid section names.
         
@@ -163,7 +163,7 @@ class ChunkValidator:
         """
         return [chunk for chunk in chunks if chunk.section in self.VALID_SECTIONS]
     
-    def _filter_oversized_chunks(self, chunks: List[Chunk]) -> List[Chunk]:
+    def _filter_oversized_chunks(self, chunks: list[Chunk]) -> list[Chunk]:
         """
         Remove chunks that exceed the maximum length.
         
@@ -175,7 +175,7 @@ class ChunkValidator:
         """
         return [chunk for chunk in chunks if len(chunk.text) <= self.max_chunk_length]
     
-    def get_validation_stats(self, chunks: List[Chunk], valid_chunks: List[Chunk]) -> dict:
+    def get_validation_stats(self, chunks: list[Chunk], valid_chunks: list[Chunk]) -> dict:
         """
         Get statistics about the validation process.
         

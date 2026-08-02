@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from typing import List, Optional
 from pydantic import BaseModel, Field
 
 
@@ -20,17 +19,18 @@ class ResumeMetadata(BaseModel):
     """
 
     resume_id: str = Field(..., description="Stable resume identifier")
-    candidate_name: Optional[str] = Field(None, description="Candidate full name")
-    role: Optional[str] = Field(None, description="Current or primary role")
-    skills: List[str] = Field(default_factory=list, description="List of skills")
-    location: Optional[str] = Field(None, description="Geographic location")
-    experience_years: Optional[float] = Field(None, ge=0, le=60, description="Total years of experience")
-    education: List[str] = Field(default_factory=list, description="Education entries")
-    projects: List[str] = Field(default_factory=list, description="Project names")
-    certifications: List[str] = Field(default_factory=list, description="Certification names")
-    email: Optional[str] = Field(None, description="Email address")
-    phone: Optional[str] = Field(None, description="Phone number")
-    summary: Optional[str] = Field(None, description="Professional summary")
+    candidate_name: str | None = Field(None, description="Candidate full name")
+    role: str | None = Field(None, description="Current or primary role")
+    skills: list[str] = Field(default_factory=list, description="List of skills")
+    location: str | None = Field(None, description="Geographic location")
+    experience_years: float | None = Field(None, ge=0, le=60, description="Total years of experience")
+    education: list[str] = Field(default_factory=list, description="Education entries")
+    projects: list[str] = Field(default_factory=list, description="Project names")
+    certifications: list[str] = Field(default_factory=list, description="Certification names")
+    email: str | None = Field(None, description="Email address")
+    phone: str | None = Field(None, description="Phone number")
+    linkedin: str | None = Field(None, description="LinkedIn profile URL")
+    summary: str | None = Field(None, description="Professional summary")
 
     model_config = {"extra": "ignore"}
 

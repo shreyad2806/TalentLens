@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -14,7 +14,7 @@ from src.models import ResumeDocument, ResumeMetadata
 from .base_adapter import BaseDatasetAdapter
 
 
-def _coerce_list(value: Any) -> List[Any]:
+def _coerce_list(value: Any) -> list[Any]:
     """Ensure a value is a proper Python list."""
     if value is None:
         return []
@@ -42,14 +42,14 @@ class SyntheticAdapter(BaseDatasetAdapter):
 
     source_name = "synthetic"
 
-    def __init__(self, source_path: Optional[str] = None) -> None:
+    def __init__(self, source_path: str | None = None) -> None:
         project_root = Path(__file__).resolve().parents[2]
         default = project_root / "data" / "structured" / "default_resumes.parquet"
         if not default.exists():
             default = project_root / "data" / "structured" / "default_resumes.csv"
         super().__init__(source_path or str(default))
 
-    def load(self) -> List[Dict[str, Any]]:
+    def load(self) -> list[dict[str, Any]]:
         path = Path(self.source_path)
         if path.suffix.lower() == ".parquet":
             df = pd.read_parquet(path)
@@ -62,10 +62,10 @@ class SyntheticAdapter(BaseDatasetAdapter):
 
         return df.to_dict(orient="records")
 
-    def validate(self, record: Dict[str, Any]) -> bool:
+    def validate(self, record: dict[str, Any]) -> bool:
         return bool(record.get("resume_id")) and bool(record.get("summary", "").strip())
 
-    def convert(self, record: Dict[str, Any]) -> ResumeDocument:
+    def convert(self, record: dict[str, Any]) -> ResumeDocument:
         resume_id = str(record["resume_id"])
         skills = _coerce_list(record.get("skills"))
         bullets = _coerce_list(record.get("experience_bullets"))

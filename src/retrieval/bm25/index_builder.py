@@ -6,14 +6,13 @@ BM25Document objects and builds a BM25 index with proper tokenization,
 normalization, and stop word removal.
 """
 
+import logging
 import re
 import uuid
-from typing import List, Optional
-import logging
 
 from ...chunks.schema import Chunk
-from .schema import BM25Document
 from .bm25_index import BM25Index
+from .schema import BM25Document
 from .validator import BM25Validator
 
 logger = logging.getLogger(__name__)
@@ -31,32 +30,26 @@ class IndexBuilder:
     STOP_WORDS = {
         'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'for', 'from',
         'has', 'he', 'in', 'is', 'it', 'its', 'of', 'on', 'that', 'the',
-        'to', 'was', 'were', 'will', 'with', 'the', 'this', 'but', 'they',
+        'to', 'was', 'were', 'will', 'with', 'this', 'but', 'they',
         'have', 'had', 'what', 'when', 'where', 'who', 'which', 'why', 'how',
         'all', 'each', 'every', 'both', 'few', 'more', 'most', 'other',
         'some', 'such', 'no', 'nor', 'not', 'only', 'own', 'same', 'so',
-        'than', 'too', 'very', 'can', 'will', 'just', 'should', 'now',
+        'than', 'too', 'very', 'can', 'just', 'should', 'now',
         'i', 'me', 'my', 'myself', 'we', 'our', 'ours', 'ourselves',
         'you', 'your', 'yours', 'yourself', 'yourselves', 'him', 'his',
-        'himself', 'she', 'her', 'hers', 'herself', 'it', 'its', 'itself',
-        'they', 'them', 'their', 'theirs', 'themselves', 'what', 'which',
-        'who', 'whom', 'this', 'that', 'these', 'those', 'am', 'is', 'are',
-        'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'having',
-        'do', 'does', 'did', 'doing', 'would', 'should', 'could', 'ought',
-        'im', 'youre', 'hes', 'shes', 'its', 'were', 'theyre', 'ive', 'youve',
+        'himself', 'she', 'her', 'hers', 'herself', 'itself',
+        'them', 'their', 'theirs', 'themselves', 'whom', 'these', 'those', 'am', 'been', 'being', 'having',
+        'do', 'does', 'did', 'doing', 'would', 'could', 'ought',
+        'im', 'youre', 'hes', 'shes', 'theyre', 'ive', 'youve',
         'weve', 'theyve', 'id', 'youd', 'hed', 'shed', 'wed', 'theyd',
         'ill', 'youll', 'hell', 'shell', 'well', 'theyll', 'isnt', 'arent',
         'wasnt', 'werent', 'hasnt', 'havent', 'hadnt', 'doesnt', 'dont',
         'didnt', 'wont', 'wouldnt', 'shant', 'shouldnt', 'cant', 'cannot',
         'couldnt', 'mustnt', 'lets', 'thats', 'whos', 'whats', 'heres',
-        'theres', 'whens', 'wheres', 'whys', 'hows', 'a', 'an', 'the', 'and',
-        'but', 'if', 'or', 'because', 'as', 'until', 'while', 'of', 'at',
-        'by', 'for', 'with', 'about', 'against', 'between', 'into', 'through',
-        'during', 'before', 'after', 'above', 'below', 'to', 'from', 'up',
-        'down', 'in', 'out', 'on', 'off', 'over', 'under', 'again', 'further',
-        'then', 'once', 'here', 'there', 'when', 'where', 'why', 'how', 'all',
-        'any', 'both', 'each', 'few', 'more', 'most', 'other', 'some', 'such',
-        'no', 'nor', 'not', 'only', 'own', 'same', 'so', 'than', 'too', 'very'
+        'theres', 'whens', 'wheres', 'whys', 'hows', 'if', 'or', 'because', 'until', 'while', 'about', 'against', 'between', 'into', 'through',
+        'during', 'before', 'after', 'above', 'below', 'up',
+        'down', 'out', 'off', 'over', 'under', 'again', 'further',
+        'then', 'once', 'here', 'there', 'any'
     }
     
     def __init__(self, k1: float = 1.5, b: float = 0.75, remove_stop_words: bool = True):
@@ -75,7 +68,7 @@ class IndexBuilder:
         
         logger.info(f"IndexBuilder initialized with k1={k1}, b={b}, remove_stop_words={remove_stop_words}")
     
-    def tokenize(self, text: str) -> List[str]:
+    def tokenize(self, text: str) -> list[str]:
         """
         Tokenize text into individual tokens.
         
@@ -96,7 +89,7 @@ class IndexBuilder:
         
         return tokens
     
-    def normalize(self, tokens: List[str]) -> List[str]:
+    def normalize(self, tokens: list[str]) -> list[str]:
         """
         Normalize tokens by removing stop words and applying stemming.
         
@@ -154,8 +147,9 @@ class IndexBuilder:
         Returns:
             Tuple of (BM25Document, normalized_tokens)
         """
-        # Generate document ID
-        document_id = str(uuid.uuid4())
+        # Use the canonical chunk_id as the document ID so BM25 and Qdrant
+        # share the same primary key and matched chunks can be reconciled.
+        document_id = str(chunk.chunk_id)
         
         # Tokenize and normalize the text
         tokens = self.tokenize(chunk.text)
@@ -189,7 +183,7 @@ class IndexBuilder:
         
         return document, normalized_tokens
     
-    def build_index(self, chunks: List[Chunk]) -> BM25Index:
+    def build_index(self, chunks: list[Chunk]) -> BM25Index:
         """
         Build a BM25 index from a list of Chunk objects.
         
@@ -221,12 +215,12 @@ class IndexBuilder:
                 )
                 documents_added += 1
             except Exception as e:
-                logger.error(f"Failed to index chunk {chunk.chunk_id}: {str(e)}")
+                logger.error(f"Failed to index chunk {chunk.chunk_id}: {e!s}")
         
         # Get index statistics
         stats = index.get_statistics()
         
-        logger.info(f"BM25 index built successfully:")
+        logger.info("BM25 index built successfully:")
         logger.info(f"  Documents indexed: {documents_added}")
         logger.info(f"  Vocabulary size: {stats['vocabulary_size']}")
         logger.info(f"  Average document length: {stats['avg_doc_length']:.2f}")
@@ -234,7 +228,7 @@ class IndexBuilder:
         
         return index
     
-    def build_index_from_documents(self, documents: List[BM25Document]) -> BM25Index:
+    def build_index_from_documents(self, documents: list[BM25Document]) -> BM25Index:
         """
         Build a BM25 index from a list of BM25Document objects.
         
@@ -269,12 +263,12 @@ class IndexBuilder:
                 )
                 documents_added += 1
             except Exception as e:
-                logger.error(f"Failed to index document {document.document_id}: {str(e)}")
+                logger.error(f"Failed to index document {document.document_id}: {e!s}")
         
         # Get index statistics
         stats = index.get_statistics()
         
-        logger.info(f"BM25 index built successfully:")
+        logger.info("BM25 index built successfully:")
         logger.info(f"  Documents indexed: {documents_added}")
         logger.info(f"  Vocabulary size: {stats['vocabulary_size']}")
         logger.info(f"  Average document length: {stats['avg_doc_length']:.2f}")

@@ -5,7 +5,7 @@ from __future__ import annotations
 import csv
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from src.models import ResumeDocument, ResumeMetadata
 from src.resume_parser.parser_service import ParserService
@@ -24,16 +24,16 @@ class KaggleAdapter(BaseDatasetAdapter):
 
     source_name = "kaggle"
 
-    def __init__(self, source_path: Optional[str] = None) -> None:
+    def __init__(self, source_path: str | None = None) -> None:
         default = Path(__file__).resolve().parents[2] / "Resume" / "Resume.csv"
         super().__init__(source_path or str(default))
 
-    def load(self) -> List[Dict[str, Any]]:
+    def load(self) -> list[dict[str, Any]]:
         with open(self.source_path, "r", encoding="utf-8", errors="replace") as f:
             reader = csv.DictReader(f)
             return list(reader)
 
-    def validate(self, record: Dict[str, Any]) -> bool:
+    def validate(self, record: dict[str, Any]) -> bool:
         """Require an ID and non-empty resume text."""
         if not record.get("ID"):
             return False
@@ -47,13 +47,13 @@ class KaggleAdapter(BaseDatasetAdapter):
         """Convert HTML resume content to plain text when Resume_str is empty."""
         if not html:
             return ""
-        text = re.sub(r"<script.*?</script>", " ", html, flags=re.S | re.I)
-        text = re.sub(r"<style.*?</style>", " ", text, flags=re.S | re.I)
+        text = re.sub(r"<script.*?</script>", " ", html, flags=re.DOTALL | re.IGNORECASE)
+        text = re.sub(r"<style.*?</style>", " ", text, flags=re.DOTALL | re.IGNORECASE)
         text = re.sub(r"<[^>]+>", " ", text)
         text = re.sub(r"\s+", " ", text).strip()
         return text
 
-    def convert(self, record: Dict[str, Any]) -> ResumeDocument:
+    def convert(self, record: dict[str, Any]) -> ResumeDocument:
         raw_text = record.get("Resume_str", "").strip()
         if not raw_text and record.get("Resume_html"):
             raw_text = self._html_to_text(record.get("Resume_html", ""))

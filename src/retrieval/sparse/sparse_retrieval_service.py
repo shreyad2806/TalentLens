@@ -21,16 +21,16 @@ SOLID Principles Applied:
 
 import logging
 import time
-from typing import List, Dict, Any, Optional, Tuple
+from typing import Any
 
-from .schema import SparseSearchResult, RetrievalMetrics
-from .validator import SparseRetrievalValidator, ValidationError
-from .cache import QueryCache, TokenCache
-from .scorer import BM25Scorer
+from src.debug_logger import log_error, log_stage_end, log_stage_start
+
 from .bm25_index import BM25Index
+from .cache import QueryCache, TokenCache
+from .schema import SparseSearchResult
+from .scorer import BM25Scorer
 from .tokenizer import Tokenizer
-from src.debug_logger import log_stage_start, log_stage_end, log_error
-
+from .validator import SparseRetrievalValidator
 
 logger = logging.getLogger(__name__)
 
@@ -70,8 +70,8 @@ class SparseRetrievalService:
     def __init__(
         self,
         index: BM25Index,
-        tokenizer: Optional[Tokenizer] = None,
-        scorer: Optional[BM25Scorer] = None,
+        tokenizer: Tokenizer | None = None,
+        scorer: BM25Scorer | None = None,
         cache_enabled: bool = True,
         cache_max_size: int = 1000,
         cache_ttl_seconds: int = 3600
@@ -117,7 +117,7 @@ class SparseRetrievalService:
         )
 
     
-    def search(self, query: str, top_k: int = 10, filters: Optional[Dict[str, Any]] = None) -> List[SparseSearchResult]:
+    def search(self, query: str, top_k: int = 10, filters: dict[str, Any] | None = None) -> list[SparseSearchResult]:
         """
         Perform BM25 sparse search.
         
@@ -286,9 +286,9 @@ class SparseRetrievalService:
     def _convert_to_sparse_results(
         self,
         query: str,
-        search_results: List[Any],
-        query_tokens: List[str]
-    ) -> List[SparseSearchResult]:
+        search_results: list[Any],
+        query_tokens: list[str]
+    ) -> list[SparseSearchResult]:
         """
         Convert index search results to SparseSearchResult objects.
         
@@ -367,7 +367,7 @@ class SparseRetrievalService:
 
         return sparse_results
     
-    def _find_matched_text(self, text: str, matched_terms: List[str]) -> Tuple[str, int]:
+    def _find_matched_text(self, text: str, matched_terms: list[str]) -> tuple[str, int]:
         """
         Find text segments that contain matched terms.
         
@@ -397,7 +397,7 @@ class SparseRetrievalService:
         
         return text[:200], 0  # Return first 200 chars if no matches found
     
-    def _apply_filters(self, results: List[SparseSearchResult], filters: Dict[str, Any]) -> List[SparseSearchResult]:
+    def _apply_filters(self, results: list[SparseSearchResult], filters: dict[str, Any]) -> list[SparseSearchResult]:
         """Apply metadata filters using the canonical ResumeMetadata on each result."""
 
         def _normalize(value: Any) -> str:
@@ -414,17 +414,17 @@ class SparseRetrievalService:
                 if key == 'resume_id':
                     if m.resume_id != value:
                         match = False
-                        rejection_reason = f"resume_id mismatch"
+                        rejection_reason = "resume_id mismatch"
                         break
                 elif key == 'candidate_name':
                     if not m.candidate_name or value.lower() not in m.candidate_name.lower():
                         match = False
-                        rejection_reason = f"candidate_name mismatch"
+                        rejection_reason = "candidate_name mismatch"
                         break
                 elif key == 'section':
                     if value.lower() not in result.section.lower():
                         match = False
-                        rejection_reason = f"section mismatch"
+                        rejection_reason = "section mismatch"
                         break
                 elif key == 'skills':
                     if not m.skills:
@@ -435,22 +435,22 @@ class SparseRetrievalService:
                     candidate = {_normalize(s) for s in m.skills}
                     if not (required & candidate):
                         match = False
-                        rejection_reason = f"skills mismatch"
+                        rejection_reason = "skills mismatch"
                         break
                 elif key == 'location':
                     if not m.location or _normalize(value) not in _normalize(m.location):
                         match = False
-                        rejection_reason = f"location mismatch"
+                        rejection_reason = "location mismatch"
                         break
                 elif key == 'experience_min':
                     if m.experience_years is None or float(m.experience_years) < float(value):
                         match = False
-                        rejection_reason = f"experience_min mismatch"
+                        rejection_reason = "experience_min mismatch"
                         break
                 elif key == 'experience_max':
                     if m.experience_years is None or float(m.experience_years) > float(value):
                         match = False
-                        rejection_reason = f"experience_max mismatch"
+                        rejection_reason = "experience_max mismatch"
                         break
                 else:
                     # Unknown filter key — ignore
@@ -499,7 +499,7 @@ class SparseRetrievalService:
             f"cache_hit={cache_hit}"
         )
     
-    def get_cache_stats(self) -> Optional[Dict[str, Any]]:
+    def get_cache_stats(self) -> dict[str, Any] | None:
         """
         Get cache statistics.
         

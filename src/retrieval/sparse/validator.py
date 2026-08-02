@@ -17,10 +17,10 @@ SOLID Principles Applied:
 """
 
 import logging
-from typing import List, Dict, Any, Optional, Set
+from typing import Any
 
-from .schema import SparseSearchResult, BM25Document, BM25IndexStats
 from .bm25_index import BM25Index
+from .schema import BM25Document, SparseSearchResult
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 class ValidationError(Exception):
     """Custom exception for validation errors."""
     
-    def __init__(self, message: str, field: Optional[str] = None):
+    def __init__(self, message: str, field: str | None = None):
         self.message = message
         self.field = field
         super().__init__(self.message)
@@ -106,7 +106,7 @@ class SparseRetrievalValidator:
         
         logger.debug(f"Query validation passed: {query[:50]}...")
     
-    def validate_tokens(self, tokens: List[str]) -> None:
+    def validate_tokens(self, tokens: list[str]) -> None:
         """
         Validate a list of tokens.
         
@@ -168,7 +168,7 @@ class SparseRetrievalValidator:
         
         logger.debug(f"Document validation passed: {document.chunk_id}")
     
-    def validate_documents(self, documents: List[BM25Document]) -> None:
+    def validate_documents(self, documents: list[BM25Document]) -> None:
         """
         Validate a list of BM25Documents.
         
@@ -203,7 +203,7 @@ class SparseRetrievalValidator:
         
         logger.debug(f"Documents validation passed: {len(documents)} documents")
     
-    def validate_search_results(self, results: List[SparseSearchResult]) -> None:
+    def validate_search_results(self, results: list[SparseSearchResult]) -> None:
         """
         Validate search results.
         
@@ -275,7 +275,7 @@ class SparseRetrievalValidator:
                 field="rank"
             )
     
-    def validate_filters(self, filters: Optional[Dict[str, Any]]) -> None:
+    def validate_filters(self, filters: dict[str, Any] | None) -> None:
         """
         Validate search filters.
         

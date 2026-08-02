@@ -5,13 +5,13 @@ This module provides the SearchService class that handles BM25 search queries,
 ranking, filtering, and caching of results.
 """
 
-import time
-from typing import List, Dict, Any, Optional, Callable
 import logging
+import time
+from typing import Any
 
 from .bm25_index import BM25Index
-from .schema import BM25Document
 from .cache import BM25Cache, SearchResult
+from .schema import BM25Document
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +48,7 @@ class SearchService:
         """
         self.index_builder = index_builder
     
-    def _tokenize_query(self, query: str) -> List[str]:
+    def _tokenize_query(self, query: str) -> list[str]:
         """
         Tokenize the query string.
         
@@ -67,7 +67,7 @@ class SearchService:
             query = re.sub(r'[^a-zA-Z0-9\s]', ' ', query)
             return query.split()
     
-    def search(self, query: str, k: int = 10, filters: Optional[Dict[str, Any]] = None) -> List[SearchResult]:
+    def search(self, query: str, k: int = 10, filters: dict[str, Any] | None = None) -> list[SearchResult]:
         """
         Search the BM25 index for documents matching the query.
         
@@ -135,7 +135,7 @@ class SearchService:
         
         return results
     
-    def search_with_stats(self, query: str, k: int = 10, filters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def search_with_stats(self, query: str, k: int = 10, filters: dict[str, Any] | None = None) -> dict[str, Any]:
         """
         Search the BM25 index and return results with statistics.
         
@@ -178,7 +178,7 @@ class SearchService:
             'stats': stats
         }
     
-    def _apply_filters(self, document: BM25Document, filters: Dict[str, Any]) -> bool:
+    def _apply_filters(self, document: BM25Document, filters: dict[str, Any]) -> bool:
         """
         Apply filters to a document.
         
@@ -208,7 +208,7 @@ class SearchService:
         
         return True
     
-    def _generate_cache_key(self, query: str, k: int, filters: Optional[Dict[str, Any]]) -> str:
+    def _generate_cache_key(self, query: str, k: int, filters: dict[str, Any] | None) -> str:
         """
         Generate a cache key for a search query.
         
@@ -233,7 +233,7 @@ class SearchService:
             self.cache.clear()
             logger.info("Search cache cleared")
     
-    def get_cache_stats(self) -> Dict[str, Any]:
+    def get_cache_stats(self) -> dict[str, Any]:
         """
         Get cache statistics.
         

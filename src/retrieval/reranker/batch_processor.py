@@ -36,8 +36,8 @@ SOLID Principles Applied:
 
 import logging
 import time
-from typing import List, Tuple, Dict, Any, Optional
 from dataclasses import dataclass
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +57,7 @@ class BatchResult:
         batch_index: Index of this batch in the overall processing
     """
     
-    scores: List[float]
+    scores: list[float]
     batch_size: int
     inference_time: float
     batch_index: int
@@ -120,8 +120,8 @@ class BatchProcessor:
     def create_batches(
         self,
         query: str,
-        candidates: List[Any]
-    ) -> List[Tuple[str, List[Any]]]:
+        candidates: list[Any]
+    ) -> list[tuple[str, list[Any]]]:
         """
         Create batches from candidates.
         
@@ -152,8 +152,8 @@ class BatchProcessor:
     def create_query_document_pairs(
         self,
         query: str,
-        candidates: List[Any]
-    ) -> List[Tuple[str, str]]:
+        candidates: list[Any]
+    ) -> list[tuple[str, str]]:
         """
         Create query-document pairs for cross-encoder input.
         
@@ -193,7 +193,7 @@ class BatchProcessor:
         self,
         model: Any,
         query: str,
-        candidates: List[Any],
+        candidates: list[Any],
         batch_index: int = 0
     ) -> BatchResult:
         """
@@ -252,8 +252,8 @@ class BatchProcessor:
         self,
         model: Any,
         query: str,
-        candidates: List[Any]
-    ) -> List[float]:
+        candidates: list[Any]
+    ) -> list[float]:
         """
         Process all batches of candidates.
         
@@ -296,7 +296,7 @@ class BatchProcessor:
         
         return all_scores
     
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """
         Get batch processing statistics.
         

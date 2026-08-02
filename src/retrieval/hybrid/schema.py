@@ -17,9 +17,10 @@ SOLID Principles Applied:
 - Dependency Inversion: Depends on abstract interfaces
 """
 
-from typing import List, Dict, Any, Optional
-from pydantic import BaseModel, Field, computed_field, field_validator
 from enum import Enum
+from typing import Any
+
+from pydantic import BaseModel, Field, computed_field, field_validator
 
 from src.models import ResumeMetadata
 
@@ -66,11 +67,11 @@ class HybridSearchResult(BaseModel):
     query: str = Field(..., description="The search query")
     chunk_id: str = Field(..., description="Unique chunk identifier")
     section: str = Field(..., description="Section of the resume")
-    dense_rank: Optional[int] = Field(default=None, description="Rank from dense retrieval")
-    sparse_rank: Optional[int] = Field(default=None, description="Rank from sparse retrieval")
+    dense_rank: int | None = Field(default=None, description="Rank from dense retrieval")
+    sparse_rank: int | None = Field(default=None, description="Rank from sparse retrieval")
     rrf_score: float = Field(default=0.0, ge=0.0, description="Reciprocal Rank Fusion score")
     resume_metadata: ResumeMetadata = Field(..., description="Canonical resume metadata")
-    matched_chunks: List[MatchedChunk] = Field(default_factory=list, description="Matched chunks")
+    matched_chunks: list[MatchedChunk] = Field(default_factory=list, description="Matched chunks")
     rank: int = Field(default=0, ge=0, description="Final rank")
 
     @computed_field
@@ -80,12 +81,12 @@ class HybridSearchResult(BaseModel):
 
     @computed_field
     @property
-    def candidate_name(self) -> Optional[str]:
+    def candidate_name(self) -> str | None:
         return self.resume_metadata.candidate_name
 
     @computed_field
     @property
-    def metadata(self) -> Dict[str, Any]:
+    def metadata(self) -> dict[str, Any]:
         """Legacy compatibility: expose resume metadata as a flat dict."""
         return self.resume_metadata.model_dump(mode="json")
     
@@ -107,7 +108,7 @@ class HybridSearchResult(BaseModel):
     
     @field_validator('dense_rank')
     @classmethod
-    def validate_dense_rank(cls, v: Optional[int]) -> Optional[int]:
+    def validate_dense_rank(cls, v: int | None) -> int | None:
         """Validate that dense rank is non-negative if provided."""
         if v is not None and v < 0:
             raise ValueError('Dense rank must be non-negative')
@@ -115,7 +116,7 @@ class HybridSearchResult(BaseModel):
     
     @field_validator('sparse_rank')
     @classmethod
-    def validate_sparse_rank(cls, v: Optional[int]) -> Optional[int]:
+    def validate_sparse_rank(cls, v: int | None) -> int | None:
         """Validate that sparse rank is non-negative if provided."""
         if v is not None and v < 0:
             raise ValueError('Sparse rank must be non-negative')

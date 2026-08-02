@@ -10,8 +10,10 @@ SOLID Principles Applied:
 """
 
 from enum import Enum
-from typing import Any, Dict, List, Optional, Union
-from pydantic import BaseModel, Field, field_validator
+from typing import Any
+
+from pydantic import BaseModel, Field
+
 from ...config import EMBEDDING_DIM
 
 
@@ -40,7 +42,7 @@ class QdrantCollectionConfig(BaseModel):
     collection_name: str = Field(default="talentlens_candidates", description="Collection name")
     vector_size: int = Field(default=EMBEDDING_DIM, description="Vector dimension size")
     distance: DistanceMetric = Field(default=DistanceMetric.COSINE, description="Distance metric")
-    hnsw_config: Optional[HnswConfig] = Field(default=None, description="HNSW index configuration")
+    hnsw_config: HnswConfig | None = Field(default=None, description="HNSW index configuration")
     
     class Config:
         frozen = True
@@ -53,17 +55,20 @@ class QdrantPayload(BaseModel):
     This schema defines the structure of metadata stored alongside vectors.
     """
     resume_id: str = Field(..., description="Unique resume identifier")
-    candidate_name: str = Field(..., description="Candidate name")
+    candidate_name: str | None = Field(None, description="Candidate name")
     chunk_id: str = Field(..., description="Chunk identifier within resume")
     section: str = Field(..., description="Resume section (e.g., Skills, Experience)")
-    skills: List[str] = Field(default_factory=list, description="Candidate skills")
-    experience: Optional[float] = Field(None, description="Years of experience")
-    location: Optional[str] = Field(None, description="Candidate location")
-    education: Optional[str] = Field(None, description="Education level")
-    role: Optional[str] = Field(None, description="Current role")
-    salary: Optional[float] = Field(None, description="Expected salary in LPA")
-    notice_period: Optional[int] = Field(None, description="Notice period in days")
-    metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
+    text: str | None = Field(None, description="Chunk text that was embedded")
+    chunk_text: str | None = Field(None, description="Full chunk text for retrieval")
+    original_text: str | None = Field(None, description="Original resume text source")
+    skills: list[str] = Field(default_factory=list, description="Candidate skills")
+    experience: Any | None = Field(None, description="Years of experience")
+    location: Any | None = Field(None, description="Candidate location")
+    education: Any | None = Field(None, description="Education level")
+    role: Any | None = Field(None, description="Current role")
+    salary: Any | None = Field(None, description="Expected salary in LPA")
+    notice_period: Any | None = Field(None, description="Notice period in days")
+    metadata: dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
     
     class Config:
         frozen = True
@@ -90,24 +95,30 @@ class QdrantFilter(BaseModel):
     This schema defines the structure for filtering documents based on
     metadata fields.
     """
-    skills: Optional[List[str]] = Field(None, description="Filter by skills (match_any)")
-    experience_min: Optional[float] = Field(None, description="Minimum experience (gte)")
-    experience_max: Optional[float] = Field(None, description="Maximum experience (lte)")
-    location: Optional[str] = Field(None, description="Filter by location (match)")
-    education: Optional[str] = Field(None, description="Filter by education (match)")
-    role: Optional[str] = Field(None, description="Filter by role (match)")
-    salary_min: Optional[float] = Field(None, description="Minimum salary (gte)")
-    salary_max: Optional[float] = Field(None, description="Maximum salary (lte)")
-    notice_period_max: Optional[int] = Field(None, description="Maximum notice period (lte)")
+    skills: list[str] | None = Field(None, description="Filter by skills (match_any)")
+    experience_min: float | None = Field(None, description="Minimum experience (gte)")
+    experience_max: float | None = Field(None, description="Maximum experience (lte)")
+    location: str | None = Field(None, description="Filter by location (match)")
+    education: str | None = Field(None, description="Filter by education (match)")
+    role: str | None = Field(None, description="Filter by role (match)")
+    salary_min: float | None = Field(None, description="Minimum salary (gte)")
+    salary_max: float | None = Field(None, description="Maximum salary (lte)")
+    notice_period_max: int | None = Field(None, description="Maximum notice period (lte)")
     
-    def to_qdrant_filter(self) -> Dict[str, Any]:
+    def to_qdrant_filter(self) -> dict[str, Any]:
         """
         Convert to Qdrant filter format.
         
         Returns:
             Dictionary in Qdrant filter format
         """
-        from qdrant_client.models import Filter, FieldCondition, MatchValue, Range, MatchAny
+        from qdrant_client.models import (
+            FieldCondition,
+            Filter,
+            MatchAny,
+            MatchValue,
+            Range,
+        )
         
         conditions = []
         
@@ -192,8 +203,8 @@ class QdrantHealthStatus(BaseModel):
     connection_healthy: bool = Field(..., description="Connection to Qdrant is healthy")
     collection_exists: bool = Field(..., description="Collection exists")
     vector_count: int = Field(..., ge=0, description="Number of vectors in collection")
-    error_message: Optional[str] = Field(None, description="Error message if unhealthy")
-    latency_ms: Optional[float] = Field(None, description="Health check latency in milliseconds")
+    error_message: str | None = Field(None, description="Error message if unhealthy")
+    latency_ms: float | None = Field(None, description="Health check latency in milliseconds")
     
     class Config:
         frozen = True
@@ -212,7 +223,7 @@ class SearchResult(BaseModel):
 class UpsertResult(BaseModel):
     """Schema for upsert operation results."""
     upserted_count: int = Field(..., ge=0, description="Number of vectors upserted")
-    operation_id: Optional[str] = Field(None, description="Operation ID")
+    operation_id: str | None = Field(None, description="Operation ID")
     latency_ms: float = Field(..., ge=0, description="Operation latency in milliseconds")
     
     class Config:

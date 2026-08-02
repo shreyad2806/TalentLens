@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
 from enum import Enum
+from typing import Any
+
 from pydantic import BaseModel, Field, field_validator
 
 from src.models import ResumeMetadata
@@ -20,21 +21,21 @@ class EmbeddingStatus(str, Enum):
 class ChunkMetadata(BaseModel):
     """Legacy chunk-level metadata. Retained for Stage 2 compatibility only."""
 
-    candidate_name: Optional[str] = Field(None, description="Full name of the candidate")
-    role: Optional[str] = Field(None, description="Current or primary role")
-    experience: Optional[int] = Field(None, description="Years of experience")
-    location: Optional[str] = Field(None, description="Geographic location")
-    education: Optional[str] = Field(None, description="Education level or institution")
-    skills: List[str] = Field(default_factory=list, description="List of skills from the resume")
-    email: Optional[str] = Field(None, description="Email address")
-    phone: Optional[str] = Field(None, description="Phone number")
-    summary: Optional[str] = Field(None, description="Professional summary / objective")
-    certifications: Optional[List[str]] = Field(default_factory=list, description="Certifications")
-    projects: Optional[List[str]] = Field(default_factory=list, description="Project names")
-    source_section: Optional[str] = Field(None, description="Original section name")
-    extraction_notes: Optional[str] = Field(None, description="Extraction notes")
+    candidate_name: str | None = Field(None, description="Full name of the candidate")
+    role: str | None = Field(None, description="Current or primary role")
+    experience: int | None = Field(None, description="Years of experience")
+    location: str | None = Field(None, description="Geographic location")
+    education: str | None = Field(None, description="Education level or institution")
+    skills: list[str] = Field(default_factory=list, description="List of skills from the resume")
+    email: str | None = Field(None, description="Email address")
+    phone: str | None = Field(None, description="Phone number")
+    summary: str | None = Field(None, description="Professional summary / objective")
+    certifications: list[str] | None = Field(default_factory=list, description="Certifications")
+    projects: list[str] | None = Field(default_factory=list, description="Project names")
+    source_section: str | None = Field(None, description="Original section name")
+    extraction_notes: str | None = Field(None, description="Extraction notes")
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return self.dict()
 
 
@@ -43,7 +44,7 @@ class Chunk(BaseModel):
 
     chunk_id: str = Field(..., description="Unique chunk identifier (UUID)")
     resume_id: str = Field(..., description="Resume identifier")
-    candidate_name: Optional[str] = Field(None, description="Candidate name")
+    candidate_name: str | None = Field(None, description="Candidate name")
     section: str = Field(..., description="Section name")
     text: str = Field(..., description="Chunk text content")
     metadata: ChunkMetadata = Field(..., description="Legacy chunk metadata (Stage 2 compatibility)")
@@ -54,7 +55,7 @@ class Chunk(BaseModel):
         default=EmbeddingStatus.PENDING,
         description="Status of embedding process"
     )
-    source_document: Optional[str] = Field(None, description="Source document identifier or path")
+    source_document: str | None = Field(None, description="Source document identifier or path")
 
     @field_validator('text')
     @classmethod
@@ -70,7 +71,7 @@ class Chunk(BaseModel):
             raise ValueError("Chunk order cannot be negative")
         return v
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return self.model_dump(mode="json")
 
     def to_json(self) -> str:

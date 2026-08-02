@@ -6,9 +6,8 @@ experience entries, education entries, skills, and other metadata.
 """
 
 import re
-from typing import List, Optional, Dict, Any
 
-from .schema import Experience, Education, Project, Certification
+from .schema import Certification, Education, Experience, Project
 
 
 class MetadataParser:
@@ -57,7 +56,7 @@ class MetadataParser:
         return re.compile(r'(?<!\w)' + escaped + r'(?!\w)', re.IGNORECASE)
 
     @staticmethod
-    def extract_skills_keywords(text: Optional[str]) -> List[str]:
+    def extract_skills_keywords(text: str | None) -> list[str]:
         """Extract only known skills from arbitrary text using keyword matching."""
         if not text:
             return []
@@ -69,7 +68,7 @@ class MetadataParser:
         return list(set(skills))
 
     @staticmethod
-    def parse_skills(skills_text: Optional[str]) -> List[str]:
+    def parse_skills(skills_text: str | None) -> list[str]:
         """
         Parse skills from skills section text.
         
@@ -117,7 +116,7 @@ class MetadataParser:
         return list(set(skills))  # Remove duplicates
     
     @staticmethod
-    def parse_experience(experience_text: Optional[str]) -> List[Experience]:
+    def parse_experience(experience_text: str | None) -> list[Experience]:
         """
         Parse experience entries from experience section text.
         
@@ -149,7 +148,7 @@ class MetadataParser:
         return experiences
     
     @staticmethod
-    def _parse_single_experience_entry(entry_text: str) -> Optional[Experience]:
+    def _parse_single_experience_entry(entry_text: str) -> Experience | None:
         """
         Parse a single experience entry.
         
@@ -214,7 +213,7 @@ class MetadataParser:
         )
     
     @staticmethod
-    def parse_education(education_text: Optional[str]) -> List[Education]:
+    def parse_education(education_text: str | None) -> list[Education]:
         """
         Parse education entries from education section text.
         
@@ -244,7 +243,7 @@ class MetadataParser:
         return educations
     
     @staticmethod
-    def _parse_single_education_entry(entry_text: str) -> Optional[Education]:
+    def _parse_single_education_entry(entry_text: str) -> Education | None:
         """
         Parse a single education entry.
         
@@ -312,7 +311,7 @@ class MetadataParser:
         )
     
     @staticmethod
-    def parse_projects(projects_text: Optional[str]) -> List[Project]:
+    def parse_projects(projects_text: str | None) -> list[Project]:
         """
         Parse project entries from projects section text.
         
@@ -354,7 +353,7 @@ class MetadataParser:
         return projects
     
     @staticmethod
-    def parse_certifications(certifications_text: Optional[str]) -> List[Certification]:
+    def parse_certifications(certifications_text: str | None) -> list[Certification]:
         """
         Parse certification entries from certifications section text.
         
@@ -393,7 +392,7 @@ class MetadataParser:
         return certifications
     
     @staticmethod
-    def parse_languages(languages_text: Optional[str]) -> List[str]:
+    def parse_languages(languages_text: str | None) -> list[str]:
         """
         Parse languages from languages section text.
         

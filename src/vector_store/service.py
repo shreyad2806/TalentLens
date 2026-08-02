@@ -18,12 +18,13 @@ SOLID Principles Applied:
 """
 
 import logging
-from typing import List, Dict, Any, Optional
+from typing import Any
+
+from .config import get_config
+from .factory import create_vector_store
 from .interface import VectorStore, VectorStoreError
 from .schema import VectorRecord
-from .factory import VectorStoreFactory, create_vector_store
-from .config import get_config
-from .validator import VectorStoreValidator, ValidationError
+from .validator import ValidationError, VectorStoreValidator
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +56,7 @@ class VectorStoreService:
     - This ensures consistent validation, error handling, and logging
     """
     
-    def __init__(self, vector_store: Optional[VectorStore] = None):
+    def __init__(self, vector_store: VectorStore | None = None):
         """
         Initialize the vector store service.
         
@@ -73,7 +74,7 @@ class VectorStoreService:
         
         logger.info(f"VectorStoreService initialized with provider: {self.config.provider.value}")
     
-    def upsert(self, records: List[VectorRecord]) -> Dict[str, Any]:
+    def upsert(self, records: list[VectorRecord]) -> dict[str, Any]:
         """
         Insert or update vector records.
         
@@ -93,12 +94,15 @@ class VectorStoreService:
             VectorStoreError: If the operation fails
         """
         logger.info(f"Upserting {len(records)} records to vector store")
+        print(f"[DIAGNOSTIC][VectorStoreService] upsert request: {len(records)} records")
         
         # Validate records
         validation_result = self.validator.validate_records(records)
+        print(f"[DIAGNOSTIC][VectorStoreService] validation: valid={validation_result['valid']}, valid_count={validation_result['valid_count']}, invalid_count={validation_result['invalid_count']}")
         
         if not validation_result['valid']:
             error_messages = [str(e) for e in validation_result['errors']]
+            print(f"[DIAGNOSTIC][VectorStoreService] validation errors: {error_messages[:5]}")
             logger.error(f"Validation failed: {error_messages}")
             return {
                 'success': False,
@@ -107,8 +111,12 @@ class VectorStoreService:
             }
         
         # Upsert to vector store
+        before_count = self.count()
+        print(f"[DIAGNOSTIC][VectorStoreService] count before upsert: {before_count}")
         try:
             result = self.vector_store.upsert(records)
+            after_count = self.count()
+            print(f"[DIAGNOSTIC][VectorStoreService] count after upsert: {after_count} (inserted={result.get('upserted_count', 0)})")
             logger.info(f"Successfully upserted {result.get('upserted_count', 0)} records")
             return result
         except VectorStoreError as e:
@@ -116,9 +124,9 @@ class VectorStoreService:
             raise
         except Exception as e:
             logger.error(f"Unexpected error during upsert: {e}")
-            raise VectorStoreError(f"Upsert operation failed: {str(e)}") from e
+            raise VectorStoreError(f"Upsert operation failed: {e!s}") from e
     
-    def query(self, vector: List[float], k: int = 10, filters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    def query(self, vector: list[float], k: int = 10, filters: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         """
         Query the vector store for similar vectors.
         
@@ -142,7 +150,7 @@ class VectorStoreService:
             self.validator.validate_query_vector(vector)
         except ValidationError as e:
             logger.error(f"Query vector validation failed: {e}")
-            raise VectorStoreError(f"Invalid query vector: {str(e)}") from e
+            raise VectorStoreError(f"Invalid query vector: {e!s}") from e
         
         # Query vector store
         try:
@@ -154,9 +162,9 @@ class VectorStoreService:
             raise
         except Exception as e:
             logger.error(f"Unexpected error during query: {e}")
-            raise VectorStoreError(f"Query operation failed: {str(e)}") from e
+            raise VectorStoreError(f"Query operation failed: {e!s}") from e
     
-    def delete(self, ids: List[str]) -> Dict[str, Any]:
+    def delete(self, ids: list[str]) -> dict[str, Any]:
         """
         Delete vector records by their IDs.
         
@@ -183,9 +191,9 @@ class VectorStoreService:
             raise
         except Exception as e:
             logger.error(f"Unexpected error during delete: {e}")
-            raise VectorStoreError(f"Delete operation failed: {str(e)}") from e
+            raise VectorStoreError(f"Delete operation failed: {e!s}") from e
     
-    def fetch(self, id: str) -> Optional[VectorRecord]:
+    def fetch(self, id: str) -> VectorRecord | None:
         """
         Fetch a single vector record by its ID.
         
@@ -212,7 +220,7 @@ class VectorStoreService:
             raise
         except Exception as e:
             logger.error(f"Unexpected error during fetch: {e}")
-            raise VectorStoreError(f"Fetch operation failed: {str(e)}") from e
+            raise VectorStoreError(f"Fetch operation failed: {e!s}") from e
     
     def count(self) -> int:
         """
@@ -235,9 +243,9 @@ class VectorStoreService:
             raise
         except Exception as e:
             logger.error(f"Unexpected error during count: {e}")
-            raise VectorStoreError(f"Count operation failed: {str(e)}") from e
+            raise VectorStoreError(f"Count operation failed: {e!s}") from e
     
-    def health(self) -> Dict[str, Any]:
+    def health(self) -> dict[str, Any]:
         """
         Check the health status of the vector store.
         
@@ -258,7 +266,41 @@ class VectorStoreService:
             raise
         except Exception as e:
             logger.error(f"Unexpected error during health check: {e}")
-            raise VectorStoreError(f"Health check failed: {str(e)}") from e
+            raise VectorStoreError(f"Health check failed: {e!s}") from e
+    
+    def save(self, path: str | None = None) -> dict[str, Any]:
+        """Persist the vector store to disk."""
+        result = self.vector_store.save(path)
+        print(f"[PERSISTENCE] vector store saved: path={result.get('path', path)}, vectors={result.get('vectors_saved', 0)}")
+        return result
+    
+    def load(self, path: str | None = None) -> dict[str, Any]:
+        """Restore the vector store from disk."""
+        result = self.vector_store.load(path)
+        print(f"[PERSISTENCE] vector store loaded: path={result.get('path', path)}, vectors={result.get('vectors_restored', 0)}, success={result.get('success')}")
+        return result
+    
+    def clear(self) -> dict[str, Any]:
+        """Clear all vectors from the store."""
+        print(f"[DIAGNOSTIC][VectorStoreService] clear() called")
+        result = self.vector_store.clear()
+        print(f"[DIAGNOSTIC][VectorStoreService] clear result: {result}")
+        return result
+    
+    def serialize(self) -> dict[str, Any]:
+        """Serialize the vector store."""
+        return self.vector_store.serialize()
+    
+    def deserialize(self, data: dict[str, Any]) -> None:
+        """Deserialize the vector store."""
+        self.vector_store.deserialize(data)
+    
+    def integrity_check(self) -> dict[str, Any]:
+        """Validate vector store integrity."""
+        result = self.vector_store.integrity_check()
+        status = "VALID" if result.get("valid") else "INVALID"
+        print(f"[PERSISTENCE] integrity check: {status}, count={result.get('count')}, dimension={result.get('dimension')}, metadata={result.get('metadata_count')}, errors={result.get('errors', [])[:3]}")
+        return result
     
     def close(self) -> None:
         """
@@ -277,7 +319,7 @@ class VectorStoreService:
             raise
         except Exception as e:
             logger.error(f"Unexpected error during close: {e}")
-            raise VectorStoreError(f"Close operation failed: {str(e)}") from e
+            raise VectorStoreError(f"Close operation failed: {e!s}") from e
     
     def __enter__(self):
         """

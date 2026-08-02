@@ -13,21 +13,22 @@ Improves extraction quality over the original StructuredMetadataExtractor:
 
 import re
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
-from .schema import ResumeDocument, Experience, Education, Project, Certification
-from .section_parser import SectionParser
+from .name_validator import INVALID_CANDIDATE_NAMES, is_valid_candidate_name, normalize_candidate_name
 from .normalizer import MetadataNormalizer
+from .schema import Certification, Education, Experience, Project, ResumeDocument
+from .section_parser import SectionParser
 
 
 class QualityMetadataExtractor:
     """Extract and normalize resume metadata with quality guardrails."""
 
     # Stop words for names/roles/locations
-    SECTION_STOP: Set[str] = {
-        "summary", "professional summary", "objective", "profile", "about me",
+    SECTION_STOP: set[str] = {
+        "summary", "professional summary", "executive summary", "objective", "profile", "about me",
         "career overview", "highlights", "accomplishments",
-        "experience", "work experience", "professional experience", "employment history", "work history",
+        "experience", "relevant experience", "work experience", "professional experience", "employment history", "work history",
         "education", "academic background", "educational qualification",
         "skills", "technical skills", "core competencies", "technologies", "key skills",
         "certifications", "certificates", "professional certifications",
@@ -49,7 +50,7 @@ class QualityMetadataExtractor:
         "administration", "project", "healthcare", "medical", "clinical",
     ]
 
-    US_STATES: Set[str] = {
+    US_STATES: set[str] = {
         "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA",
         "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD",
         "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ",
@@ -57,7 +58,7 @@ class QualityMetadataExtractor:
         "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY", "DC",
     }
 
-    LOCATION_STOP_WORDS: Set[str] = {
+    LOCATION_STOP_WORDS: set[str] = {
         "management", "executive", "sales", "business", "development",
         "marketing", "engineering", "company", "city", "state", "client",
     }
@@ -67,7 +68,7 @@ class QualityMetadataExtractor:
         self.normalizer = MetadataNormalizer()
         self.known_locations = set(self.normalizer.LOCATION_SYNONYMS.values())
 
-    def extract(self, text: str, record: Optional[Dict[str, Any]] = None) -> ResumeDocument:
+    def extract(self, text: str, record: dict[str, Any] | None = None) -> ResumeDocument:
         if not text:
             return ResumeDocument(raw_text="")
 
@@ -81,12 +82,21 @@ class QualityMetadataExtractor:
         candidate_name, name_conf, name_source = self._extract_candidate_name(text, record)
         role, role_conf, role_source = self._extract_role(text, record, section_texts)
         location, loc_conf, loc_source = self._extract_location(text, record, section_texts)
-        skills, skill_conf, skill_source = self._extract_skills(text, section_texts)
+        skills, skill_conf, skill_source, skill_stats = self._extract_skills(text, section_texts)
         experience, experience_years, exp_conf, exp_source = self._extract_experience(text, section_texts)
         education, edu_conf, edu_source = self._extract_education(text, section_texts, record)
         certifications, cert_conf, cert_source = self._extract_certifications(section_texts)
         projects, proj_conf, proj_source = self._extract_projects(section_texts)
         summary, sum_conf, sum_source = self._extract_summary(text, section_texts)
+
+        extraction_stats = {
+            "name_found": candidate_name is not None,
+            "email_valid": bool(contact.get("email")),
+            "phone_valid": bool(contact.get("phone")),
+            "linkedin_found": contact.get("linkedin") is not None,
+            "raw_skills_count": skill_stats.get("raw_skills_count", 0),
+            "normalized_skills_count": skill_stats.get("normalized_skills_count", 0),
+        }
 
         return ResumeDocument(
             name=candidate_name,
@@ -106,6 +116,8 @@ class QualityMetadataExtractor:
                 "extraction_source": "quality_extractor",
                 "extraction_timestamp": datetime.now().isoformat(),
                 "sections_detected": list(sections.keys()),
+                "contact": contact,
+                "extraction_stats": extraction_stats,
                 "field_confidence": {
                     "candidate_name": name_conf,
                     "role": role_conf,
@@ -162,7 +174,7 @@ class QualityMetadataExtractor:
         text = re.sub(r"\n{3,}", "\n\n", text)
         return text.strip()
 
-    def _collect_section_texts(self, text: str, sections: Dict[str, Any]) -> Dict[str, str]:
+    def _collect_section_texts(self, text: str, sections: dict[str, Any]) -> dict[str, str]:
         result = {name: sec.content for name, sec in sections.items()}
         for key in ["summary", "skills", "experience", "education", "projects", "certifications", "contact"]:
             if key not in result:
@@ -174,14 +186,16 @@ class QualityMetadataExtractor:
     # ------------------------------------------------------------------
     # Contact
     # ------------------------------------------------------------------
-    def _extract_contact(self, text: str, record: Dict[str, Any]) -> Dict[str, Optional[str]]:
+    def _extract_contact(self, text: str, record: dict[str, Any]) -> dict[str, str | None]:
+        # Email
         email = None
         m = re.search(r"[\w.-]+@[\w.-]+\.\w{2,}", text)
-        if m:
+        if m and self._is_valid_email(m.group()):
             email = m.group()
-        elif record.get("Email"):
+        elif record.get("Email") and self._is_valid_email(str(record.get("Email"))):
             email = str(record.get("Email")).strip()
 
+        # Phone
         phone = None
         for pattern in [
             r"\+?\d{1,3}[-.\s]?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}",
@@ -189,66 +203,104 @@ class QualityMetadataExtractor:
             r"\d{10,12}",
         ]:
             m = re.search(pattern, text)
-            if m:
+            if m and self._is_valid_phone(m.group()):
                 phone = m.group().strip()
                 break
-        if not phone and record.get("Phone"):
+        if not phone and record.get("Phone") and self._is_valid_phone(str(record.get("Phone"))):
             phone = str(record.get("Phone")).strip()
 
-        return {"email": email, "phone": phone}
+        # LinkedIn
+        linkedin = self._extract_linkedin(text)
+
+        return {"email": email, "phone": phone, "linkedin": linkedin}
+
+    @staticmethod
+    def _is_valid_email(email: str | None) -> bool:
+        if not email or not isinstance(email, str):
+            return False
+        email = email.strip()
+        # Reject common placeholder/sentinel domains and missing parts
+        if not re.match(r"^[\w.-]+@[\w.-]+\.\w{2,}$", email):
+            return False
+        local, _, domain = email.partition("@")
+        if not local or not domain or "." not in domain:
+            return False
+        # Reject obviously fake/sentinel domains
+        bad_domains = {"example.com", "test.com", "email.com", "domain.com", "noemail.com", "unknown"}
+        if domain.lower() in bad_domains:
+            return False
+        return True
+
+    @staticmethod
+    def _is_valid_phone(phone: str | None) -> bool:
+        if not phone or not isinstance(phone, str):
+            return False
+        digits = re.sub(r"\D", "", phone)
+        # 10-15 digits is the most common valid range
+        return 10 <= len(digits) <= 15
+
+    @staticmethod
+    def _extract_linkedin(text: str) -> str | None:
+        # Full LinkedIn profile URL
+        m = re.search(r"https?://(?:www\.)?linkedin\.com/in/[\w-]+", text, re.IGNORECASE)
+        if m:
+            return m.group()
+        # Shorthand: linkedin.com/in/...
+        m = re.search(r"linkedin\.com/in/[\w-]+", text, re.IGNORECASE)
+        if m:
+            return "https://" + m.group()
+        # "LinkedIn: username" or "linkedin/in/username"
+        m = re.search(r"linkedin[:/\s]+in[:/\s]+([\w-]+)", text, re.IGNORECASE)
+        if m:
+            return f"https://www.linkedin.com/in/{m.group(1)}"
+        return None
 
     # ------------------------------------------------------------------
     # Candidate name
     # ------------------------------------------------------------------
-    def _extract_candidate_name(self, text: str, record: Dict[str, Any]) -> Tuple[Optional[str], float, str]:
-        # Prefer CSV name columns if present and valid
-        for key in ("Name", "Candidate"):
+    def _extract_candidate_name(self, text: str, record: dict[str, Any]) -> tuple[str | None, float, str]:
+        # 1. Explicit name field from CSV record
+        for key in ("Name", "Candidate", "Candidate_Name", "Candidate Name"):
             if record.get(key):
                 v = str(record.get(key)).strip()
                 if self._looks_like_name(v):
-                    return v, 1.0, f"csv_{key.lower()}"
+                    return self._clean_name(v), 1.0, f"csv_{key.replace(' ', '_').lower()}"
 
+        # 2. Resume header (first 30 lines)
         lines = text.splitlines()[:30]
-
-        # First, find a line that looks like a name and is not a heading/contact/role
         for line in lines:
             line = line.strip()
             if self._looks_like_name(line):
                 return self._clean_name(line), 0.9, "header_name"
 
-        # Search within the contact block (first 1500 chars)
+        # 3. Contact block (first 1500 chars)
         contact_text = text[:1500]
         for line in contact_text.splitlines():
             line = line.strip()
             if self._looks_like_name(line):
                 return self._clean_name(line), 0.8, "contact_block_name"
 
-        return None, 0.0, "none_found"
+        # 4. Largest / most prominent heading that is not a blacklisted section
+        heading_name = self._extract_name_from_largest_heading(text)
+        if heading_name:
+            return self._clean_name(heading_name), 0.7, "largest_heading"
+
+        # 5. Email signature
+        signature_name = self._extract_name_from_signature(text)
+        if signature_name:
+            return self._clean_name(signature_name), 0.6, "email_signature"
+
+        # 6. Filename
+        filename_name = self._extract_name_from_filename(record)
+        if filename_name:
+            return self._clean_name(filename_name), 0.5, "filename"
+
+        # 7. Unknown
+        return None, 0.0, "unknown"
 
     def _looks_like_name(self, line: str) -> bool:
-        if not line or len(line) > 40 or len(line) < 4:
-            return False
-        low = line.lower()
-        # Reject exact section headings, not arbitrary substrings
-        if low in self.SECTION_STOP:
-            return False
-        tokens = line.split()
-        if len(tokens) < 2 or len(tokens) > 4:
-            return False
-        if re.search(r"\d", line) or re.search(r"[/@:|]", line):
-            return False
-        # Reject if it looks like a job title
-        if self._is_role_like(line):
-            return False
-        # Names are either title-cased or all-caps
-        title_cased = sum(1 for t in tokens if t and t[0].isupper()) >= len(tokens)
-        all_caps = all(t.isupper() for t in tokens)
-        if not (title_cased or all_caps):
-            return False
-        # At least one token should be longer than 1 character
-        if not any(len(t) > 1 for t in tokens):
-            return False
-        return True
+        """Use the shared, stricter name validator."""
+        return bool(line) and is_valid_candidate_name(line)
 
     def _is_role_like(self, line: str) -> bool:
         low = line.lower()
@@ -263,12 +315,67 @@ class QualityMetadataExtractor:
 
     @staticmethod
     def _clean_name(name: str) -> str:
-        return re.sub(r"\s+", " ", name).strip()
+        return normalize_candidate_name(name)
+
+    def _is_blacklisted_heading(self, line: str) -> bool:
+        """Return True if the line is a blacklisted section heading."""
+        if not line:
+            return False
+        low = line.lower().strip()
+        if low in INVALID_CANDIDATE_NAMES:
+            return True
+        # Also reject substrings that are obvious section labels
+        for heading in INVALID_CANDIDATE_NAMES:
+            if len(heading) > 2 and heading in low:
+                return True
+        return False
+
+    def _extract_name_from_largest_heading(self, text: str) -> str | None:
+        """Use the largest (uppercase or title) heading that isn't a section/artifact."""
+        candidate = None
+        candidate_len = 0
+        for line in text.splitlines():
+            line = line.strip()
+            if not line or len(line) > 60 or len(line) < 4:
+                continue
+            if self._is_blacklisted_heading(line):
+                continue
+            if not is_valid_candidate_name(line):
+                continue
+            if len(line) > candidate_len:
+                candidate = line
+                candidate_len = len(line)
+        return normalize_candidate_name(candidate) if candidate else None
+
+    def _extract_name_from_signature(self, text: str) -> str | None:
+        """Try to find a name in a closing email signature."""
+        # Match after common closing phrases
+        pattern = r"(?:Regards|Sincerely|Best regards|Kind regards|Thanks|Thank you),?\s*\n+\s*([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){0,2})"
+        matches = re.findall(pattern, text, re.IGNORECASE)
+        if matches:
+            # Take the longest signature candidate
+            best = max(matches, key=len)
+            if self._looks_like_name(best):
+                return best
+        return None
+
+    def _extract_name_from_filename(self, record: dict[str, Any]) -> str | None:
+        """Try to derive a name from a resume filename."""
+        filename = record.get("Filename") or record.get("File") or record.get("Resume_File")
+        if not filename:
+            return None
+        # Remove extension and common separators
+        name = re.sub(r"\.[^.]+$", "", str(filename))
+        name = re.sub(r"[_-]", " ", name)
+        name = re.sub(r"\s+", " ", name).strip()
+        if self._looks_like_name(name):
+            return name
+        return None
 
     # ------------------------------------------------------------------
     # Role
     # ------------------------------------------------------------------
-    def _extract_role(self, text: str, record: Dict[str, Any], section_texts: Dict[str, str]) -> Tuple[Optional[str], float, str]:
+    def _extract_role(self, text: str, record: dict[str, Any], section_texts: dict[str, str]) -> tuple[str | None, float, str]:
         # 1. CSV Category is the most reliable for this dataset
         category = record.get("Category")
         if category:
@@ -326,7 +433,7 @@ class QualityMetadataExtractor:
     # ------------------------------------------------------------------
     # Location
     # ------------------------------------------------------------------
-    def _extract_location(self, text: str, record: Dict[str, Any], section_texts: Dict[str, str]) -> Tuple[Optional[str], float, str]:
+    def _extract_location(self, text: str, record: dict[str, Any], section_texts: dict[str, str]) -> tuple[str | None, float, str]:
         # 1. CSV Location, but only if it is a known location
         if record.get("Location"):
             raw = str(record.get("Location")).strip()
@@ -395,8 +502,8 @@ class QualityMetadataExtractor:
     # ------------------------------------------------------------------
     # Skills
     # ------------------------------------------------------------------
-    def _extract_skills(self, text: str, section_texts: Dict[str, str]) -> Tuple[List[str], float, str]:
-        candidates: Set[str] = set()
+    def _extract_skills(self, text: str, section_texts: dict[str, str]) -> tuple[list[str], float, str, dict[str, int]]:
+        candidates: set[str] = set()
         source = "keyword_search"
 
         skills_text = section_texts.get("skills", "")
@@ -413,15 +520,18 @@ class QualityMetadataExtractor:
             if re.search(r"(?<![\w.])" + re.escape(skill) + r"(?![\w])", text, re.IGNORECASE):
                 candidates.add(skill)
 
+        raw_count = len(candidates)
         normalized = self.normalizer.normalize_skills(list(candidates))
-        return [s for s in normalized if len(s) > 1 and not s.isdigit()], (0.9 if source == "skills_section" else 0.8), source
+        normalized_skills = [s for s in normalized if len(s) > 1 and not s.isdigit()]
+        stats = {"raw_skills_count": raw_count, "normalized_skills_count": len(normalized_skills)}
+        return normalized_skills, (0.9 if source == "skills_section" else 0.8), source, stats
 
     # ------------------------------------------------------------------
     # Experience
     # ------------------------------------------------------------------
-    def _extract_experience(self, text: str, section_texts: Dict[str, str]) -> Tuple[List[Experience], Optional[float], float, str]:
+    def _extract_experience(self, text: str, section_texts: dict[str, str]) -> tuple[list[Experience], float | None, float, str]:
         exp_text = section_texts.get("experience", "")
-        experiences: List[Experience] = []
+        experiences: list[Experience] = []
 
         if exp_text:
             blocks = self._split_experience_blocks(exp_text)
@@ -444,7 +554,7 @@ class QualityMetadataExtractor:
         source = "experience_section" if exp_text else ("text_regex" if years is not None else "none")
         return experiences, years, conf, source
 
-    def _parse_experience_block(self, block: str) -> Optional[Experience]:
+    def _parse_experience_block(self, block: str) -> Experience | None:
         title, company = self._extract_title_company(block)
         start, end, current = self._extract_dates(block)
         location = self._extract_block_location(block)
@@ -460,7 +570,7 @@ class QualityMetadataExtractor:
             current=current,
         )
 
-    def _split_experience_blocks(self, exp_text: str) -> List[str]:
+    def _split_experience_blocks(self, exp_text: str) -> list[str]:
         """Split an experience section into individual job blocks."""
         # First try blank-line separation
         blocks = [b.strip() for b in re.split(r"\n\s*\n", exp_text) if b.strip()]
@@ -476,7 +586,7 @@ class QualityMetadataExtractor:
         )
         return [b.strip() for b in re.split(date_pattern, exp_text, flags=re.IGNORECASE) if b.strip()]
 
-    def _extract_experience_years(self, text: str) -> Optional[float]:
+    def _extract_experience_years(self, text: str) -> float | None:
         # Explicit "X years" patterns
         written = {
             "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
@@ -493,16 +603,20 @@ class QualityMetadataExtractor:
             r"(?:worked|have|has|with)\s+(\d+(?:\.\d+)?)\+?\s*(?:years?|yrs?)",
             r"(\d+(?:\.\d+)?)\+?\s*(?:years?|yrs?)\s*(?:of\s*experience)?",
             r"(\d+(?:\.\d+)?)\s*[-–]\s*(\d+(?:\.\d+)?)\s*(?:years?|yrs?)",
+            r"(\d+(?:\.\d+)?)\+?\s*(?:months?|mos?)\s*(?:of\s*experience)?",
         ]
         for pattern in patterns:
             for m in re.finditer(pattern, text, re.IGNORECASE):
                 if m.lastindex == 2 and m.group(2):
                     return float(m.group(2))
                 if m.group(1):
+                    # If this was a months pattern, convert to years
+                    if re.search(r"(?:months?|mos?)", m.group(0), re.IGNORECASE):
+                        return round(float(m.group(1)) / 12, 2)
                     return float(m.group(1))
         return None
 
-    def _sum_experience_years(self, experiences: List[Experience]) -> Optional[float]:
+    def _sum_experience_years(self, experiences: list[Experience]) -> float | None:
         total = 0.0
         now = datetime.now()
         for exp in experiences:
@@ -519,7 +633,7 @@ class QualityMetadataExtractor:
         return total if total > 0 else None
 
     @staticmethod
-    def _year_from_date(date_str: Optional[str]) -> Optional[int]:
+    def _year_from_date(date_str: str | None) -> int | None:
         if not date_str:
             return None
         m = re.search(r"(\d{4})", date_str)
@@ -527,7 +641,7 @@ class QualityMetadataExtractor:
             return int(m.group(1))
         return None
 
-    def _extract_title_company(self, block: str) -> Tuple[Optional[str], Optional[str]]:
+    def _extract_title_company(self, block: str) -> tuple[str | None, str | None]:
         lines = block.splitlines()
         title = None
         company = None
@@ -553,7 +667,7 @@ class QualityMetadataExtractor:
                     break
         return title, company
 
-    def _extract_dates(self, block: str) -> Tuple[Optional[str], Optional[str], bool]:
+    def _extract_dates(self, block: str) -> tuple[str | None, str | None, bool]:
         patterns = [
             r"((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{4})\s*[-–to]+\s*((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{4}|present|current|now)",
             r"(\d{1,2}/\d{4})\s*[-–to]+\s*(\d{1,2}/\d{4}|present|current|now)",
@@ -568,7 +682,7 @@ class QualityMetadataExtractor:
                 return start, None if current else end, current
         return None, None, False
 
-    def _extract_block_location(self, block: str) -> Optional[str]:
+    def _extract_block_location(self, block: str) -> str | None:
         for pattern in [
             r"\b([A-Z][a-zA-Z]+(?:\s[A-Z][a-zA-Z]+)?),\s*([A-Z]{2})\b",
             r"\b([A-Z][a-zA-Z]+(?:\s[A-Z][a-zA-Z]+)?),\s*([A-Za-z\s]{2,30})\b",
@@ -586,7 +700,7 @@ class QualityMetadataExtractor:
     # ------------------------------------------------------------------
     # Education
     # ------------------------------------------------------------------
-    def _extract_education(self, text: str, section_texts: Dict[str, str], record: Dict[str, Any]) -> Tuple[List[Education], float, str]:
+    def _extract_education(self, text: str, section_texts: dict[str, str], record: dict[str, Any]) -> tuple[list[Education], float, str]:
         # CSV Education column is trusted if present
         if record.get("Education"):
             raw = str(record.get("Education")).strip()
@@ -613,7 +727,7 @@ class QualityMetadataExtractor:
         source = "education_section" if entries else "none"
         return entries, conf, source
 
-    def _parse_education_block(self, block: str) -> Optional[Education]:
+    def _parse_education_block(self, block: str) -> Education | None:
         # Match degree synonyms in a punctuation-normalized copy
         clean = re.sub(r"['’\.]", "", block).lower()
         degree = None
@@ -676,7 +790,7 @@ class QualityMetadataExtractor:
     # ------------------------------------------------------------------
     # Certifications
     # ------------------------------------------------------------------
-    def _extract_certifications(self, section_texts: Dict[str, str]) -> Tuple[List[Certification], float, str]:
+    def _extract_certifications(self, section_texts: dict[str, str]) -> tuple[list[Certification], float, str]:
         cert_text = section_texts.get("certifications", "")
         if not cert_text:
             return [], 0.0, "none_found"
@@ -702,7 +816,7 @@ class QualityMetadataExtractor:
     # ------------------------------------------------------------------
     # Projects
     # ------------------------------------------------------------------
-    def _extract_projects(self, section_texts: Dict[str, str]) -> Tuple[List[Project], float, str]:
+    def _extract_projects(self, section_texts: dict[str, str]) -> tuple[list[Project], float, str]:
         proj_text = section_texts.get("projects", "")
         if not proj_text:
             return [], 0.0, "none_found"
@@ -732,7 +846,7 @@ class QualityMetadataExtractor:
     # ------------------------------------------------------------------
     # Summary
     # ------------------------------------------------------------------
-    def _extract_summary(self, text: str, section_texts: Dict[str, str]) -> Tuple[Optional[str], float, str]:
+    def _extract_summary(self, text: str, section_texts: dict[str, str]) -> tuple[str | None, float, str]:
         summary = section_texts.get("summary")
         if summary:
             cleaned = self._clean_section_summary(summary)

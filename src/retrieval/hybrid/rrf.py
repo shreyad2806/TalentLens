@@ -33,7 +33,7 @@ SOLID Principles Applied:
 """
 
 import logging
-from typing import List, Dict, Any, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -95,8 +95,8 @@ class ReciprocalRankFusion:
     
     def calculate_rrf_score(
         self,
-        dense_rank: Optional[int],
-        sparse_rank: Optional[int]
+        dense_rank: int | None,
+        sparse_rank: int | None
     ) -> float:
         """
         Calculate RRF score for a document based on its ranks.
@@ -130,12 +130,12 @@ class ReciprocalRankFusion:
     
     def fuse_results(
         self,
-        dense_results: List[Dict[str, Any]],
-        sparse_results: List[Dict[str, Any]],
+        dense_results: list[dict[str, Any]],
+        sparse_results: list[dict[str, Any]],
         dense_rank_key: str = "rank",
         sparse_rank_key: str = "rank",
         id_key: str = "chunk_id"
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Fuse results from dense and sparse retrieval using RRF.
         
@@ -197,11 +197,11 @@ class ReciprocalRankFusion:
     
     def get_fusion_statistics(
         self,
-        dense_results: List[Dict[str, Any]],
-        sparse_results: List[Dict[str, Any]],
-        fused_results: List[Dict[str, Any]],
+        dense_results: list[dict[str, Any]],
+        sparse_results: list[dict[str, Any]],
+        fused_results: list[dict[str, Any]],
         id_key: str = "chunk_id"
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Calculate fusion statistics.
         

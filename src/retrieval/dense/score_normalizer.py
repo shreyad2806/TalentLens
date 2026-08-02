@@ -18,7 +18,6 @@ SOLID Principles Applied:
 """
 
 import logging
-from typing import List, Dict, Any, Optional
 from enum import Enum
 
 logger = logging.getLogger(__name__)
@@ -71,7 +70,7 @@ class ScoreNormalizer:
         self.strategy = strategy
         logger.info(f"ScoreNormalizer initialized with strategy: {strategy.value}")
     
-    def normalize(self, scores: List[float]) -> List[float]:
+    def normalize(self, scores: list[float]) -> list[float]:
         """
         Normalize a list of scores.
         
@@ -99,7 +98,7 @@ class ScoreNormalizer:
         
         raise ValueError(f"Unknown normalization strategy: {self.strategy}")
     
-    def _normalize_min_max(self, scores: List[float]) -> List[float]:
+    def _normalize_min_max(self, scores: list[float]) -> list[float]:
         """
         Normalize scores using min-max scaling.
         
@@ -124,7 +123,7 @@ class ScoreNormalizer:
         logger.debug(f"Min-max normalization applied: range [{min_score:.4f}, {max_score:.4f}]")
         return normalized
     
-    def _normalize_cosine(self, scores: List[float]) -> List[float]:
+    def _normalize_cosine(self, scores: list[float]) -> list[float]:
         """
         Normalize cosine similarity scores.
         
@@ -144,7 +143,7 @@ class ScoreNormalizer:
         logger.debug("Cosine normalization applied")
         return normalized
     
-    def _normalize_z_score(self, scores: List[float]) -> List[float]:
+    def _normalize_z_score(self, scores: list[float]) -> list[float]:
         """
         Normalize scores using z-score normalization.
         
@@ -203,7 +202,7 @@ class ScoreNormalizer:
         normalized = (score - min_score) / (max_score - min_score)
         return max(0.0, min(1.0, normalized))
     
-    def normalize_dict(self, score_dict: Dict[str, float]) -> Dict[str, float]:
+    def normalize_dict(self, score_dict: dict[str, float]) -> dict[str, float]:
         """
         Normalize a dictionary of scores.
         

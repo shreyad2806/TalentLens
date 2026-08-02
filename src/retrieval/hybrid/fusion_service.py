@@ -19,11 +19,16 @@ SOLID Principles Applied:
 
 import logging
 import time
-from typing import List, Dict, Any, Optional
 from abc import ABC, abstractmethod
+from typing import Any
 
-from .schema import HybridSearchResult, MatchedChunk, RetrievalSource, FusionMetrics, FusionStrategy
-from .rrf import ReciprocalRankFusion
+from .schema import (
+    FusionMetrics,
+    FusionStrategy,
+    HybridSearchResult,
+    MatchedChunk,
+    RetrievalSource,
+)
 from .scorer import RRFScorer
 
 logger = logging.getLogger(__name__)
@@ -46,10 +51,10 @@ class FusionStrategyBase(ABC):
     @abstractmethod
     def calculate_score(
         self,
-        dense_rank: Optional[int],
-        dense_score: Optional[float],
-        sparse_rank: Optional[int],
-        sparse_score: Optional[float]
+        dense_rank: int | None,
+        dense_score: float | None,
+        sparse_rank: int | None,
+        sparse_score: float | None
     ) -> float:
         """
         Calculate fusion score for a candidate.
@@ -63,7 +68,6 @@ class FusionStrategyBase(ABC):
         Returns:
             Fusion score for the candidate
         """
-        pass
     
     @abstractmethod
     def get_strategy_name(self) -> str:
@@ -73,7 +77,6 @@ class FusionStrategyBase(ABC):
         Returns:
             Name of the fusion strategy
         """
-        pass
 
 
 class RRFFusionStrategy(FusionStrategyBase):
@@ -112,10 +115,10 @@ class RRFFusionStrategy(FusionStrategyBase):
     
     def calculate_score(
         self,
-        dense_rank: Optional[int],
-        dense_score: Optional[float],
-        sparse_rank: Optional[int],
-        sparse_score: Optional[float]
+        dense_rank: int | None,
+        dense_score: float | None,
+        sparse_rank: int | None,
+        sparse_score: float | None
     ) -> float:
         """
         Calculate RRF score for a candidate.
@@ -194,10 +197,10 @@ class WeightedFusionStrategy(FusionStrategyBase):
     
     def calculate_score(
         self,
-        dense_rank: Optional[int],
-        dense_score: Optional[float],
-        sparse_rank: Optional[int],
-        sparse_score: Optional[float]
+        dense_rank: int | None,
+        dense_score: float | None,
+        sparse_rank: int | None,
+        sparse_score: float | None
     ) -> float:
         """
         Calculate weighted fusion score for a candidate.
@@ -251,10 +254,10 @@ class ScoreAveragingFusionStrategy(FusionStrategyBase):
     
     def calculate_score(
         self,
-        dense_rank: Optional[int],
-        dense_score: Optional[float],
-        sparse_rank: Optional[int],
-        sparse_score: Optional[float]
+        dense_rank: int | None,
+        dense_score: float | None,
+        sparse_rank: int | None,
+        sparse_score: float | None
     ) -> float:
         """
         Calculate score averaging fusion score for a candidate.
@@ -328,7 +331,7 @@ class FusionService:
     
     def __init__(
         self,
-        strategy: Optional[FusionStrategyBase] = None,
+        strategy: FusionStrategyBase | None = None,
         strategy_name: str = FusionStrategy.RRF.value
     ):
         """
@@ -360,7 +363,7 @@ class FusionService:
     def _reconstruct_matched_text(
         self,
         matched_text: str,
-        metadata: Dict[str, Any],
+        metadata: dict[str, Any],
         max_length: int = 400
     ) -> str:
         """Return the provided matched text, or reconstruct it from metadata text."""
@@ -371,10 +374,10 @@ class FusionService:
 
     def fuse_results(
         self,
-        dense_results: List[Dict[str, Any]],
-        sparse_results: List[Dict[str, Any]],
+        dense_results: list[dict[str, Any]],
+        sparse_results: list[dict[str, Any]],
         query: str
-    ) -> tuple[List[HybridSearchResult], FusionMetrics]:
+    ) -> tuple[list[HybridSearchResult], FusionMetrics]:
         """
         Fuse dense and sparse retrieval results using configured strategy.
         
@@ -404,10 +407,10 @@ class FusionService:
         Returns:
             Tuple of (fused results, fusion metrics)
         """
-        print(f"------------------------------------")
-        print(f"STAGE: FusionService.fuse_results()")
+        print("------------------------------------")
+        print("STAGE: FusionService.fuse_results()")
         print(f"Input: dense_results={len(dense_results)}, sparse_results={len(sparse_results)}")
-        print(f"------------------------------------")
+        print("------------------------------------")
         
         start_time = time.time()
         
@@ -608,7 +611,7 @@ class FusionService:
             print(f"Example fused result: resume_id='{fused_results[0].resume_id}', candidate_name='{fused_results[0].candidate_name}', rrf_score={fused_results[0].rrf_score}")
         
         print(f"Output: {len(fused_results)} HybridSearchResult objects")
-        print(f"------------------------------------")
+        print("------------------------------------")
         
         return fused_results, metrics
     

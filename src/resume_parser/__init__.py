@@ -15,7 +15,7 @@ The old parser (src/parser.py) remains untouched for backward compatibility.
 """
 
 # Import schema (no external dependencies)
-from .schema import ResumeDocument, Experience, Education, Project, Certification
+from .schema import Certification, Education, Experience, Project, ResumeDocument
 
 # Lazy import parser service (requires PyPDF2, python-docx)
 try:
@@ -26,11 +26,11 @@ except ImportError:
     ParserService = None
 
 __all__ = [
-    "ResumeDocument",
-    "Experience",
-    "Education",
-    "Project",
     "Certification",
+    "Education",
+    "Experience",
+    "Project",
+    "ResumeDocument",
 ]
 
 if _parser_service_available:

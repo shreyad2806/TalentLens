@@ -9,11 +9,11 @@ and record creation.
 The outside world should only call EmbeddingService.
 """
 
-from typing import List, Optional
-from .vectorizer import Vectorizer
-from .validator import EmbeddingValidator
+
+from ..config import EMBEDDING_DIM
 from .schema import EmbeddingRecord
-from ..config import EMBEDDING_DIM, EMBEDDING_MODEL
+from .validator import EmbeddingValidator
+from .vectorizer import Vectorizer
 
 
 class EmbeddingService:
@@ -33,7 +33,7 @@ class EmbeddingService:
     for the outside world.
     """
     
-    def __init__(self, expected_dimension: Optional[int] = None):
+    def __init__(self, expected_dimension: int | None = None):
         """
         Initialize the embedding service.
         
@@ -66,7 +66,7 @@ class EmbeddingService:
         print("🚀 Embedding Model Ready")
         print("="*60 + "\n")
     
-    def embed_chunk(self, chunk) -> Optional[EmbeddingRecord]:
+    def embed_chunk(self, chunk) -> EmbeddingRecord | None:
         """
         Generate an embedding for a single Chunk object.
         
@@ -95,7 +95,7 @@ class EmbeddingService:
         
         return embedding_record
     
-    def embed_chunks(self, chunks: List, batch_size: int = 32) -> List[EmbeddingRecord]:
+    def embed_chunks(self, chunks: list, batch_size: int = 32) -> list[EmbeddingRecord]:
         """
         Generate embeddings for multiple Chunk objects.
         
@@ -130,7 +130,7 @@ class EmbeddingService:
         
         return valid_records
     
-    def embed_chunks_with_stats(self, chunks: List) -> dict:
+    def embed_chunks_with_stats(self, chunks: list) -> dict:
         """
         Generate embeddings for multiple Chunk objects with statistics.
         

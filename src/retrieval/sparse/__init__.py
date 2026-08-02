@@ -36,14 +36,14 @@ Usage:
     results = service.search("Python developer with AWS experience", top_k=10)
 """
 
-from .schema import SparseSearchResult, BM25Document, BM25IndexStats, RetrievalMetrics
-from .validator import SparseRetrievalValidator, ValidationError
-from .cache import QueryCache, TokenCache
-from .scorer import BM25Scorer
 from .bm25_index import BM25Index
-from .tokenizer import Tokenizer
+from .cache import QueryCache, TokenCache
 from .index_builder import IndexBuilder
+from .schema import BM25Document, BM25IndexStats, RetrievalMetrics, SparseSearchResult
+from .scorer import BM25Scorer
 from .sparse_retrieval_service import SparseRetrievalService
+from .tokenizer import Tokenizer
+from .validator import SparseRetrievalValidator, ValidationError
 
 __all__ = [
     # Main service

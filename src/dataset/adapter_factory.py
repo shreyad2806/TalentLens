@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 from .base_adapter import BaseDatasetAdapter
 from .eramatch_adapter import EraMatchAdapter
 from .kaggle_adapter import KaggleAdapter
@@ -26,7 +24,7 @@ class AdapterFactory:
     }
 
     @classmethod
-    def get_adapter(cls, dataset_type: str, source_path: Optional[str] = None) -> BaseDatasetAdapter:
+    def get_adapter(cls, dataset_type: str, source_path: str | None = None) -> BaseDatasetAdapter:
         """Return an adapter instance for ``dataset_type``."""
         adapter_class = cls._adapters.get(dataset_type)
         if not adapter_class:

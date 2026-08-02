@@ -18,7 +18,7 @@ SOLID Principles Applied:
 
 import logging
 import math
-from typing import List, Dict, Any, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -80,11 +80,11 @@ class BM25Scorer:
     
     def calculate_score(
         self,
-        query_terms: List[str],
-        document_terms: List[str],
+        query_terms: list[str],
+        document_terms: list[str],
         document_length: int,
         average_document_length: float,
-        document_frequency: Dict[str, int],
+        document_frequency: dict[str, int],
         total_documents: int,
         explain: bool = False
     ) -> float:
@@ -157,7 +157,7 @@ class BM25Scorer:
         
         return score
     
-    def _calculate_term_frequency(self, terms: List[str]) -> Dict[str, int]:
+    def _calculate_term_frequency(self, terms: list[str]) -> dict[str, int]:
         """
         Calculate term frequency for a list of terms.
         
@@ -175,7 +175,7 @@ class BM25Scorer:
     def _calculate_idf(
         self,
         term: str,
-        document_frequency: Dict[str, int],
+        document_frequency: dict[str, int],
         total_documents: int
     ) -> float:
         """
@@ -216,11 +216,11 @@ class BM25Scorer:
     
     def _log_score_explanation(
         self,
-        query_terms: List[str],
-        term_frequency: Dict[str, int],
+        query_terms: list[str],
+        term_frequency: dict[str, int],
         document_length: int,
         average_document_length: float,
-        term_scores: Dict[str, float],
+        term_scores: dict[str, float],
         total_score: float
     ) -> None:
         """
@@ -250,13 +250,13 @@ class BM25Scorer:
     
     def calculate_scores(
         self,
-        query_terms: List[str],
-        documents: List[Dict[str, Any]],
-        document_frequency: Dict[str, int],
+        query_terms: list[str],
+        documents: list[dict[str, Any]],
+        document_frequency: dict[str, int],
         total_documents: int,
         average_document_length: float,
         explain: bool = False
-    ) -> List[float]:
+    ) -> list[float]:
         """
         Calculate BM25 scores for multiple documents.
         
@@ -287,7 +287,7 @@ class BM25Scorer:
         
         return scores
     
-    def set_parameters(self, k1: Optional[float] = None, b: Optional[float] = None) -> None:
+    def set_parameters(self, k1: float | None = None, b: float | None = None) -> None:
         """
         Update BM25 parameters.
         
@@ -303,7 +303,7 @@ class BM25Scorer:
             self.b = b
             logger.info(f"Updated b parameter to: {b}")
     
-    def get_parameters(self) -> Dict[str, float]:
+    def get_parameters(self) -> dict[str, float]:
         """
         Get current BM25 parameters.
         

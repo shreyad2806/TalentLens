@@ -36,8 +36,7 @@ SOLID Principles Applied:
 import logging
 import math
 import re
-from typing import List, Dict, Any, Optional
-from enum import Enum
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +54,7 @@ class ValidationError(Exception):
         value: Value that failed validation (if applicable)
     """
     
-    def __init__(self, message: str, field: Optional[str] = None, value: Optional[Any] = None):
+    def __init__(self, message: str, field: str | None = None, value: Any | None = None):
         self.message = message
         self.field = field
         self.value = value
@@ -171,7 +170,7 @@ class RerankerValidator:
         
         logger.debug(f"Query validation passed: {query[:50]}...")
     
-    def validate_candidates(self, candidates: List[Any]) -> None:
+    def validate_candidates(self, candidates: list[Any]) -> None:
         """
         Validate a list of candidates.
         
@@ -308,7 +307,7 @@ class RerankerValidator:
         
         logger.debug(f"Score validation passed: {score:.4f}")
     
-    def validate_scores(self, scores: List[float]) -> None:
+    def validate_scores(self, scores: list[float]) -> None:
         """
         Validate a list of rerank scores.
         
@@ -389,7 +388,7 @@ class RerankerValidator:
         
         logger.debug("Model output validation passed")
     
-    def validate_reranked_results(self, results: List[Any]) -> None:
+    def validate_reranked_results(self, results: list[Any]) -> None:
         """
         Validate reranked results.
         

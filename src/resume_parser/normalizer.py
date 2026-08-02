@@ -7,7 +7,7 @@ uniform, predictable values instead of free-text noise.
 """
 
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 class MetadataNormalizer:
@@ -16,7 +16,7 @@ class MetadataNormalizer:
     # -----------------------------------------------------------------------
     # Skill normalization
     # -----------------------------------------------------------------------
-    SKILL_SYNONYMS: Dict[str, str] = {
+    SKILL_SYNONYMS: dict[str, str] = {
         # JavaScript ecosystem
         "node": "Node.js",
         "nodejs": "Node.js",
@@ -61,6 +61,8 @@ class MetadataNormalizer:
         "mongo db": "MongoDB",
         "sqlite": "SQLite",
         # Languages / frameworks
+        "java": "Java",
+        "core java": "Java",
         "javascript": "JavaScript",
         "java script": "JavaScript",
         "typescript": "TypeScript",
@@ -121,7 +123,7 @@ class MetadataNormalizer:
     # -----------------------------------------------------------------------
     # Degree normalization
     # -----------------------------------------------------------------------
-    DEGREE_SYNONYMS: Dict[str, str] = {
+    DEGREE_SYNONYMS: dict[str, str] = {
         "bachelor of technology": "B.Tech",
         "bachelor of engineering": "B.E.",
         "bachelor of science": "B.Sc",
@@ -180,7 +182,7 @@ class MetadataNormalizer:
     # -----------------------------------------------------------------------
     # Location normalization
     # -----------------------------------------------------------------------
-    LOCATION_SYNONYMS: Dict[str, str] = {
+    LOCATION_SYNONYMS: dict[str, str] = {
         "bengaluru": "Bengaluru",
         "bangalore": "Bengaluru",
         "mumbai": "Mumbai",
@@ -215,10 +217,10 @@ class MetadataNormalizer:
         "dubai": "Dubai",
         "remote": "Remote",
         "india": "India",
-        "usa": "USA",
-        "united states": "USA",
-        "united states of america": "USA",
-        "us": "USA",
+        "usa": "United States",
+        "united states": "United States",
+        "united states of america": "United States",
+        "us": "United States",
         "uk": "UK",
         "united kingdom": "UK",
         "canada": "Canada",
@@ -229,7 +231,7 @@ class MetadataNormalizer:
     # -----------------------------------------------------------------------
     # Canonical skill list (used for keyword extraction and normalization)
     # -----------------------------------------------------------------------
-    CANONICAL_SKILLS: List[str] = [
+    CANONICAL_SKILLS: list[str] = [
         "Python", "Java", "JavaScript", "TypeScript", "C++", "C#", "C", "Go",
         "Rust", "Swift", "Kotlin", "PHP", "Ruby", "Scala", "R", "MATLAB", "Perl",
         "Lua", "React", "Angular", "Vue", "Svelte", "Next.js", "Nuxt.js", "Django",
@@ -249,7 +251,7 @@ class MetadataNormalizer:
     # Normalization methods
     # -----------------------------------------------------------------------
     @classmethod
-    def normalize_skill(cls, skill: str) -> Optional[str]:
+    def normalize_skill(cls, skill: str) -> str | None:
         """Return the canonical form of a single skill string."""
         if not skill or not isinstance(skill, str):
             return None
@@ -288,12 +290,12 @@ class MetadataNormalizer:
         return " ".join(normalized) if normalized else skill
 
     @classmethod
-    def normalize_skills(cls, skills: List[str]) -> List[str]:
+    def normalize_skills(cls, skills: list[str]) -> list[str]:
         """Normalize and deduplicate a list of skill strings."""
         if not skills:
             return []
         seen: set = set()
-        out: List[str] = []
+        out: list[str] = []
         for skill in skills:
             canonical = cls.normalize_skill(skill)
             if canonical and canonical not in seen:
@@ -302,7 +304,7 @@ class MetadataNormalizer:
         return out
 
     @classmethod
-    def normalize_experience_years(cls, value: Any) -> Optional[float]:
+    def normalize_experience_years(cls, value: Any) -> float | None:
         """Convert free-text experience values to a numeric year count."""
         if value is None:
             return None
@@ -327,10 +329,15 @@ class MetadataNormalizer:
         if range_match:
             return float(range_match.group(2))
 
-        # Single number + years
-        single_match = re.search(r"(\d+(?:\.\d+)?)\+?\s*years?", text, re.IGNORECASE)
+        # Single number + years / yrs
+        single_match = re.search(r"(\d+(?:\.\d+)?)\+?\s*(?:years?|yrs?)", text, re.IGNORECASE)
         if single_match:
             return float(single_match.group(1))
+
+        # Number + months / mos -> convert to years
+        months_match = re.search(r"(\d+(?:\.\d+)?)\+?\s*(?:months?|mos?)", text, re.IGNORECASE)
+        if months_match:
+            return round(float(months_match.group(1)) / 12, 2)
 
         # "Experience: 5"
         exp_match = re.search(r"experience\s*[:=]\s*(\d+(?:\.\d+)?)", text, re.IGNORECASE)
@@ -345,7 +352,7 @@ class MetadataNormalizer:
         return None
 
     @classmethod
-    def normalize_education(cls, text: Optional[str]) -> Optional[str]:
+    def normalize_education(cls, text: str | None) -> str | None:
         """Normalize a free-text education string into canonical degree form."""
         if not text:
             return None
@@ -361,7 +368,7 @@ class MetadataNormalizer:
         return text if text else None
 
     @classmethod
-    def normalize_location(cls, text: Optional[str]) -> Optional[str]:
+    def normalize_location(cls, text: str | None) -> str | None:
         """Normalize a location string."""
         if not text:
             return None

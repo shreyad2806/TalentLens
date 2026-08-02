@@ -15,12 +15,11 @@ deterministic and offline-capable.
 
 import re
 from datetime import datetime
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
+from .normalizer import MetadataNormalizer
 from .schema import ResumeDocument
 from .section_parser import SectionParser
-from .normalizer import MetadataNormalizer
 
 
 class StructuredMetadataExtractor:
@@ -35,7 +34,7 @@ class StructuredMetadataExtractor:
     # -----------------------------------------------------------------------
     # Main entry point
     # -----------------------------------------------------------------------
-    def extract(self, text: str, record: Optional[Dict[str, Any]] = None) -> ResumeDocument:
+    def extract(self, text: str, record: dict[str, Any] | None = None) -> ResumeDocument:
         """
         Extract structured, normalized metadata from a resume text blob.
 
@@ -116,7 +115,7 @@ class StructuredMetadataExtractor:
         text = re.sub(r"\n{3,}", "\n\n", text)
         return text.strip()
 
-    def _extract_section_texts(self, text: str, sections: Dict[str, Any]) -> Dict[str, str]:
+    def _extract_section_texts(self, text: str, sections: dict[str, Any]) -> dict[str, str]:
         """Return a dict of section name -> content string."""
         result = {}
         for name, section in sections.items():
@@ -132,7 +131,7 @@ class StructuredMetadataExtractor:
     # -----------------------------------------------------------------------
     # Contact extraction
     # -----------------------------------------------------------------------
-    def _extract_contact(self, text: str, record: Optional[Dict[str, Any]]) -> Dict[str, Optional[str]]:
+    def _extract_contact(self, text: str, record: dict[str, Any] | None) -> dict[str, str | None]:
         contact = {"name": None, "email": None, "phone": None}
 
         # Email
@@ -166,7 +165,7 @@ class StructuredMetadataExtractor:
         contact["name"] = self._extract_candidate_name(text)
         return contact
 
-    def _extract_candidate_name(self, text: str) -> Optional[str]:
+    def _extract_candidate_name(self, text: str) -> str | None:
         if not text:
             return None
         lines = text.splitlines()
@@ -194,8 +193,8 @@ class StructuredMetadataExtractor:
     # -----------------------------------------------------------------------
     # Skills extraction
     # -----------------------------------------------------------------------
-    def _extract_skills(self, text: str, section_texts: Dict[str, str]) -> List[str]:
-        candidates: Set[str] = set()
+    def _extract_skills(self, text: str, section_texts: dict[str, str]) -> list[str]:
+        candidates: set[str] = set()
 
         # 1. From explicit skills section (if found)
         skills_text = section_texts.get("skills", "")
@@ -225,10 +224,10 @@ class StructuredMetadataExtractor:
     # -----------------------------------------------------------------------
     # Experience extraction
     # -----------------------------------------------------------------------
-    def _extract_experience(self, text: str, section_texts: Dict[str, str]):
+    def _extract_experience(self, text: str, section_texts: dict[str, str]):
         from .schema import Experience
 
-        experiences: List[Experience] = []
+        experiences: list[Experience] = []
         exp_text = section_texts.get("experience", "")
 
         # Try to split experience text into entries separated by blank lines or dates
@@ -265,7 +264,7 @@ class StructuredMetadataExtractor:
 
         return experiences, years
 
-    def _split_by_dates(self, text: str) -> List[str]:
+    def _split_by_dates(self, text: str) -> list[str]:
         """Split text around common date patterns to identify job blocks."""
         date_pattern = r"((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{4}|\d{1,2}/\d{4}|\d{4})"
         parts = re.split(date_pattern, text)
@@ -283,7 +282,7 @@ class StructuredMetadataExtractor:
             blocks.append("".join(current))
         return [b.strip() for b in blocks if len(b.strip()) > 20]
 
-    def _extract_title_company(self, block: str) -> Tuple[Optional[str], Optional[str]]:
+    def _extract_title_company(self, block: str) -> tuple[str | None, str | None]:
         lines = block.splitlines()
         title = None
         company = None
@@ -318,7 +317,7 @@ class StructuredMetadataExtractor:
                     break
         return title, company
 
-    def _extract_dates(self, block: str) -> Tuple[Optional[str], Optional[str], bool]:
+    def _extract_dates(self, block: str) -> tuple[str | None, str | None, bool]:
         patterns = [
             # Jan 2018 - Dec 2020 / Jan 2018 to Present
             r"((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{4})\s*[-–to]+\s*((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{4}|present|current|now)",
@@ -336,11 +335,11 @@ class StructuredMetadataExtractor:
                 return start, None if current else end, current
         return None, None, False
 
-    def _extract_block_location(self, block: str) -> Optional[str]:
+    def _extract_block_location(self, block: str) -> str | None:
         m = re.search(r"([A-Z][a-z]+,\s*[A-Z]{2}|[A-Z][a-z]+\s*,\s*[A-Za-z\s]+)", block)
         return m.group(1).strip() if m else None
 
-    def _sum_experience_years(self, experiences: List) -> Optional[float]:
+    def _sum_experience_years(self, experiences: list) -> float | None:
         total = 0.0
         now = datetime.now()
         for exp in experiences:
@@ -357,7 +356,7 @@ class StructuredMetadataExtractor:
         return total if total > 0 else None
 
     @staticmethod
-    def _year_from_date(date_str: Optional[str]) -> Optional[int]:
+    def _year_from_date(date_str: str | None) -> int | None:
         if not date_str:
             return None
         m = re.search(r"(\d{4})", date_str)
@@ -368,7 +367,7 @@ class StructuredMetadataExtractor:
     # -----------------------------------------------------------------------
     # Education extraction
     # -----------------------------------------------------------------------
-    def _extract_education(self, text: str, section_texts: Dict[str, str], record: Optional[Dict[str, Any]]) -> List:
+    def _extract_education(self, text: str, section_texts: dict[str, str], record: dict[str, Any] | None) -> list:
         from .schema import Education
 
         edu_text = section_texts.get("education", "")
@@ -409,7 +408,7 @@ class StructuredMetadataExtractor:
 
         return entries
 
-    def _extract_institution(self, block: str) -> Optional[str]:
+    def _extract_institution(self, block: str) -> str | None:
         for line in block.splitlines()[:3]:
             line = line.strip()
             if re.search(r"\b(university|college|institute|school|academy)\b", line, re.IGNORECASE):
@@ -418,7 +417,7 @@ class StructuredMetadataExtractor:
                 return line
         return None
 
-    def _extract_field_of_study(self, block: str) -> Optional[str]:
+    def _extract_field_of_study(self, block: str) -> str | None:
         fields = ["computer science", "engineering", "information technology", "business", "arts", "science", "mathematics", "electronics", "mechanical", "electrical", "civil"]
         for field in fields:
             if re.search(r"\b" + re.escape(field) + r"\b", block, re.IGNORECASE):
@@ -428,7 +427,7 @@ class StructuredMetadataExtractor:
     # -----------------------------------------------------------------------
     # Certifications extraction
     # -----------------------------------------------------------------------
-    def _extract_certifications(self, section_texts: Dict[str, str]) -> List:
+    def _extract_certifications(self, section_texts: dict[str, str]) -> list:
         from .schema import Certification
         cert_text = section_texts.get("certifications", "")
         if not cert_text:
@@ -454,7 +453,7 @@ class StructuredMetadataExtractor:
     # -----------------------------------------------------------------------
     # Projects extraction
     # -----------------------------------------------------------------------
-    def _extract_projects(self, section_texts: Dict[str, str]) -> List:
+    def _extract_projects(self, section_texts: dict[str, str]) -> list:
         from .schema import Project
         proj_text = section_texts.get("projects", "")
         if not proj_text:
@@ -478,7 +477,7 @@ class StructuredMetadataExtractor:
     # -----------------------------------------------------------------------
     # Location extraction
     # -----------------------------------------------------------------------
-    def _extract_location(self, text: str, section_texts: Dict[str, str], record: Optional[Dict[str, Any]]) -> Optional[str]:
+    def _extract_location(self, text: str, section_texts: dict[str, str], record: dict[str, Any] | None) -> str | None:
         # CSV column is most reliable
         if record and record.get("Location"):
             raw = str(record.get("Location")).strip()
@@ -512,7 +511,7 @@ class StructuredMetadataExtractor:
     # -----------------------------------------------------------------------
     # Summary extraction
     # -----------------------------------------------------------------------
-    def _extract_summary(self, text: str, section_texts: Dict[str, str]) -> Optional[str]:
+    def _extract_summary(self, text: str, section_texts: dict[str, str]) -> str | None:
         summary = section_texts.get("summary")
         if summary:
             return self._clean_section_summary(summary)
@@ -544,7 +543,7 @@ class StructuredMetadataExtractor:
     # -----------------------------------------------------------------------
     # Role extraction
     # -----------------------------------------------------------------------
-    def _extract_role(self, text: str, section_texts: Dict[str, str], experiences: List) -> Optional[str]:
+    def _extract_role(self, text: str, section_texts: dict[str, str], experiences: list) -> str | None:
         # 1. First experience title
         if experiences:
             for exp in experiences:

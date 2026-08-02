@@ -6,8 +6,8 @@ instead of using fixed-size token chunking. Each chunk corresponds to a meaningf
 section or subsection of the resume.
 """
 
-from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
+from typing import Any
 
 from src.resume_parser.schema import ResumeDocument
 
@@ -24,7 +24,7 @@ class ChunkData:
     """
     section: str
     text: str
-    metadata: Dict[str, Any]
+    metadata: dict[str, Any]
 
 
 class SemanticChunker:
@@ -51,7 +51,7 @@ class SemanticChunker:
         """
         self.chunk_order = 0
     
-    def chunk_document(self, document: ResumeDocument, resume_id: str) -> List[ChunkData]:
+    def chunk_document(self, document: ResumeDocument, resume_id: str) -> list[ChunkData]:
         """
         Chunk a ResumeDocument into semantic sections.
         
@@ -144,7 +144,7 @@ class SemanticChunker:
         
         return chunks
     
-    def _extract_base_metadata(self, document: ResumeDocument) -> Dict[str, Any]:
+    def _extract_base_metadata(self, document: ResumeDocument) -> dict[str, Any]:
         """
         Extract base metadata from ResumeDocument.
         
@@ -177,7 +177,7 @@ class SemanticChunker:
             "education": education,
         }
 
-    def _format_combined_text(self, document: ResumeDocument, metadata: Dict[str, Any]) -> str:
+    def _format_combined_text(self, document: ResumeDocument, metadata: dict[str, Any]) -> str:
         """Build a rich embedding text from structured resume fields + raw text."""
         parts = []
 
@@ -221,7 +221,7 @@ class SemanticChunker:
 
         return "\n\n".join(parts)
     
-    def _create_chunk_data(self, section: str, text: str, metadata: Dict[str, Any]) -> ChunkData:
+    def _create_chunk_data(self, section: str, text: str, metadata: dict[str, Any]) -> ChunkData:
         """
         Create a ChunkData object with auto-incremented order.
         

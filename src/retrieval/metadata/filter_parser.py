@@ -28,7 +28,6 @@ import logging
 import re
 import time
 from abc import ABC, abstractmethod
-from typing import Dict, List, Optional, Set, Tuple
 
 from .schema import MetadataFilter, ParseResult
 from .validator import MetadataFilterValidator, ValidationError
@@ -80,7 +79,7 @@ NOTICE_PERIOD_PATTERNS = [
     re.compile(r"immediate(?:ly)?\s*joiner", re.IGNORECASE),
 ]
 
-WORK_MODE_KEYWORDS: Dict[str, str] = {
+WORK_MODE_KEYWORDS: dict[str, str] = {
     "remote": "remote",
     "work from home": "remote",
     "wfh": "remote",
@@ -90,7 +89,7 @@ WORK_MODE_KEYWORDS: Dict[str, str] = {
     "office": "onsite",
 }
 
-EMPLOYMENT_TYPE_KEYWORDS: Dict[str, str] = {
+EMPLOYMENT_TYPE_KEYWORDS: dict[str, str] = {
     "full-time": "full-time",
     "full time": "full-time",
     "part-time": "part-time",
@@ -109,7 +108,7 @@ DEGREE_PATTERNS = [
     re.compile(r"\b(bca|mca)\b", re.IGNORECASE),
 ]
 
-KNOWN_SKILLS: Set[str] = {
+KNOWN_SKILLS: set[str] = {
     "python", "java", "javascript", "typescript", "react", "angular", "vue",
     "node", "nodejs", "django", "flask", "fastapi", "spring", "kubernetes",
     "docker", "aws", "azure", "gcp", "sql", "postgresql", "mongodb", "redis",
@@ -120,7 +119,7 @@ KNOWN_SKILLS: Set[str] = {
     "html", "css", "graphql", "rest", "api", "microservices", "agile", "scrum",
 }
 
-INDIAN_CITIES: Set[str] = {
+INDIAN_CITIES: set[str] = {
     "bangalore", "bengaluru", "mumbai", "delhi", "ncr", "gurgaon", "gurugram",
     "noida", "hyderabad", "chennai", "pune", "kolkata", "ahmedabad", "jaipur",
     "chandigarh", "kochi", "indore", "bhopal", "lucknow", "nagpur", "coimbatore",
@@ -242,7 +241,7 @@ class RuleBasedFilterParser(FilterParserStrategy):
 
     def _extract_skills(self, lower: str, filters: MetadataFilter) -> None:
         """Extract known technical skills from query text."""
-        found: List[str] = []
+        found: list[str] = []
         for skill in sorted(KNOWN_SKILLS, key=len, reverse=True):
             pattern = rf"\b{re.escape(skill)}\b"
             if re.search(pattern, lower):
@@ -335,7 +334,7 @@ class FilterParser:
     Swap strategy to LLMFilterParserStrategy when ready without changing callers.
     """
 
-    def __init__(self, strategy: Optional[FilterParserStrategy] = None) -> None:
+    def __init__(self, strategy: FilterParserStrategy | None = None) -> None:
         self._strategy = strategy or RuleBasedFilterParser()
         self._backend_name = (
             "rule_based" if isinstance(self._strategy, RuleBasedFilterParser) else "custom"

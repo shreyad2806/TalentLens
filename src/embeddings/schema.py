@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import List
 from uuid import UUID, uuid4
+
 from pydantic import BaseModel, Field, field_validator
 
 from src.models import ResumeMetadata
@@ -16,7 +16,8 @@ class EmbeddingRecord(BaseModel):
     embedding_id: UUID = Field(default_factory=uuid4, description="Unique identifier for this embedding record")
     chunk_id: str = Field(..., description="ID of the source chunk")
     section: str = Field(..., description="Section type of the source chunk")
-    vector: List[float] = Field(..., description="The embedding vector as a list of floats")
+    text: str | None = Field(None, description="Chunk text that was embedded")
+    vector: list[float] = Field(..., description="The embedding vector as a list of floats")
     vector_dimension: int = Field(..., description="Dimension of the embedding vector")
     model_name: str = Field(default="BAAI/bge-small-en-v1.5", description="Name of the model used")
     created_at: datetime = Field(default_factory=datetime.now, description="Timestamp")
@@ -24,14 +25,14 @@ class EmbeddingRecord(BaseModel):
 
     @field_validator('vector')
     @classmethod
-    def validate_vector_not_empty(cls, v: List[float]) -> List[float]:
+    def validate_vector_not_empty(cls, v: list[float]) -> list[float]:
         if not v:
             raise ValueError("Vector cannot be empty")
         return v
 
     @field_validator('vector')
     @classmethod
-    def validate_vector_no_nan(cls, v: List[float]) -> List[float]:
+    def validate_vector_no_nan(cls, v: list[float]) -> list[float]:
         import math
         if any(math.isnan(val) for val in v):
             raise ValueError("Vector cannot contain NaN values")

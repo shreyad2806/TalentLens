@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import re
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from src.search import SearchFilters, SearchResult, SearchService
-
 
 # Common technical and business skills for query extraction.
 SKILL_KEYWORDS = [
@@ -116,7 +115,7 @@ class QueryParser:
 class RecruiterAnswerGenerator:
     """Deterministic, citation-only answer generator for recruiter QA."""
 
-    def generate(self, query: str, results: List[SearchResult]) -> Dict[str, Any]:
+    def generate(self, query: str, results: list[SearchResult]) -> dict[str, Any]:
         start = time.perf_counter()
 
         if not results:
@@ -180,12 +179,12 @@ class RecruiterQA:
         -> SearchService (semantic + metadata) -> RecruiterAnswerGenerator
     """
 
-    def __init__(self, search_service: Optional[SearchService] = None):
+    def __init__(self, search_service: SearchService | None = None):
         self.parser = QueryParser()
         self.search_service = search_service or SearchService(hybrid_service=None)
         self.answer_generator = RecruiterAnswerGenerator()
 
-    def ask(self, query: str, top_k: int = 5) -> Dict[str, Any]:
+    def ask(self, query: str, top_k: int = 5) -> dict[str, Any]:
         """Answer a recruiter question with cited evidence."""
         t0 = time.perf_counter()
 

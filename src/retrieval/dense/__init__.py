@@ -34,13 +34,13 @@ Usage:
     aggregator = CandidateAggregator(strategy=AggregationStrategy.MAX)
 """
 
-from .schema import DenseSearchResult, AggregatedCandidateResult, RetrievalMetrics
-from .validator import RetrievalValidator, ValidationError
 from .cache import QueryCache, cached_query
-from .score_normalizer import ScoreNormalizer, NormalizationStrategy
-from .candidate_aggregator import CandidateAggregator, AggregationStrategy
-from .query_embedder import QueryEmbedder
+from .candidate_aggregator import AggregationStrategy, CandidateAggregator
 from .dense_retrieval_service import DenseRetrievalService
+from .query_embedder import QueryEmbedder
+from .schema import AggregatedCandidateResult, DenseSearchResult, RetrievalMetrics
+from .score_normalizer import NormalizationStrategy, ScoreNormalizer
+from .validator import RetrievalValidator, ValidationError
 
 __all__ = [
     # Main service

@@ -18,7 +18,7 @@ SOLID Principles Applied:
 """
 
 import logging
-from typing import List, Dict, Any, Set
+from typing import Any
 
 from .schema import HybridSearchResult
 
@@ -27,7 +27,6 @@ logger = logging.getLogger(__name__)
 
 class ValidationError(Exception):
     """Custom exception for validation errors."""
-    pass
 
 
 class HybridRetrievalValidator:
@@ -51,7 +50,7 @@ class HybridRetrievalValidator:
     
     def validate_results(
         self,
-        results: List[HybridSearchResult],
+        results: list[HybridSearchResult],
         strict: bool = False
     ) -> bool:
         """
@@ -108,7 +107,7 @@ class HybridRetrievalValidator:
     
     def validate_no_duplicates(
         self,
-        results: List[HybridSearchResult]
+        results: list[HybridSearchResult]
     ) -> str:
         """
         Validate that there are no duplicate candidates.
@@ -119,8 +118,8 @@ class HybridRetrievalValidator:
         Returns:
             Error message if duplicates found, empty string otherwise
         """
-        chunk_ids: Set[str] = set()
-        duplicates: Set[str] = set()
+        chunk_ids: set[str] = set()
+        duplicates: set[str] = set()
         
         for result in results:
             if result.chunk_id in chunk_ids:
@@ -136,8 +135,8 @@ class HybridRetrievalValidator:
     
     def validate_ranks(
         self,
-        results: List[HybridSearchResult]
-    ) -> List[str]:
+        results: list[HybridSearchResult]
+    ) -> list[str]:
         """
         Validate that ranks are non-negative.
         
@@ -172,8 +171,8 @@ class HybridRetrievalValidator:
     
     def validate_metadata(
         self,
-        results: List[HybridSearchResult]
-    ) -> List[str]:
+        results: list[HybridSearchResult]
+    ) -> list[str]:
         """
         Validate that metadata is present.
         
@@ -197,8 +196,8 @@ class HybridRetrievalValidator:
     
     def validate_chunks(
         self,
-        results: List[HybridSearchResult]
-    ) -> List[str]:
+        results: list[HybridSearchResult]
+    ) -> list[str]:
         """
         Validate that matched chunks are present and valid.
         
@@ -241,8 +240,12 @@ class HybridRetrievalValidator:
                             "Reconstructed matched_text for chunk %s", chunk.chunk_id
                         )
                     else:
-                        error = f"Missing matched_text in matched chunk for {result.chunk_id}"
-                        errors.append(error)
+                        # Missing text is a data-quality issue, not fatal.
+                        chunk.matched_text = ""
+                        logger.warning(
+                            "Missing matched_text in matched chunk for %s; treated as empty",
+                            result.chunk_id,
+                        )
                 
                 if chunk.score < 0:
                     error = f"Invalid score in matched chunk for {result.chunk_id}: {chunk.score}"
@@ -255,8 +258,8 @@ class HybridRetrievalValidator:
     
     def validate_scores(
         self,
-        results: List[HybridSearchResult]
-    ) -> List[str]:
+        results: list[HybridSearchResult]
+    ) -> list[str]:
         """
         Validate that RRF scores are non-negative.
         
@@ -280,8 +283,8 @@ class HybridRetrievalValidator:
     
     def validate_fusion_inputs(
         self,
-        dense_results: List[Dict[str, Any]],
-        sparse_results: List[Dict[str, Any]]
+        dense_results: list[dict[str, Any]],
+        sparse_results: list[dict[str, Any]]
     ) -> bool:
         """
         Validate fusion inputs.

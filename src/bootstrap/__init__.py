@@ -26,12 +26,12 @@ Usage:
 
 from .bootstrap_service import BootstrapService
 from .resume_loader import ResumeLoader
-from .startup_validator import StartupValidator
 from .startup_report import StartupReport
+from .startup_validator import StartupValidator
 
 __all__ = [
     "BootstrapService",
     "ResumeLoader",
-    "StartupValidator",
     "StartupReport",
+    "StartupValidator",
 ]

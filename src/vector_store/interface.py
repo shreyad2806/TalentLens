@@ -15,7 +15,8 @@ Architecture Notes:
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Optional
+from typing import Any
+
 from .schema import VectorRecord
 
 
@@ -41,7 +42,7 @@ class VectorStore(ABC):
     """
     
     @abstractmethod
-    def upsert(self, records: List[VectorRecord]) -> Dict[str, Any]:
+    def upsert(self, records: list[VectorRecord]) -> dict[str, Any]:
         """
         Insert or update vector records in the store.
         
@@ -61,10 +62,9 @@ class VectorStore(ABC):
             NotImplementedError: If not implemented by adapter
             VectorStoreError: If operation fails
         """
-        pass
     
     @abstractmethod
-    def query(self, vector: List[float], k: int = 10, filters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    def query(self, vector: list[float], k: int = 10, filters: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         """
         Query the vector store for similar vectors.
         
@@ -87,10 +87,9 @@ class VectorStore(ABC):
             NotImplementedError: If not implemented by adapter
             VectorStoreError: If operation fails
         """
-        pass
     
     @abstractmethod
-    def delete(self, ids: List[str]) -> Dict[str, Any]:
+    def delete(self, ids: list[str]) -> dict[str, Any]:
         """
         Delete vector records by their IDs.
         
@@ -107,10 +106,9 @@ class VectorStore(ABC):
             NotImplementedError: If not implemented by adapter
             VectorStoreError: If operation fails
         """
-        pass
     
     @abstractmethod
-    def delete_resume(self, resume_id: str) -> Dict[str, Any]:
+    def delete_resume(self, resume_id: str) -> dict[str, Any]:
         """
         Delete all vector records for a specific resume.
         
@@ -130,10 +128,9 @@ class VectorStore(ABC):
             NotImplementedError: If not implemented by adapter
             VectorStoreError: If operation fails
         """
-        pass
     
     @abstractmethod
-    def fetch(self, id: str) -> Optional[VectorRecord]:
+    def fetch(self, id: str) -> VectorRecord | None:
         """
         Fetch a single vector record by its ID.
         
@@ -147,10 +144,9 @@ class VectorStore(ABC):
             NotImplementedError: If not implemented by adapter
             VectorStoreError: If operation fails
         """
-        pass
     
     @abstractmethod
-    def fetch_resume(self, resume_id: str) -> List[VectorRecord]:
+    def fetch_resume(self, resume_id: str) -> list[VectorRecord]:
         """
         Fetch all vector records for a specific resume.
         
@@ -167,7 +163,6 @@ class VectorStore(ABC):
             NotImplementedError: If not implemented by adapter
             VectorStoreError: If operation fails
         """
-        pass
     
     @abstractmethod
     def count(self) -> int:
@@ -181,10 +176,9 @@ class VectorStore(ABC):
             NotImplementedError: If not implemented by adapter
             VectorStoreError: If operation fails
         """
-        pass
     
     @abstractmethod
-    def clear(self) -> Dict[str, Any]:
+    def clear(self) -> dict[str, Any]:
         """
         Clear all vector records from the store.
         
@@ -200,10 +194,9 @@ class VectorStore(ABC):
             NotImplementedError: If not implemented by adapter
             VectorStoreError: If operation fails
         """
-        pass
     
     @abstractmethod
-    def health(self) -> Dict[str, Any]:
+    def health(self) -> dict[str, Any]:
         """
         Check the health status of the vector store.
         
@@ -221,7 +214,26 @@ class VectorStore(ABC):
             NotImplementedError: If not implemented by adapter
             VectorStoreError: If operation fails
         """
-        pass
+    
+    @abstractmethod
+    def save(self, path: str | None = None) -> dict[str, Any]:
+        """Persist the current vector index to disk."""
+    
+    @abstractmethod
+    def load(self, path: str | None = None) -> dict[str, Any]:
+        """Restore the vector index from disk."""
+    
+    @abstractmethod
+    def serialize(self) -> dict[str, Any]:
+        """Convert the index to a serializable dictionary."""
+    
+    @abstractmethod
+    def deserialize(self, data: dict[str, Any]) -> None:
+        """Restore the index from a serialized dictionary."""
+    
+    @abstractmethod
+    def integrity_check(self) -> dict[str, Any]:
+        """Validate index integrity (dimension, count, checksum, metadata)."""
     
     @abstractmethod
     def close(self) -> None:
@@ -235,7 +247,6 @@ class VectorStore(ABC):
             NotImplementedError: If not implemented by adapter
             VectorStoreError: If operation fails
         """
-        pass
 
 
 class VectorStoreError(Exception):
@@ -251,7 +262,7 @@ class VectorStoreError(Exception):
     - Can be extended with adapter-specific exceptions
     """
     
-    def __init__(self, message: str, adapter_name: str = "unknown", original_error: Optional[Exception] = None):
+    def __init__(self, message: str, adapter_name: str = "unknown", original_error: Exception | None = None):
         """
         Initialize the vector store error.
         

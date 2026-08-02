@@ -47,6 +47,14 @@ SOLID Principles:
 - Dependency Inversion: Service depends on abstractions
 """
 
+from .cache import MetadataFilterCache
+from .filter_engine import FilterEngine
+from .filter_parser import (
+    FilterParser,
+    FilterParserStrategy,
+    RuleBasedFilterParser,
+)
+from .metadata_service import MetadataService
 from .schema import (
     CandidateMetadata,
     FilterCondition,
@@ -57,20 +65,12 @@ from .schema import (
     OrFilterGroup,
     ParseResult,
 )
-from .filter_parser import (
-    FilterParser,
-    FilterParserStrategy,
-    RuleBasedFilterParser,
-)
-from .filter_engine import FilterEngine
-from .validator import MetadataFilterValidator, ValidationError
-from .cache import MetadataFilterCache
-from .metadata_service import MetadataService
 from .schema_alignment import (
+    FilterKeyNormalizer,
     SchemaAlignment,
     SchemaAlignmentError,
-    FilterKeyNormalizer,
 )
+from .validator import MetadataFilterValidator, ValidationError
 
 __all__ = [
     # Schema

@@ -12,7 +12,7 @@ import logging
 import os
 import re
 import time
-from typing import Dict, List, Tuple, Any
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ def _token_count_approx(text: str) -> int:
     return len(text.split()) if text else 0
 
 
-def _call_openai_if_configured(prompt: str, max_tokens: int = 512) -> Tuple[str, int]:
+def _call_openai_if_configured(prompt: str, max_tokens: int = 512) -> tuple[str, int]:
     """Attempt an OpenAI completion when OPENAI_API_KEY and openai are available."""
     api_key = os.getenv("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY_TALENTLENS")
     if not api_key:
@@ -76,7 +76,7 @@ def _build_prompt(user_query: str, context: str) -> str:
     )
 
 
-def _format_deterministic_answer(user_query: str, entries: List[Dict[str, Any]]) -> str:
+def _format_deterministic_answer(user_query: str, entries: list[dict[str, Any]]) -> str:
     """Build a short, grounded answer from the cited context entries."""
     if not entries:
         return "Not found in indexed resumes."
@@ -101,7 +101,7 @@ def _format_deterministic_answer(user_query: str, entries: List[Dict[str, Any]])
 class AnswerGenerator:
     """Generate grounded answers from retrieved resume context."""
 
-    def generate(self, user_query: str, context: Dict[str, Any]) -> Dict[str, Any]:
+    def generate(self, user_query: str, context: dict[str, Any]) -> dict[str, Any]:
         """
         Generate an answer and telemetry from a context payload.
 
@@ -148,13 +148,12 @@ class AnswerGenerator:
         }
 
 
-def generate_answer(user_query: str, docs_with_ids: List[Tuple[str, str]]) -> str:
+def generate_answer(user_query: str, docs_with_ids: list[tuple[str, str]]) -> str:
     """Backward-compatible answer entry point.
 
     Keeps the legacy (doc_id, text) tuple interface working by building a
     minimal context and calling the new AnswerGenerator.
     """
-    from src.context_builder import ContextBuilder
 
     entries = [
         {
@@ -180,7 +179,7 @@ def generate_answer(user_query: str, docs_with_ids: List[Tuple[str, str]]) -> st
     return AnswerGenerator().generate(user_query, context)["answer"]
 
 
-def generate_answer_with_trace(user_query: str, docs_with_ids: List[Tuple[str, str]]) -> Tuple[str, Dict]:
+def generate_answer_with_trace(user_query: str, docs_with_ids: list[tuple[str, str]]) -> tuple[str, dict]:
     """Backward-compatible answer entry point with a trace payload."""
     answer = generate_answer(user_query, docs_with_ids)
     trace = {

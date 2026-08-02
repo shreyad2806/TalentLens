@@ -11,14 +11,14 @@ SOLID Principles Applied:
 
 import logging
 import time
-from typing import Optional, Dict, Any
+from typing import Any
 
 from qdrant_client import QdrantClient
 
 from .schema import (
-    QdrantHealthStatus,
     HealthStatus,
     QdrantCollectionConfig,
+    QdrantHealthStatus,
 )
 
 logger = logging.getLogger(__name__)
@@ -36,7 +36,7 @@ class HealthCheck:
     def __init__(
         self,
         client: QdrantClient,
-        config: Optional[QdrantCollectionConfig] = None
+        config: QdrantCollectionConfig | None = None
     ):
         """
         Initialize the health checker.
@@ -63,7 +63,7 @@ class HealthCheck:
             logger.debug(f"Qdrant connection check successful (latency: {latency_ms:.2f}ms)")
             return True
         except Exception as e:
-            logger.error(f"Qdrant connection check failed: {str(e)}")
+            logger.error(f"Qdrant connection check failed: {e!s}")
             return False
     
     def check_collection_exists(self) -> bool:
@@ -80,7 +80,7 @@ class HealthCheck:
             logger.debug(f"Collection {self.config.collection_name} exists: {exists}")
             return exists
         except Exception as e:
-            logger.error(f"Failed to check collection existence: {str(e)}")
+            logger.error(f"Failed to check collection existence: {e!s}")
             return False
     
     def check_vector_count(self) -> int:
@@ -99,7 +99,7 @@ class HealthCheck:
             logger.debug(f"Vector count for {self.config.collection_name}: {count}")
             return count
         except Exception as e:
-            logger.error(f"Failed to get vector count: {str(e)}")
+            logger.error(f"Failed to get vector count: {e!s}")
             return 0
     
     def check_indexed_vector_count(self) -> int:
@@ -118,7 +118,7 @@ class HealthCheck:
             logger.debug(f"Indexed vector count for {self.config.collection_name}: {count}")
             return count
         except Exception as e:
-            logger.error(f"Failed to get indexed vector count: {str(e)}")
+            logger.error(f"Failed to get indexed vector count: {e!s}")
             return 0
     
     def check_collection_status(self) -> str:
@@ -137,7 +137,7 @@ class HealthCheck:
             logger.debug(f"Collection status for {self.config.collection_name}: {status}")
             return status
         except Exception as e:
-            logger.error(f"Failed to get collection status: {str(e)}")
+            logger.error(f"Failed to get collection status: {e!s}")
             return "error"
     
     def perform_health_check(self) -> QdrantHealthStatus:
@@ -248,7 +248,7 @@ class HealthCheck:
         health_status = self.perform_health_check()
         return health_status.status == HealthStatus.HEALTHY
     
-    def get_diagnostics(self) -> Dict[str, Any]:
+    def get_diagnostics(self) -> dict[str, Any]:
         """
         Get diagnostic information about the Qdrant instance.
         

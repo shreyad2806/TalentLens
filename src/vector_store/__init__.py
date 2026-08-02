@@ -57,12 +57,12 @@ Security Note:
     All vector store operations must go through VectorStoreService.
 """
 
-from .schema import VectorRecord
-from .interface import VectorStore, VectorStoreError
-from .service import VectorStoreService
-from .factory import VectorStoreFactory, create_vector_store
 from .config import VectorStoreConfig, VectorStoreProvider, get_config
-from .validator import VectorStoreValidator, ValidationError
+from .factory import VectorStoreFactory, create_vector_store
+from .interface import VectorStore, VectorStoreError
+from .schema import VectorRecord
+from .service import VectorStoreService
+from .validator import ValidationError, VectorStoreValidator
 
 __all__ = [
     # Schema

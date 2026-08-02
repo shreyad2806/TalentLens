@@ -21,8 +21,6 @@ SOLID Principles Applied:
 import logging
 import re
 import string
-from typing import List, Set, Optional, Dict
-from collections import defaultdict
 
 logger = logging.getLogger(__name__)
 
@@ -60,14 +58,14 @@ class Tokenizer:
         'don', 'should', 'now', 'i', 'you', 'your', 'we', 'our', 'they', 'their',
         'this', 'that', 'these', 'those', 'am', 'is', 'are', 'was', 'were', 'be',
         'been', 'being', 'have', 'has', 'had', 'having', 'do', 'does', 'did', 'doing',
-        'would', 'could', 'should', 'may', 'might', 'must', 'shall'
+        'would', 'could', 'may', 'might', 'must', 'shall'
     }
     
     def __init__(
         self,
-        stop_words: Optional[Set[str]] = None,
+        stop_words: set[str] | None = None,
         use_stemming: bool = False,
-        custom_dictionary: Optional[Dict[str, str]] = None,
+        custom_dictionary: dict[str, str] | None = None,
         preserve_phrases: bool = True,
         phrase_delimiter: str = '"'
     ):
@@ -105,7 +103,7 @@ class Tokenizer:
             f"custom_dictionary={len(self.custom_dictionary)}"
         )
     
-    def tokenize(self, text: str) -> List[str]:
+    def tokenize(self, text: str) -> list[str]:
         """
         Tokenize text into a list of tokens.
         
@@ -161,7 +159,7 @@ class Tokenizer:
         
         return tokens
     
-    def _extract_phrases(self, text: str) -> tuple[List[str], str]:
+    def _extract_phrases(self, text: str) -> tuple[list[str], str]:
         """
         Extract quoted phrases from text.
         
@@ -207,7 +205,7 @@ class Tokenizer:
         translator = str.maketrans('', '', string.punctuation.replace('_', ''))
         return text.translate(translator)
     
-    def _apply_custom_dictionary(self, tokens: List[str]) -> List[str]:
+    def _apply_custom_dictionary(self, tokens: list[str]) -> list[str]:
         """
         Apply custom dictionary to expand or normalize tokens.
         
@@ -232,7 +230,7 @@ class Tokenizer:
         
         return expanded_tokens
     
-    def tokenize_query(self, query: str) -> List[str]:
+    def tokenize_query(self, query: str) -> list[str]:
         """
         Tokenize a search query.
         
@@ -249,7 +247,7 @@ class Tokenizer:
         logger.debug(f"Tokenizing query: {query[:50]}...")
         return self.tokenize(query)
     
-    def tokenize_document(self, text: str) -> List[str]:
+    def tokenize_document(self, text: str) -> list[str]:
         """
         Tokenize a document for indexing.
         
@@ -265,7 +263,7 @@ class Tokenizer:
         logger.debug(f"Tokenizing document: {len(text)} characters")
         return self.tokenize(text)
     
-    def add_stop_words(self, words: Set[str]) -> None:
+    def add_stop_words(self, words: set[str]) -> None:
         """
         Add custom stop words to the tokenizer.
         
@@ -275,7 +273,7 @@ class Tokenizer:
         self.stop_words.update(words)
         logger.info(f"Added {len(words)} custom stop words")
     
-    def add_custom_dictionary(self, dictionary: Dict[str, str]) -> None:
+    def add_custom_dictionary(self, dictionary: dict[str, str]) -> None:
         """
         Add entries to the custom dictionary.
         
@@ -285,7 +283,7 @@ class Tokenizer:
         self.custom_dictionary.update(dictionary)
         logger.info(f"Added {len(dictionary)} entries to custom dictionary")
     
-    def get_vocabulary(self, texts: List[str]) -> Set[str]:
+    def get_vocabulary(self, texts: list[str]) -> set[str]:
         """
         Get the vocabulary from a list of texts.
         

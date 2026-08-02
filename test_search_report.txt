@@ -1,0 +1,639 @@
+
+================================================================================
+QUERY: 'python'
+================================================================================
+
+Returned 10 results
+
+--- Rank 1 ---
+  resume_id:      10751444
+  candidate_name: N/A
+  display_name:   Resume #10751444
+  skills:         ['Hardware', 'Mill', 'Budget', 'Frame', 'Printer', 'Phone', 'Product Design', 'Designing', 'Focus', 'Linux', 'Python', 'Video', 'Graphic', 'Spring', 'English']
+  matched_skills: ['python']
+  skill_match:    100.0%
+  overall_match:  96.31%
+  applicable:     ['skill', 'experience', 'semantic']
+  raw_scores:     {'role': 0.0, 'skill': 1.0, 'industry': 0.0, 'experience': 1.0, 'education': 0.0, 'location': 0.0, 'semantic': 0.668}
+  denominator:    0.45
+  final_score:    0.4000
+--- Rank 2 ---
+  resume_id:      20824105
+  candidate_name: N/A
+  display_name:   Resume #20824105
+  skills:         ['Cisco Packet Tracer', 'VirtualBox', 'MPLS', 'AWS', 'DHCP', 'Linux', 'RIP', 'Python', 'IP Networking Protocols :TCP/IP', 'Oracle', 'OSPF', 'ISIS', 'VMware', 'Ubuntu', 'VLAN']
+  matched_skills: ['python']
+  skill_match:    100.0%
+  overall_match:  95.93%
+  applicable:     ['skill', 'experience', 'semantic']
+  raw_scores:     {'role': 0.0, 'skill': 1.0, 'industry': 0.0, 'experience': 1.0, 'education': 0.0, 'location': 0.0, 'semantic': 0.634}
+  denominator:    0.45
+  final_score:    0.3886
+--- Rank 3 ---
+  resume_id:      22488036
+  candidate_name: Key Competencies
+  display_name:   Resume #22488036
+  skills:         ['Statistical Analysis', 'SQL', 'Mac OS', 'PowerPoint', 'Linux', 'Machining', 'Python', 'PLC Programming', 'Go', 'Windows 7', 'SAP', 'Visio', 'Excel', 'PeopleSoft', 'MicroStation']
+  matched_skills: ['python']
+  skill_match:    100.0%
+  overall_match:  95.76%
+  applicable:     ['skill', 'experience', 'semantic']
+  raw_scores:     {'role': 0.0, 'skill': 1.0, 'industry': 0.0, 'experience': 1.0, 'education': 0.0, 'location': 0.0, 'semantic': 0.6182}
+  denominator:    0.45
+  final_score:    0.3672
+--- Rank 4 ---
+  resume_id:      27152464
+  candidate_name: N/A
+  display_name:   Resume #27152464
+  skills:         ['SQL Developer', 'Linux', 'Python', 'MAS', 'Oracle 12c', 'ACI-ADM', 'Git', 'Proxmox', 'Toad', 'Equinox', 'Postman', 'TorquiseSVN', 'JCL', 'Key Injection', 'ISO 8583']
+  matched_skills: ['python']
+  skill_match:    100.0%
+  overall_match:  95.92%
+  applicable:     ['skill', 'experience', 'semantic']
+  raw_scores:     {'role': 0.0, 'skill': 1.0, 'industry': 0.0, 'experience': 1.0, 'education': 0.0, 'location': 0.0, 'semantic': 0.6332}
+  denominator:    0.45
+  final_score:    0.3508
+--- Rank 5 ---
+  resume_id:      62994611
+  candidate_name: N/A
+  display_name:   Resume #62994611
+  skills:         ['Scikit-learn', 'Keras', 'Flask', 'SQL', 'Node.js', 'CSS', 'MATLAB', 'MongoDB', 'TensorFlow', 'Pandas', 'HTML', 'Python', 'Windows', 'Tableau', '5 Years Of']
+  matched_skills: ['python']
+  skill_match:    100.0%
+  overall_match:  95.81%
+  applicable:     ['skill', 'experience', 'semantic']
+  raw_scores:     {'role': 0.0, 'skill': 1.0, 'industry': 0.0, 'experience': 1.0, 'education': 0.0, 'location': 0.0, 'semantic': 0.6225}
+  denominator:    0.45
+  final_score:    0.3369
+--- Rank 6 ---
+  resume_id:      12144825
+  candidate_name: N/A
+  display_name:   Resume #12144825
+  skills:         ['Natural Language Processing', 'Script', 'MVC', 'Page', 'SQL', 'Designing', 'Engineer', 'Linux', 'Python', 'Go', 'Exchange', 'Microsoft Office Package', 'Database', 'Software Testing', 'Perl']
+  matched_skills: ['python']
+  skill_match:    100.0%
+  overall_match:  95.71%
+  applicable:     ['skill', 'experience', 'semantic']
+  raw_scores:     {'role': 0.0, 'skill': 1.0, 'industry': 0.0, 'experience': 1.0, 'education': 0.0, 'location': 0.0, 'semantic': 0.6139}
+  denominator:    0.45
+  final_score:    0.3155
+--- Rank 7 ---
+  resume_id:      22946204
+  candidate_name: N/A
+  display_name:   Resume #22946204
+  skills:         ['Mill', 'Word', 'SQL', 'Designing', 'Python', 'Camera', 'Mechanical Design', 'Windows 7', 'Neural', 'Vision', 'Database', 'Database Software', 'English', 'Chinese', 'Rendering']
+  matched_skills: ['python']
+  skill_match:    100.0%
+  overall_match:  95.5%
+  applicable:     ['skill', 'experience', 'semantic']
+  raw_scores:     {'role': 0.0, 'skill': 1.0, 'industry': 0.0, 'experience': 1.0, 'education': 0.0, 'location': 0.0, 'semantic': 0.5947}
+  denominator:    0.45
+  final_score:    0.2940
+--- Rank 8 ---
+  resume_id:      29211919
+  candidate_name: Dependability Staff
+  display_name:   Dependability Staff
+  skills:         ['Excel', 'Windows']
+  matched_skills: []
+  skill_match:    0.0%
+  overall_match:  72.0%
+  applicable:     ['semantic']
+  raw_scores:     {'role': 0.0, 'skill': 0.0, 'industry': 0.0, 'experience': 0.0, 'education': 0.0, 'location': 0.0, 'semantic': 0.72}
+  denominator:    0.05
+  final_score:    0.2107
+--- Rank 9 ---
+  resume_id:      14771530
+  candidate_name: DIGITAL PRODUCER
+  display_name:   Digital Producer
+  skills:         ['Basecamp', 'Illustrator', 'HTML', 'DoneDone Desktop Publishing Software: Photoshop', 'Project Management Tools: Workamajig']
+  matched_skills: []
+  skill_match:    0.0%
+  overall_match:  67.44%
+  applicable:     ['semantic']
+  raw_scores:     {'role': 0.0, 'skill': 0.0, 'industry': 0.0, 'experience': 0.0, 'education': 0.0, 'location': 0.0, 'semantic': 0.6744}
+  denominator:    0.05
+  final_score:    0.2069
+--- Rank 10 ---
+  resume_id:      17499196
+  candidate_name: N/A
+  display_name:   Resume #17499196
+  skills:         ['Mapping', 'Progress', 'Land Use Planning', 'Written And Verbal', 'Topo', 'Recruiting', 'Documenting']
+  matched_skills: []
+  skill_match:    0.0%
+  overall_match:  67.03%
+  applicable:     ['semantic']
+  raw_scores:     {'role': 0.0, 'skill': 0.0, 'industry': 0.0, 'experience': 0.0, 'education': 0.0, 'location': 0.0, 'semantic': 0.6703}
+  denominator:    0.05
+  final_score:    0.2032
+
+================================================================================
+QUERY: 'java'
+================================================================================
+
+Returned 10 results
+
+--- Rank 1 ---
+  resume_id:      83816738
+  candidate_name: N/A
+  display_name:   Resume #83816738
+  skills:         ['SQL', 'AWS', 'Jenkins', 'MongoDB', 'Linux', 'Oracle', 'Microservices', 'Spring', 'Java', 'CSS', 'PHP', 'HTML', 'JavaScript', 'MySQL', 'PostgreSQL']
+  matched_skills: ['java']
+  skill_match:    100.0%
+  overall_match:  96.01%
+  applicable:     ['skill', 'experience', 'semantic']
+  raw_scores:     {'role': 0.0, 'skill': 1.0, 'industry': 0.0, 'experience': 1.0, 'education': 0.0, 'location': 0.0, 'semantic': 0.6408}
+  denominator:    0.45
+  final_score:    0.4000
+--- Rank 2 ---
+  resume_id:      10641230
+  candidate_name: N/A
+  display_name:   Resume #10641230
+  skills:         ['Brochure', 'Search Engine Optimization', 'Mac OS', 'Wiring', 'Network Engineering', 'Designing', 'Linux', 'Marketing', 'Video', 'Ubuntu', 'Windows 95', 'Network', 'Database', 'Protocols', 'TCP/IP']
+  matched_skills: ['java']
+  skill_match:    100.0%
+  overall_match:  96.0%
+  applicable:     ['skill', 'experience', 'semantic']
+  raw_scores:     {'role': 0.0, 'skill': 1.0, 'industry': 0.0, 'experience': 1.0, 'education': 0.0, 'location': 0.0, 'semantic': 0.6402}
+  denominator:    0.45
+  final_score:    0.3811
+--- Rank 3 ---
+  resume_id:      26456899
+  candidate_name: Steve Brawley
+  display_name:   Steve Brawley
+  skills:         ['Java', 'Excel', 'SQL', 'C++', 'Linux']
+  matched_skills: ['java']
+  skill_match:    100.0%
+  overall_match:  96.56%
+  applicable:     ['skill', 'experience', 'semantic']
+  raw_scores:     {'role': 0.0, 'skill': 1.0, 'industry': 0.0, 'experience': 1.0, 'education': 0.0, 'location': 0.0, 'semantic': 0.69}
+  denominator:    0.45
+  final_score:    0.3522
+--- Rank 4 ---
+  resume_id:      65062795
+  candidate_name: N/A
+  display_name:   Resume #65062795
+  skills:         ['JavaScript', 'Java', 'CSS', 'HTML', 'SQL', 'MATLAB', 'Microsoft Visual Studio 2012', 'PHP', 'SQL Server', '10g', 'Oracle', 'JQuery Development IDE: Eclipse', "Oracle's PeopleSoft Supply Chain Management(SCM", 'Express']
+  matched_skills: ['java']
+  skill_match:    100.0%
+  overall_match:  95.67%
+  applicable:     ['skill', 'experience', 'semantic']
+  raw_scores:     {'role': 0.0, 'skill': 1.0, 'industry': 0.0, 'experience': 1.0, 'education': 0.0, 'location': 0.0, 'semantic': 0.6099}
+  denominator:    0.45
+  final_score:    0.3434
+--- Rank 5 ---
+  resume_id:      21038022
+  candidate_name: Executive Summary
+  display_name:   Resume #21038022
+  skills:         ['SQL', 'Reporting', 'Software', 'SAP', 'Java', 'Quality', 'Processes', 'CSS', 'ASP.NET', 'C++', 'HTML', 'Safety', 'Re-engineering', 'Maintain Records', 'Software Engineering']
+  matched_skills: ['java']
+  skill_match:    100.0%
+  overall_match:  95.63%
+  applicable:     ['skill', 'experience', 'semantic']
+  raw_scores:     {'role': 0.0, 'skill': 1.0, 'industry': 0.0, 'experience': 1.0, 'education': 0.0, 'location': 0.0, 'semantic': 0.6063}
+  denominator:    0.45
+  final_score:    0.3434
+--- Rank 6 ---
+  resume_id:      22351830
+  candidate_name: N/A
+  display_name:   Resume #22351830
+  skills:         ['MVC', 'Struts', 'Mac OS', 'Memory', 'Enterprise', 'Innovation', 'Cisco', 'Oracle RDBMS', 'Linux', 'Servlet', 'Product Management', 'Oracle', 'Tomcat', 'Business Process', 'IP']
+  matched_skills: ['java']
+  skill_match:    100.0%
+  overall_match:  95.69%
+  applicable:     ['skill', 'experience', 'semantic']
+  raw_scores:     {'role': 0.0, 'skill': 1.0, 'industry': 0.0, 'experience': 1.0, 'education': 0.0, 'location': 0.0, 'semantic': 0.6123}
+  denominator:    0.45
+  final_score:    0.3384
+--- Rank 7 ---
+  resume_id:      33141415
+  candidate_name: CONSTRUCTION WORKER
+  display_name:   Construction Worker
+  skills:         ['Java', 'On The Job', 'Excel', 'CSS', 'PHP', 'ASP.NET', 'HTML', 'MySQL', 'C#', 'JavaScript', 'Some Of The']
+  matched_skills: ['java']
+  skill_match:    100.0%
+  overall_match:  95.98%
+  applicable:     ['skill', 'experience', 'education', 'semantic']
+  raw_scores:     {'role': 0.0, 'skill': 1.0, 'industry': 0.0, 'experience': 1.0, 'education': 1.0, 'location': 0.0, 'semantic': 0.5985}
+  denominator:    0.5
+  final_score:    0.3195
+--- Rank 8 ---
+  resume_id:      28505854
+  candidate_name: N/A
+  display_name:   Resume #28505854
+  skills:         ['Industrial Automation', 'TensorFlow', 'Control Systems C', 'Linux', 'JAVA', 'Device Drivers Working With Socs', 'VXWorks DVB', 'LXC', 'Java', 'MPEG', 'Mentor', 'H.264', 'C++', 'RTOS OS9', 'REST']
+  matched_skills: ['java']
+  skill_match:    100.0%
+  overall_match:  95.86%
+  applicable:     ['skill', 'experience', 'semantic']
+  raw_scores:     {'role': 0.0, 'skill': 1.0, 'industry': 0.0, 'experience': 1.0, 'education': 0.0, 'location': 0.0, 'semantic': 0.6275}
+  denominator:    0.45
+  final_score:    0.3031
+--- Rank 9 ---
+  resume_id:      24643412
+  candidate_name: N/A
+  display_name:   Resume #24643412
+  skills:         ['Web Server', 'Linux', 'Database', 'Flash', 'Pascal', 'Business Analysis', 'New Account', 'Lan', 'Instructor', 'Systems Analyst', 'General Pc', 'Patent', 'Assembly', 'Ups', 'Web Based']
+  matched_skills: ['java']
+  skill_match:    100.0%
+  overall_match:  95.64%
+  applicable:     ['skill', 'experience', 'semantic']
+  raw_scores:     {'role': 0.0, 'skill': 1.0, 'industry': 0.0, 'experience': 1.0, 'education': 0.0, 'location': 0.0, 'semantic': 0.6079}
+  denominator:    0.45
+  final_score:    0.2969
+--- Rank 10 ---
+  resume_id:      23464505
+  candidate_name: N/A
+  display_name:   Resume #23464505
+  skills:         ['Java', 'Batch Script', 'SQL', 'AWS', 'CSS', 'C++', 'Linux', 'HTML', '2014 － 05', 'Oracle', '2013 － 05', 'Git', 'Spring', 'Perl']
+  matched_skills: ['java']
+  skill_match:    100.0%
+  overall_match:  95.65%
+  applicable:     ['skill', 'experience', 'semantic']
+  raw_scores:     {'role': 0.0, 'skill': 1.0, 'industry': 0.0, 'experience': 1.0, 'education': 0.0, 'location': 0.0, 'semantic': 0.6084}
+  denominator:    0.45
+  final_score:    0.2843
+
+================================================================================
+QUERY: 'banking'
+================================================================================
+
+Returned 10 results
+
+--- Rank 1 ---
+  resume_id:      74552449
+  candidate_name: N/A
+  display_name:   Resume #74552449
+  skills:         ['Excel', 'Illustrator', 'HTML', "TapScan Public Relations Software: Bacon's Mediasource", 'Factiva Desktop Publishing Software: Photoshop', 'Sales Software: Salesforce.com']
+  matched_skills: []
+  skill_match:    0.0%
+  overall_match:  97.62%
+  applicable:     ['role', 'industry', 'experience', 'semantic']
+  raw_scores:     {'role': 1.0, 'skill': 0.0, 'industry': 1.0, 'experience': 1.0, 'education': 0.0, 'location': 0.0, 'semantic': 0.715}
+  denominator:    0.6
+  final_score:    0.4000
+--- Rank 2 ---
+  resume_id:      28989677
+  candidate_name: Computer Skills
+  display_name:   Resume #28989677
+  skills:         ['AML/OFAC Monitoring Software', 'Including MS Office Suite', 'OFAC Monitoring Software', 'Swift']
+  matched_skills: []
+  skill_match:    0.0%
+  overall_match:  97.67%
+  applicable:     ['role', 'industry', 'experience', 'education', 'semantic']
+  raw_scores:     {'role': 1.0, 'skill': 0.0, 'industry': 1.0, 'experience': 1.0, 'education': 1.0, 'location': 0.0, 'semantic': 0.6969}
+  denominator:    0.65
+  final_score:    0.3646
+--- Rank 3 ---
+  resume_id:      81217013
+  candidate_name: N/A
+  display_name:   Resume #81217013
+  skills:         ['Excel']
+  matched_skills: []
+  skill_match:    0.0%
+  overall_match:  94.49%
+  applicable:     ['industry', 'experience', 'semantic']
+  raw_scores:     {'role': 0.0, 'skill': 0.0, 'industry': 1.0, 'experience': 1.0, 'education': 0.0, 'location': 0.0, 'semantic': 0.6694}
+  denominator:    0.3
+  final_score:    0.2886
+--- Rank 4 ---
+  resume_id:      17823436
+  candidate_name: N/A
+  display_name:   Resume #17823436
+  skills:         ['Java', 'SQL', 'Active Member And Volunteer For', 'Ability To Deal With People Diplomatically', 'C++', 'Linux', 'Windows', 'HTML', 'Oracle', 'Go', 'Industrial Visits']
+  matched_skills: []
+  skill_match:    0.0%
+  overall_match:  97.09%
+  applicable:     ['role', 'industry', 'experience', 'semantic']
+  raw_scores:     {'role': 1.0, 'skill': 0.0, 'industry': 1.0, 'experience': 1.0, 'education': 0.0, 'location': 0.0, 'semantic': 0.6508}
+  denominator:    0.6
+  final_score:    0.2835
+--- Rank 5 ---
+  resume_id:      77156708
+  candidate_name: N/A
+  display_name:   Resume #77156708
+  skills:         ['Newsletters', 'Real Estate', 'SQL', 'Budget', 'Accounting', 'Financial Analysis', 'Documentation', 'Marketing', 'Money', 'Producer', 'Website', 'PProject Management CConfluence', 'Client', 'Articles', 'Decision-making']
+  matched_skills: []
+  skill_match:    0.0%
+  overall_match:  97.1%
+  applicable:     ['role', 'industry', 'experience', 'semantic']
+  raw_scores:     {'role': 1.0, 'skill': 0.0, 'industry': 1.0, 'experience': 1.0, 'education': 0.0, 'location': 0.0, 'semantic': 0.6523}
+  denominator:    0.6
+  final_score:    0.2481
+--- Rank 6 ---
+  resume_id:      87867370
+  candidate_name: N/A
+  display_name:   Resume #87867370
+  skills:         ['Sales Prism', 'Hogan System', 'PowerPoint', 'Lotus Notes 4.1', 'Genesis Customer Relationship Management System', 'Oracle', 'Excel', 'AS 400', 'Client Product Implementation System CPI', 'SEG Manager', 'Host System', 'AFS System And Rolm Switchboard', 'Banker Insight', 'Metavante And Check System CRT Computer', 'Sales Force']
+  matched_skills: []
+  skill_match:    0.0%
+  overall_match:  100.0%
+  applicable:     ['role', 'industry', 'experience', 'education']
+  raw_scores:     {'role': 1.0, 'skill': 0.0, 'industry': 1.0, 'experience': 1.0, 'education': 1.0, 'location': 0.0, 'semantic': 0.0}
+  denominator:    0.6
+  final_score:    0.2114
+--- Rank 7 ---
+  resume_id:      17396388
+  candidate_name: N/A
+  display_name:   Resume #17396388
+  skills:         []
+  matched_skills: []
+  skill_match:    0.0%
+  overall_match:  97.48%
+  applicable:     ['role', 'industry', 'experience', 'semantic']
+  raw_scores:     {'role': 1.0, 'skill': 0.0, 'industry': 1.0, 'experience': 1.0, 'education': 0.0, 'location': 0.0, 'semantic': 0.697}
+  denominator:    0.6
+  final_score:    0.2076
+--- Rank 8 ---
+  resume_id:      29552167
+  candidate_name: N/A
+  display_name:   Resume #29552167
+  skills:         ['Clients', 'Banking', 'Coaching', 'Leadership', 'Managing', 'Selling', 'Sales', 'Delivery', 'Credit', 'General Manager', 'Coach', 'Financial', 'Market']
+  matched_skills: []
+  skill_match:    0.0%
+  overall_match:  100.0%
+  applicable:     ['role', 'industry', 'experience']
+  raw_scores:     {'role': 1.0, 'skill': 0.0, 'industry': 1.0, 'experience': 1.0, 'education': 0.0, 'location': 0.0, 'semantic': 0.0}
+  denominator:    0.55
+  final_score:    0.2076
+--- Rank 9 ---
+  resume_id:      60489316
+  candidate_name: N/A
+  display_name:   Resume #60489316
+  skills:         ['SQL', 'Linux', 'Oracle', 'Swift']
+  matched_skills: []
+  skill_match:    0.0%
+  overall_match:  100.0%
+  applicable:     ['role', 'industry', 'experience']
+  raw_scores:     {'role': 1.0, 'skill': 0.0, 'industry': 1.0, 'experience': 1.0, 'education': 0.0, 'location': 0.0, 'semantic': 0.0}
+  denominator:    0.55
+  final_score:    0.2038
+--- Rank 10 ---
+  resume_id:      35564026
+  candidate_name: N/A
+  display_name:   Resume #35564026
+  skills:         ['Excel']
+  matched_skills: []
+  skill_match:    0.0%
+  overall_match:  97.45%
+  applicable:     ['role', 'industry', 'experience', 'semantic']
+  raw_scores:     {'role': 1.0, 'skill': 0.0, 'industry': 1.0, 'experience': 1.0, 'education': 0.0, 'location': 0.0, 'semantic': 0.6943}
+  denominator:    0.6
+  final_score:    0.2013
+
+================================================================================
+QUERY: 'spring boot'
+================================================================================
+
+Returned 10 results
+
+--- Rank 1 ---
+  resume_id:      83816738
+  candidate_name: N/A
+  display_name:   Resume #83816738
+  skills:         ['SQL', 'AWS', 'Jenkins', 'MongoDB', 'Linux', 'Oracle', 'Microservices', 'Spring', 'Java', 'CSS', 'PHP', 'HTML', 'JavaScript', 'MySQL', 'PostgreSQL']
+  matched_skills: ['spring']
+  skill_match:    50.0%
+  overall_match:  62.78%
+  applicable:     ['skill', 'experience', 'semantic']
+  raw_scores:     {'role': 0.0, 'skill': 0.5, 'industry': 0.0, 'experience': 1.0, 'education': 0.0, 'location': 0.0, 'semantic': 0.6504}
+  denominator:    0.45
+  final_score:    0.4000
+--- Rank 2 ---
+  resume_id:      22351830
+  candidate_name: N/A
+  display_name:   Resume #22351830
+  skills:         ['MVC', 'Struts', 'Mac OS', 'Memory', 'Enterprise', 'Innovation', 'Cisco', 'Oracle RDBMS', 'Linux', 'Servlet', 'Product Management', 'Oracle', 'Tomcat', 'Business Process', 'IP']
+  matched_skills: ['spring']
+  skill_match:    50.0%
+  overall_match:  51.76%
+  applicable:     ['skill', 'experience', 'semantic']
+  raw_scores:     {'role': 0.0, 'skill': 0.5, 'industry': 0.0, 'experience': 0.5, 'education': 0.0, 'location': 0.0, 'semantic': 0.6585}
+  denominator:    0.45
+  final_score:    0.3851
+--- Rank 3 ---
+  resume_id:      68460556
+  candidate_name: N/A
+  display_name:   Resume #68460556
+  skills:         ['Excel', 'Real-Time', 'Supervisor', 'Repairs', 'Real', 'Workshops Additional Information Awards/', 'Translation', 'Spring', 'Website']
+  matched_skills: ['spring']
+  skill_match:    50.0%
+  overall_match:  62.5%
+  applicable:     ['skill', 'experience']
+  raw_scores:     {'role': 0.0, 'skill': 0.5, 'industry': 0.0, 'experience': 1.0, 'education': 0.0, 'location': 0.0, 'semantic': 0.0}
+  denominator:    0.4
+  final_score:    0.2031
+--- Rank 4 ---
+  resume_id:      23464505
+  candidate_name: N/A
+  display_name:   Resume #23464505
+  skills:         ['Java', 'Batch Script', 'SQL', 'AWS', 'CSS', 'C++', 'Linux', 'HTML', '2014 － 05', 'Oracle', '2013 － 05', 'Git', 'Spring', 'Perl']
+  matched_skills: ['spring']
+  skill_match:    50.0%
+  overall_match:  62.56%
+  applicable:     ['skill', 'experience', 'semantic']
+  raw_scores:     {'role': 0.0, 'skill': 0.5, 'industry': 0.0, 'experience': 1.0, 'education': 0.0, 'location': 0.0, 'semantic': 0.6301}
+  denominator:    0.45
+  final_score:    0.1932
+--- Rank 5 ---
+  resume_id:      78149576
+  candidate_name: N/A
+  display_name:   Resume #78149576
+  skills:         ['Spring', 'Creativity', 'Customer Service', 'Cash Handling', 'Pick', 'POS', 'Cashier', 'Billings', 'Magic']
+  matched_skills: ['spring']
+  skill_match:    50.0%
+  overall_match:  50.0%
+  applicable:     ['skill', 'experience']
+  raw_scores:     {'role': 0.0, 'skill': 0.5, 'industry': 0.0, 'experience': 0.5, 'education': 0.0, 'location': 0.0, 'semantic': 0.0}
+  denominator:    0.4
+  final_score:    0.1932
+--- Rank 6 ---
+  resume_id:      22615491
+  candidate_name: BANKING BOOT CAMP PARTICIPANT
+  display_name:   Banking Boot Camp Participant
+  skills:         ['Excel', 'Track And Field', 'Knowledgeable Of Microsoft Word', 'Powerpoint Activities And Honors Volleyball']
+  matched_skills: []
+  skill_match:    0.0%
+  overall_match:  50.0%
+  applicable:     ['experience']
+  raw_scores:     {'role': 0.0, 'skill': 0.0, 'industry': 0.0, 'experience': 0.5, 'education': 0.0, 'location': 0.0, 'semantic': 0.0}
+  denominator:    0.1
+  final_score:    0.1907
+--- Rank 7 ---
+  resume_id:      17499196
+  candidate_name: N/A
+  display_name:   Resume #17499196
+  skills:         ['Mapping', 'Progress', 'Land Use Planning', 'Written And Verbal', 'Topo', 'Recruiting', 'Documenting']
+  matched_skills: []
+  skill_match:    0.0%
+  overall_match:  62.63%
+  applicable:     ['semantic']
+  raw_scores:     {'role': 0.0, 'skill': 0.0, 'industry': 0.0, 'experience': 0.0, 'education': 0.0, 'location': 0.0, 'semantic': 0.6263}
+  denominator:    0.05
+  final_score:    0.1882
+--- Rank 8 ---
+  resume_id:      11624880
+  candidate_name: Adobe Photoshop, InDesign, Illustrator,
+  display_name:   Resume #11624880
+  skills:         ['Adobe Photoshop', 'Spring', 'InDesign', 'Illustrator']
+  matched_skills: ['spring']
+  skill_match:    50.0%
+  overall_match:  50.0%
+  applicable:     ['skill', 'experience', 'education']
+  raw_scores:     {'role': 0.0, 'skill': 0.5, 'industry': 0.0, 'experience': 0.5, 'education': 0.5, 'location': 0.0, 'semantic': 0.0}
+  denominator:    0.45
+  final_score:    0.1882
+--- Rank 9 ---
+  resume_id:      79541391
+  candidate_name: Relevant Experience
+  display_name:   Resume #79541391
+  skills:         ['Excel', 'SQL', 'Inventory', 'ASP.NET', 'Database']
+  matched_skills: []
+  skill_match:    0.0%
+  overall_match:  62.56%
+  applicable:     ['semantic']
+  raw_scores:     {'role': 0.0, 'skill': 0.0, 'industry': 0.0, 'experience': 0.0, 'education': 0.0, 'location': 0.0, 'semantic': 0.6256}
+  denominator:    0.05
+  final_score:    0.1845
+--- Rank 10 ---
+  resume_id:      30990885
+  candidate_name: N/A
+  display_name:   Resume #30990885
+  skills:         ['Excel', 'Fluent In English', 'Banking', 'Word', 'CPR', 'Spanish', 'Phone', 'PowerPoint', 'Works', 'Retail', 'POS', 'Microsoft Word', 'Financial', 'Microsoft Office', 'Spring']
+  matched_skills: ['spring']
+  skill_match:    50.0%
+  overall_match:  50.0%
+  applicable:     ['skill', 'experience']
+  raw_scores:     {'role': 0.0, 'skill': 0.5, 'industry': 0.0, 'experience': 0.5, 'education': 0.0, 'location': 0.0, 'semantic': 0.0}
+  denominator:    0.4
+  final_score:    0.1845
+
+================================================================================
+QUERY: 'excel'
+================================================================================
+
+Returned 10 results
+
+--- Rank 1 ---
+  resume_id:      17306905
+  candidate_name: N/A
+  display_name:   Resume #17306905
+  skills:         ['Tax Returns', 'Budget', 'Accounting', 'Contracts', 'Great Plains', 'Community Health', 'Process Payroll', 'Therapy', 'Reporting', 'CRM', 'Compliance Audits', 'Excel', 'Accountant', 'Auditing', 'Client']
+  matched_skills: ['excel']
+  skill_match:    100.0%
+  overall_match:  96.87%
+  applicable:     ['skill', 'experience', 'semantic']
+  raw_scores:     {'role': 0.0, 'skill': 1.0, 'industry': 0.0, 'experience': 1.0, 'education': 0.0, 'location': 0.0, 'semantic': 0.7187}
+  denominator:    0.45
+  final_score:    0.4000
+--- Rank 2 ---
+  resume_id:      54227873
+  candidate_name: N/A
+  display_name:   Resume #54227873
+  skills:         ['Java', 'MS Word', 'Excel', 'Linux', 'Python', 'Visual Basic', 'C++', 'Windows', 'AutoCAD', 'HTML', 'AutoCAD Inventor', 'MS Powerpoint', 'Xcode']
+  matched_skills: ['excel']
+  skill_match:    100.0%
+  overall_match:  97.56%
+  applicable:     ['skill', 'experience', 'semantic']
+  raw_scores:     {'role': 0.0, 'skill': 1.0, 'industry': 0.0, 'experience': 1.0, 'education': 0.0, 'location': 0.0, 'semantic': 0.7808}
+  denominator:    0.45
+  final_score:    0.3723
+--- Rank 3 ---
+  resume_id:      19164410
+  candidate_name: Computer Skills
+  display_name:   Resume #19164410
+  skills:         ['Excel']
+  matched_skills: ['excel']
+  skill_match:    100.0%
+  overall_match:  97.13%
+  applicable:     ['skill', 'experience', 'semantic']
+  raw_scores:     {'role': 0.0, 'skill': 1.0, 'industry': 0.0, 'experience': 1.0, 'education': 0.0, 'location': 0.0, 'semantic': 0.7417}
+  denominator:    0.45
+  final_score:    0.3711
+--- Rank 4 ---
+  resume_id:      11887930
+  candidate_name: N/A
+  display_name:   Resume #11887930
+  skills:         ['Excel', 'Basis', 'Metrics', 'Operations', 'Oracle', 'Databases']
+  matched_skills: ['excel']
+  skill_match:    100.0%
+  overall_match:  96.38%
+  applicable:     ['skill', 'experience', 'semantic']
+  raw_scores:     {'role': 0.0, 'skill': 1.0, 'industry': 0.0, 'experience': 1.0, 'education': 0.0, 'location': 0.0, 'semantic': 0.6738}
+  denominator:    0.45
+  final_score:    0.3560
+--- Rank 5 ---
+  resume_id:      30148777
+  candidate_name: N/A
+  display_name:   Resume #30148777
+  skills:         ['Word', 'Customer Service', 'Scheduling', 'Managing', 'PowerPoint', 'Answering Phones', 'Paralegal', 'Attorney', 'Network', 'Spreadsheets', 'Record Keeping', 'Managerial', 'Excel', 'Phone System', 'Quality']
+  matched_skills: ['excel']
+  skill_match:    100.0%
+  overall_match:  96.52%
+  applicable:     ['skill', 'experience', 'semantic']
+  raw_scores:     {'role': 0.0, 'skill': 1.0, 'industry': 0.0, 'experience': 1.0, 'education': 0.0, 'location': 0.0, 'semantic': 0.6867}
+  denominator:    0.45
+  final_score:    0.3560
+--- Rank 6 ---
+  resume_id:      19176318
+  candidate_name: N/A
+  display_name:   Resume #19176318
+  skills:         ['SQL', 'AS/400', 'Billing', 'Accounting', 'Performance Management', 'Documentation', 'PowerPoint', 'Reporting', 'Excel', 'Essbase', 'Mark', 'JD EDWARDS', 'Record Keeping', 'Corporate Finance', 'SAP']
+  matched_skills: ['excel']
+  skill_match:    100.0%
+  overall_match:  96.46%
+  applicable:     ['skill', 'experience', 'semantic']
+  raw_scores:     {'role': 0.0, 'skill': 1.0, 'industry': 0.0, 'experience': 1.0, 'education': 0.0, 'location': 0.0, 'semantic': 0.681}
+  denominator:    0.45
+  final_score:    0.3522
+--- Rank 7 ---
+  resume_id:      27847081
+  candidate_name: N/A
+  display_name:   Resume #27847081
+  skills:         ['Go', 'Additional Information Awards', 'Additional Information Awards/Recognition', 'Excel']
+  matched_skills: ['excel']
+  skill_match:    100.0%
+  overall_match:  96.95%
+  applicable:     ['skill', 'experience', 'semantic']
+  raw_scores:     {'role': 0.0, 'skill': 1.0, 'industry': 0.0, 'experience': 1.0, 'education': 0.0, 'location': 0.0, 'semantic': 0.7253}
+  denominator:    0.45
+  final_score:    0.3396
+--- Rank 8 ---
+  resume_id:      99433371
+  candidate_name: Executive Summary
+  display_name:   Resume #99433371
+  skills:         ['Adobe Photoshop', 'Digital Illustration', 'Inspection', 'Excel', 'Data Entry', 'Revit', 'Illustrator', 'Administrative Duties', 'PowerPoint', 'Interior Design', 'Color', 'Payroll', 'Microsoft Word', 'AutoCAD', 'Insurance']
+  matched_skills: ['excel']
+  skill_match:    100.0%
+  overall_match:  96.74%
+  applicable:     ['skill', 'experience', 'semantic']
+  raw_scores:     {'role': 0.0, 'skill': 1.0, 'industry': 0.0, 'experience': 1.0, 'education': 0.0, 'location': 0.0, 'semantic': 0.7067}
+  denominator:    0.45
+  final_score:    0.3371
+--- Rank 9 ---
+  resume_id:      39295103
+  candidate_name: N/A
+  display_name:   Resume #39295103
+  skills:         ['Invoicing', 'Billing', 'Customer Support', 'Scheduling', 'Coding', 'Contracts', 'Microsoft Word', 'Reporting', 'Excel', 'Spreadsheets', 'Upgrades', 'Websites', 'Quality', 'Notes', 'Mail']
+  matched_skills: ['excel']
+  skill_match:    100.0%
+  overall_match:  96.32%
+  applicable:     ['skill', 'experience', 'semantic']
+  raw_scores:     {'role': 0.0, 'skill': 1.0, 'industry': 0.0, 'experience': 1.0, 'education': 0.0, 'location': 0.0, 'semantic': 0.6692}
+  denominator:    0.45
+  final_score:    0.3333
+--- Rank 10 ---
+  resume_id:      58105060
+  candidate_name: N/A
+  display_name:   Resume #58105060
+  skills:         ['Math 7', 'Word', 'Billing', 'Phone', 'Balance', 'Focus', 'PowerPoint', 'Video', 'English', 'Excel', 'Charts', 'Teacher', 'Materials', 'Arabic', 'Microsoft Programs']
+  matched_skills: ['excel']
+  skill_match:    100.0%
+  overall_match:  96.8%
+  applicable:     ['skill', 'experience', 'semantic']
+  raw_scores:     {'role': 0.0, 'skill': 1.0, 'industry': 0.0, 'experience': 1.0, 'education': 0.0, 'location': 0.0, 'semantic': 0.7116}
+  denominator:    0.45
+  final_score:    0.3321
+
+================================================================================
+All search tests complete.
+================================================================================

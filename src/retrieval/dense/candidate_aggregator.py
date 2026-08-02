@@ -18,10 +18,10 @@ SOLID Principles Applied:
 """
 
 import logging
-from typing import List, Dict, Any, Optional
 from collections import defaultdict
 from enum import Enum
-from .schema import DenseSearchResult, AggregatedCandidateResult
+
+from .schema import AggregatedCandidateResult, DenseSearchResult
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +65,7 @@ class CandidateAggregator:
     
     def __init__(
         self,
-        section_weights: Optional[Dict[str, float]] = None,
+        section_weights: dict[str, float] | None = None,
         strategy: AggregationStrategy = AggregationStrategy.WEIGHTED
     ):
         """
@@ -109,7 +109,7 @@ class CandidateAggregator:
             f"section_weights={self.section_weights}"
         )
     
-    def aggregate(self, results: List[DenseSearchResult]) -> List[AggregatedCandidateResult]:
+    def aggregate(self, results: list[DenseSearchResult]) -> list[AggregatedCandidateResult]:
         """
         Aggregate search results by candidate.
         
@@ -145,7 +145,7 @@ class CandidateAggregator:
         
         return aggregated_candidates
     
-    def _aggregate_candidate(self, results: List[DenseSearchResult]) -> AggregatedCandidateResult:
+    def _aggregate_candidate(self, results: list[DenseSearchResult]) -> AggregatedCandidateResult:
         """
         Aggregate results for a single candidate using the configured strategy.
         
@@ -323,7 +323,7 @@ class CandidateAggregator:
         logger.info(f"Updated section weight for '{section}': {weight:.2f}")
         logger.info(f"Renormalized weights: {self.section_weights}")
     
-    def get_section_weights(self) -> Dict[str, float]:
+    def get_section_weights(self) -> dict[str, float]:
         """
         Get the current section weights.
         

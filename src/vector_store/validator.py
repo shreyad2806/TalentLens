@@ -17,7 +17,8 @@ SOLID Principles Applied:
 """
 
 import math
-from typing import List, Dict, Any, Optional, Set
+from typing import Any
+
 from .schema import VectorRecord
 
 
@@ -34,7 +35,7 @@ class ValidationError(Exception):
     - Can be extended with field-specific exceptions
     """
     
-    def __init__(self, field: str, message: str, record_id: Optional[str] = None):
+    def __init__(self, field: str, message: str, record_id: str | None = None):
         """
         Initialize the validation error.
         
@@ -75,7 +76,7 @@ class VectorStoreValidator:
     - Dependency Inversion: Depends on abstractions (VectorRecord schema)
     """
     
-    def __init__(self, expected_dimension: Optional[int] = None):
+    def __init__(self, expected_dimension: int | None = None):
         """
         Initialize the validator.
         
@@ -103,7 +104,7 @@ class VectorStoreValidator:
         self._validate_dimension(record.vector)
         self._validate_metadata(record.resume_metadata.model_dump(mode="json"))
     
-    def validate_records(self, records: List[VectorRecord]) -> Dict[str, Any]:
+    def validate_records(self, records: list[VectorRecord]) -> dict[str, Any]:
         """
         Validate a batch of vector records.
         
@@ -142,7 +143,7 @@ class VectorStoreValidator:
         for duplicate_id in duplicate_ids:
             errors.append(ValidationError(
                 field='id',
-                message=f"Duplicate ID found in batch",
+                message="Duplicate ID found in batch",
                 record_id=duplicate_id
             ))
         
@@ -167,7 +168,7 @@ class VectorStoreValidator:
         if not id or not id.strip():
             raise ValidationError(field='id', message='ID cannot be empty')
     
-    def _validate_vector(self, vector: List[float]) -> None:
+    def _validate_vector(self, vector: list[float]) -> None:
         """
         Validate that a vector is not empty and contains no NaN values.
         
@@ -183,7 +184,7 @@ class VectorStoreValidator:
         if any(math.isnan(x) for x in vector):
             raise ValidationError(field='vector', message='Vector contains NaN values')
     
-    def _validate_dimension(self, vector: List[float]) -> None:
+    def _validate_dimension(self, vector: list[float]) -> None:
         """
         Validate that a vector has the expected dimension.
         
@@ -200,7 +201,7 @@ class VectorStoreValidator:
                     message=f'Dimension mismatch: expected {self.expected_dimension}, got {len(vector)}'
                 )
     
-    def _validate_metadata(self, metadata: Dict[str, Any]) -> None:
+    def _validate_metadata(self, metadata: dict[str, Any]) -> None:
         """
         Validate that metadata is a valid dictionary.
         
@@ -219,7 +220,7 @@ class VectorStoreValidator:
                 message=f'Metadata must be a dictionary, got {type(metadata).__name__}'
             )
     
-    def _find_duplicate_ids(self, ids: List[str]) -> Set[str]:
+    def _find_duplicate_ids(self, ids: list[str]) -> set[str]:
         """
         Find duplicate IDs in a list.
         
@@ -239,7 +240,7 @@ class VectorStoreValidator:
         
         return duplicates
     
-    def validate_dimension_consistency(self, records: List[VectorRecord]) -> Dict[str, Any]:
+    def validate_dimension_consistency(self, records: list[VectorRecord]) -> dict[str, Any]:
         """
         Validate that all records have consistent vector dimensions.
         
@@ -274,7 +275,7 @@ class VectorStoreValidator:
             'inconsistent_count': inconsistent_count
         }
     
-    def validate_query_vector(self, vector: List[float]) -> None:
+    def validate_query_vector(self, vector: list[float]) -> None:
         """
         Validate a query vector before performing a search.
         

@@ -6,14 +6,13 @@ for creating Chunk objects from ResumeDocument. It orchestrates the factory
 and validator components.
 """
 
-import uuid
-from typing import List, Optional
 import logging
+import uuid
 
 from ..resume_parser.schema import ResumeDocument
 from .factory import ChunkFactory
-from .validator import ChunkValidator
 from .schema import Chunk
+from .validator import ChunkValidator
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +30,7 @@ class ChunkService:
     to the validator.
     """
     
-    def __init__(self, max_chunk_length: Optional[int] = None):
+    def __init__(self, max_chunk_length: int | None = None):
         """
         Initialize the ChunkService with component modules.
         
@@ -43,8 +42,8 @@ class ChunkService:
         self.chunk_validator = ChunkValidator(max_chunk_length=max_chunk_length)
     
     def create_chunks(self, document: ResumeDocument, 
-                     resume_id: Optional[str] = None,
-                     source_document: Optional[str] = None) -> List[Chunk]:
+                     resume_id: str | None = None,
+                     source_document: str | None = None) -> list[Chunk]:
         """
         Create Chunk objects from a ResumeDocument.
         
@@ -89,8 +88,8 @@ class ChunkService:
         return valid_chunks
     
     def create_chunks_with_stats(self, document: ResumeDocument,
-                                 resume_id: Optional[str] = None,
-                                 source_document: Optional[str] = None) -> dict:
+                                 resume_id: str | None = None,
+                                 source_document: str | None = None) -> dict:
         """
         Create chunks and return with validation statistics.
         

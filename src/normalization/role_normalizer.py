@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-from typing import Optional
 
 
 class RoleNormalizer:
@@ -36,7 +35,7 @@ class RoleNormalizer:
     ]
 
     @classmethod
-    def normalize(cls, role: Optional[str]) -> Optional[str]:
+    def normalize(cls, role: str | None) -> str | None:
         if not role:
             return None
         cleaned = role.strip()

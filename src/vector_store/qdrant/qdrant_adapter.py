@@ -14,33 +14,58 @@ SOLID Principles Applied:
 import logging
 import os
 import time
-from typing import List, Dict, Any, Optional, Union
+from pathlib import Path
+from typing import Any
 
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
     PointStruct,
-    Filter,
-    SearchRequest,
-    VectorParams,
-    Distance,
-    Batch,
 )
 
-from .schema import (
-    QdrantCollectionConfig,
-    QdrantPayload,
-    QdrantFilter,
-    QdrantHealthStatus,
-    SearchResult,
-    UpsertResult,
-    CollectionInfo,
-)
-
+from ...config import EMBEDDING_DIM
 from .collection_manager import CollectionManager
 from .health_check import HealthCheck
-from ...config import EMBEDDING_DIM
+from .schema import (
+    CollectionInfo,
+    QdrantCollectionConfig,
+    QdrantFilter,
+    QdrantHealthStatus,
+    QdrantPayload,
+    SearchResult,
+    UpsertResult,
+)
 
 logger = logging.getLogger(__name__)
+
+# Per-storage-path singleton cache for embedded Qdrant clients.
+# Embedded Qdrant locks the local storage directory, so only one client
+# may ever be opened per path per process.
+_qdrant_clients: dict[str, QdrantClient] = {}
+
+
+def _get_shared_qdrant_client(
+    *,
+    path: str | None = None,
+    url: str | None = None,
+    api_key: str | None = None,
+) -> QdrantClient:
+    """Return a cached QdrantClient, creating only one per path/URL."""
+    if url:
+        key = f"url:{url}:api:{bool(api_key)}"
+    else:
+        key = f"path:{Path(path).resolve()}"
+
+    if key not in _qdrant_clients:
+        if url:
+            if api_key:
+                client = QdrantClient(url=url, api_key=api_key)
+            else:
+                client = QdrantClient(url=url)
+        else:
+            Path(path).parent.mkdir(parents=True, exist_ok=True)
+            client = QdrantClient(path=path)
+        _qdrant_clients[key] = client
+    return _qdrant_clients[key]
 
 
 class QdrantAdapter:
@@ -64,11 +89,11 @@ class QdrantAdapter:
     
     def __init__(
         self,
-        url: Optional[str] = None,
-        path: Optional[str] = None,
-        api_key: Optional[str] = None,
-        collection_name: Optional[str] = None,
-        vector_size: Optional[int] = None,
+        url: str | None = None,
+        path: str | None = None,
+        api_key: str | None = None,
+        collection_name: str | None = None,
+        vector_size: int | None = None,
         distance: str = "Cosine"
     ):
         """
@@ -107,15 +132,14 @@ class QdrantAdapter:
             distance=distance_enum
         )
         
-        # Initialize Qdrant client: prefer remote URL, fallback to local persisted path
-        if self.url:
-            if self.api_key:
-                self.client = QdrantClient(url=self.url, api_key=self.api_key)
-            else:
-                self.client = QdrantClient(url=self.url)
-        else:
-            Path(self.path).parent.mkdir(parents=True, exist_ok=True)
-            self.client = QdrantClient(path=self.path)
+        # Initialize Qdrant client: prefer remote URL, fallback to local persisted path.
+        # The client is fetched from the per-path/URL singleton cache so multiple
+        # QdrantAdapter instances share the same underlying client.
+        self.client = _get_shared_qdrant_client(
+            path=self.path,
+            url=self.url,
+            api_key=self.api_key,
+        )
         
         # Initialize collection manager and health check
         self.collection_manager = CollectionManager(self.client, self.config)
@@ -141,7 +165,7 @@ class QdrantAdapter:
                 logger.info(f"Collection {self.collection_name} created successfully")
             return success
         except Exception as e:
-            logger.error(f"Failed to create collection: {str(e)}")
+            logger.error(f"Failed to create collection: {e!s}")
             return False
     
     def delete_collection(self) -> bool:
@@ -157,14 +181,14 @@ class QdrantAdapter:
                 logger.info(f"Collection {self.collection_name} deleted successfully")
             return success
         except Exception as e:
-            logger.error(f"Failed to delete collection: {str(e)}")
+            logger.error(f"Failed to delete collection: {e!s}")
             return False
     
     def upsert_vectors(
         self,
-        vectors: List[List[float]],
-        payloads: List[Dict[str, Any]],
-        ids: Optional[List[str]] = None
+        vectors: list[list[float]],
+        payloads: list[dict[str, Any]],
+        ids: list[str] | None = None
     ) -> UpsertResult:
         """
         Insert or update vectors in the collection.
@@ -221,15 +245,15 @@ class QdrantAdapter:
             return result
             
         except Exception as e:
-            logger.error(f"Failed to upsert vectors: {str(e)}")
+            logger.error(f"Failed to upsert vectors: {e!s}")
             raise
     
     def search(
         self,
-        query_vector: List[float],
+        query_vector: list[float],
         top_k: int = 10,
-        score_threshold: Optional[float] = None
-    ) -> List[SearchResult]:
+        score_threshold: float | None = None
+    ) -> list[SearchResult]:
         """
         Search for similar vectors.
         
@@ -242,13 +266,15 @@ class QdrantAdapter:
             List of SearchResult objects
         """
         try:
-            # Perform search
-            search_results = self.client.search(
+            # Perform search using the qdrant-client query_points API
+            response = self.client.query_points(
                 collection_name=self.collection_name,
-                query_vector=query_vector,
+                query=query_vector,
                 limit=top_k,
+                with_payload=True,
                 score_threshold=score_threshold
             )
+            search_results = response.points
             
             # Convert to SearchResult objects
             results = []
@@ -267,16 +293,16 @@ class QdrantAdapter:
             return results
             
         except Exception as e:
-            logger.error(f"Failed to search: {str(e)}")
+            logger.error(f"Failed to search: {e!s}")
             raise
     
     def search_with_filters(
         self,
-        query_vector: List[float],
+        query_vector: list[float],
         filters: QdrantFilter,
         top_k: int = 10,
-        score_threshold: Optional[float] = None
-    ) -> List[SearchResult]:
+        score_threshold: float | None = None
+    ) -> list[SearchResult]:
         """
         Search for similar vectors with metadata filters.
         
@@ -293,14 +319,16 @@ class QdrantAdapter:
             # Convert filters to Qdrant filter format
             qdrant_filter = filters.to_qdrant_filter()
             
-            # Perform search with filters
-            search_results = self.client.search(
+            # Perform search with filters using query_points
+            response = self.client.query_points(
                 collection_name=self.collection_name,
-                query_vector=query_vector,
+                query=query_vector,
                 query_filter=qdrant_filter,
                 limit=top_k,
+                with_payload=True,
                 score_threshold=score_threshold
             )
+            search_results = response.points
             
             # Convert to SearchResult objects
             results = []
@@ -319,13 +347,13 @@ class QdrantAdapter:
             return results
             
         except Exception as e:
-            logger.error(f"Failed to search with filters: {str(e)}")
+            logger.error(f"Failed to search with filters: {e!s}")
             raise
     
     def batch_insert(
         self,
-        vectors: List[List[float]],
-        payloads: List[Dict[str, Any]],
+        vectors: list[list[float]],
+        payloads: list[dict[str, Any]],
         batch_size: int = 100
     ) -> UpsertResult:
         """
@@ -376,7 +404,7 @@ class QdrantAdapter:
             return result
             
         except Exception as e:
-            logger.error(f"Failed to batch insert: {str(e)}")
+            logger.error(f"Failed to batch insert: {e!s}")
             raise
     
     def count(self) -> int:
@@ -391,7 +419,7 @@ class QdrantAdapter:
             logger.debug(f"Vector count: {count}")
             return count
         except Exception as e:
-            logger.error(f"Failed to get vector count: {str(e)}")
+            logger.error(f"Failed to get vector count: {e!s}")
             return 0
     
     def health_check(self) -> QdrantHealthStatus:
@@ -405,7 +433,7 @@ class QdrantAdapter:
             health_status = self.health_checker.perform_health_check()
             return health_status
         except Exception as e:
-            logger.error(f"Failed to perform health check: {str(e)}")
+            logger.error(f"Failed to perform health check: {e!s}")
             return QdrantHealthStatus(
                 status="unhealthy",
                 connection_healthy=False,
@@ -415,7 +443,7 @@ class QdrantAdapter:
                 latency_ms=None
             )
     
-    def get_collection_info(self) -> Optional[CollectionInfo]:
+    def get_collection_info(self) -> CollectionInfo | None:
         """
         Get detailed information about the collection.
         
@@ -425,10 +453,10 @@ class QdrantAdapter:
         try:
             return self.collection_manager.get_collection_info()
         except Exception as e:
-            logger.error(f"Failed to get collection info: {str(e)}")
+            logger.error(f"Failed to get collection info: {e!s}")
             return None
     
-    def delete_points(self, point_ids: List[str]) -> bool:
+    def delete_points(self, point_ids: list[str]) -> bool:
         """
         Delete specific points from the collection.
         
@@ -446,7 +474,7 @@ class QdrantAdapter:
             logger.info(f"Deleted {len(point_ids)} points from collection")
             return True
         except Exception as e:
-            logger.error(f"Failed to delete points: {str(e)}")
+            logger.error(f"Failed to delete points: {e!s}")
             return False
     
     def clear_collection(self) -> bool:
@@ -459,7 +487,7 @@ class QdrantAdapter:
         try:
             return self.collection_manager.clear_collection()
         except Exception as e:
-            logger.error(f"Failed to clear collection: {str(e)}")
+            logger.error(f"Failed to clear collection: {e!s}")
             return False
     
     def print_health_status(self) -> None:
@@ -476,7 +504,7 @@ class QdrantAdapter:
         """
         return self.health_checker.is_healthy()
     
-    def get_diagnostics(self) -> Dict[str, Any]:
+    def get_diagnostics(self) -> dict[str, Any]:
         """
         Get diagnostic information about the adapter.
         

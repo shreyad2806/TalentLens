@@ -1,22 +1,21 @@
 from __future__ import annotations
 
+import logging
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Dict, Any
-import logging
 
-from src.vector_store import VectorStoreService
 from src.embeddings.embedding_service import EmbeddingService
-from src.retrieval.sparse.bm25_index import BM25Index, IncompatibleIndexError
 from src.retrieval.dense.dense_retrieval_service import DenseRetrievalService
-from src.retrieval.sparse.sparse_retrieval_service import SparseRetrievalService
 from src.retrieval.hybrid.hybrid_retrieval_service import HybridRetrievalService
+from src.retrieval.sparse.bm25_index import BM25Index, IncompatibleIndexError
+from src.retrieval.sparse.sparse_retrieval_service import SparseRetrievalService
+from src.vector_store import VectorStoreService
 
 logger = logging.getLogger(__name__)
 
 # Module-level singleton to ensure BootstrapService and app.py share the same retrieval instances
-_retrieval_bundle_singleton: Optional[RetrievalBundle] = None
+_retrieval_bundle_singleton: RetrievalBundle | None = None
 
 
 @dataclass(frozen=True)
@@ -45,7 +44,7 @@ def _maybe_load_bm25_index(bm25_index: BM25Index, bm25_index_path: Path) -> None
             print(f"[BOOTSTRAP-TRACE][composition_root.py] BM25 loaded: num_documents={num_docs}")
         except IncompatibleIndexError as e:
             logger.error(f"Incompatible persisted BM25 index at {bm25_index_path}: {e}")
-            print(f"[BOOTSTRAP-TRACE][composition_root.py] Incompatible persisted index; discarding and starting fresh")
+            print("[BOOTSTRAP-TRACE][composition_root.py] Incompatible persisted index; discarding and starting fresh")
             shutil.rmtree(bm25_index_path, ignore_errors=True)
     else:
         print(f"[BOOTSTRAP-TRACE][composition_root.py] BM25 metadata.json NOT found at {bm25_index_path} - using EMPTY BM25 index")
@@ -54,13 +53,13 @@ def _maybe_load_bm25_index(bm25_index: BM25Index, bm25_index_path: Path) -> None
 
 def create_retrieval_bundle(
     *,
-    vector_store_service: Optional[VectorStoreService] = None,
-    embedding_service: Optional[EmbeddingService] = None,
-    bm25_index: Optional[BM25Index] = None,
-    bm25_index_path: Optional[Path] = None,
-    dense_service: Optional[DenseRetrievalService] = None,
-    sparse_service: Optional[SparseRetrievalService] = None,
-    hybrid_service: Optional[HybridRetrievalService] = None,
+    vector_store_service: VectorStoreService | None = None,
+    embedding_service: EmbeddingService | None = None,
+    bm25_index: BM25Index | None = None,
+    bm25_index_path: Path | None = None,
+    dense_service: DenseRetrievalService | None = None,
+    sparse_service: SparseRetrievalService | None = None,
+    hybrid_service: HybridRetrievalService | None = None,
 ) -> RetrievalBundle:
     """Create (or reuse) retrieval services.
 

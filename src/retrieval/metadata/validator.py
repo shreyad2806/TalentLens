@@ -20,7 +20,6 @@ SOLID Principles Applied:
 
 import logging
 import re
-from typing import List, Optional, Set
 
 from .schema import CandidateMetadata, MetadataFilter
 
@@ -51,7 +50,7 @@ LOCATION_PATTERN = re.compile(r"^[a-zA-Z\s,\-'.]{2,100}$")
 class ValidationError(Exception):
     """Custom exception for metadata validation errors."""
 
-    def __init__(self, message: str, field: Optional[str] = None):
+    def __init__(self, message: str, field: str | None = None):
         self.message = message
         self.field = field
         super().__init__(self.message)
@@ -120,7 +119,7 @@ class MetadataFilterValidator:
 
         logger.debug("MetadataFilter validation passed")
 
-    def validate_candidates(self, candidates: List[CandidateMetadata]) -> None:
+    def validate_candidates(self, candidates: list[CandidateMetadata]) -> None:
         """
         Validate candidate metadata list before filtering.
 
@@ -133,7 +132,7 @@ class MetadataFilterValidator:
         if candidates is None:
             raise ValidationError("Candidates list cannot be None", field="candidates")
 
-        seen_ids: Set[str] = set()
+        seen_ids: set[str] = set()
         for candidate in candidates:
             if not candidate.candidate_id:
                 raise ValidationError(
@@ -216,7 +215,7 @@ class MetadataFilterValidator:
 
     def _validate_locations(self, filters: MetadataFilter) -> None:
         """Reject malformed location strings."""
-        locations: List[str] = []
+        locations: list[str] = []
         if filters.location:
             locations.append(filters.location)
         if filters.preferred_locations:

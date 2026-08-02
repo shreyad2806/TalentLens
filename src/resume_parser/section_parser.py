@@ -6,7 +6,6 @@ based on heading patterns and extracts the content for each section.
 """
 
 import re
-from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 
 
@@ -116,7 +115,7 @@ class SectionParser:
     }
     
     @staticmethod
-    def detect_sections(text: str) -> Dict[str, Section]:
+    def detect_sections(text: str) -> dict[str, Section]:
         """
         Detect all sections in the resume text.
         
@@ -147,7 +146,7 @@ class SectionParser:
         return sections
     
     @staticmethod
-    def _find_section_boundaries(lines: List[str]) -> Dict[str, Tuple[int, int]]:
+    def _find_section_boundaries(lines: list[str]) -> dict[str, tuple[int, int]]:
         """
         Find the start and end line indices for each section.
         
@@ -183,7 +182,7 @@ class SectionParser:
         return boundaries
     
     @staticmethod
-    def _match_section_heading(line: str) -> Optional[str]:
+    def _match_section_heading(line: str) -> str | None:
         """
         Check if a line matches any known section heading pattern.
         
@@ -200,7 +199,7 @@ class SectionParser:
         return None
     
     @staticmethod
-    def get_section_content(text: str, section_name: str) -> Optional[str]:
+    def get_section_content(text: str, section_name: str) -> str | None:
         """
         Get content for a specific section.
         
@@ -216,7 +215,7 @@ class SectionParser:
         return section.content if section else None
     
     @staticmethod
-    def extract_contact_info(text: str) -> Dict[str, Optional[str]]:
+    def extract_contact_info(text: str) -> dict[str, str | None]:
         """
         Extract contact information from the beginning of the resume.
         
@@ -274,7 +273,7 @@ class SectionParser:
         return contact_info
     
     @staticmethod
-    def extract_summary(text: str) -> Optional[str]:
+    def extract_summary(text: str) -> str | None:
         """
         Extract the professional summary section.
         
@@ -287,7 +286,7 @@ class SectionParser:
         return SectionParser.get_section_content(text, 'summary')
     
     @staticmethod
-    def extract_skills_section(text: str) -> Optional[str]:
+    def extract_skills_section(text: str) -> str | None:
         """
         Extract the skills section.
         
@@ -300,7 +299,7 @@ class SectionParser:
         return SectionParser.get_section_content(text, 'skills')
     
     @staticmethod
-    def extract_experience_section(text: str) -> Optional[str]:
+    def extract_experience_section(text: str) -> str | None:
         """
         Extract the experience section.
         
@@ -313,7 +312,7 @@ class SectionParser:
         return SectionParser.get_section_content(text, 'experience')
     
     @staticmethod
-    def extract_education_section(text: str) -> Optional[str]:
+    def extract_education_section(text: str) -> str | None:
         """
         Extract the education section.
         
@@ -326,7 +325,7 @@ class SectionParser:
         return SectionParser.get_section_content(text, 'education')
     
     @staticmethod
-    def extract_projects_section(text: str) -> Optional[str]:
+    def extract_projects_section(text: str) -> str | None:
         """
         Extract the projects section.
         
@@ -339,7 +338,7 @@ class SectionParser:
         return SectionParser.get_section_content(text, 'projects')
     
     @staticmethod
-    def extract_certifications_section(text: str) -> Optional[str]:
+    def extract_certifications_section(text: str) -> str | None:
         """
         Extract the certifications section.
         
@@ -352,7 +351,7 @@ class SectionParser:
         return SectionParser.get_section_content(text, 'certifications')
     
     @staticmethod
-    def extract_languages_section(text: str) -> Optional[str]:
+    def extract_languages_section(text: str) -> str | None:
         """
         Extract the languages section.
         

@@ -5,11 +5,11 @@ This module provides the BM25Validator class that validates BM25Document objects
 and BM25Index objects to ensure data integrity and correctness.
 """
 
-from typing import List, Dict, Any
 import logging
+from typing import Any
 
-from .schema import BM25Document
 from .bm25_index import BM25Index
+from .schema import BM25Document
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ class BM25Validator:
     BM25Index objects to ensure data integrity and correctness.
     """
     
-    def validate_document(self, document: BM25Document) -> Dict[str, Any]:
+    def validate_document(self, document: BM25Document) -> dict[str, Any]:
         """
         Validate a single BM25Document.
         
@@ -75,7 +75,7 @@ class BM25Validator:
             'errors': errors
         }
     
-    def validate_documents(self, documents: List[BM25Document]) -> Dict[str, Any]:
+    def validate_documents(self, documents: list[BM25Document]) -> dict[str, Any]:
         """
         Validate a list of BM25Document objects.
         
@@ -128,7 +128,7 @@ class BM25Validator:
             'stats': stats
         }
     
-    def validate_chunks(self, chunks: List) -> Dict[str, Any]:
+    def validate_chunks(self, chunks: list) -> dict[str, Any]:
         """
         Validate a list of Chunk objects before indexing.
         
@@ -170,7 +170,7 @@ class BM25Validator:
             'errors': errors
         }
     
-    def validate_index(self, index: BM25Index) -> Dict[str, Any]:
+    def validate_index(self, index: BM25Index) -> dict[str, Any]:
         """
         Validate a BM25Index.
         
@@ -220,7 +220,7 @@ class BM25Validator:
             'stats': stats
         }
     
-    def validate_tokenization(self, text: str, tokens: List[str]) -> Dict[str, Any]:
+    def validate_tokenization(self, text: str, tokens: list[str]) -> dict[str, Any]:
         """
         Validate tokenization results.
         

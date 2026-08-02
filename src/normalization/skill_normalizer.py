@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-from typing import Optional
 
 
 class SkillNormalizer:
@@ -36,7 +35,7 @@ class SkillNormalizer:
     ]
 
     @classmethod
-    def normalize(cls, skill: Optional[str]) -> Optional[str]:
+    def normalize(cls, skill: str | None) -> str | None:
         if not skill:
             return None
         key = skill.strip()

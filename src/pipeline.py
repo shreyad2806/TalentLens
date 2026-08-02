@@ -11,17 +11,13 @@ Resume.pdf → ParserService → ResumeDocument → ChunkService → List[Chunk]
 
 import logging
 import time
-from typing import List, Optional, Dict, Any, Union
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
+from typing import Any
 
-from .resume_parser.parser_service import ParserService
-from .resume_parser.schema import ResumeDocument
 from .chunks.service import ChunkService
-from .chunks.schema import Chunk
 from .embeddings.embedding_service import EmbeddingService
-from .embeddings.schema import EmbeddingRecord
-
+from .resume_parser.parser_service import ParserService
 
 # Configure logging
 logging.basicConfig(
@@ -57,10 +53,10 @@ class IngestionPipeline:
     
     def process_resume(
         self,
-        file_path: Union[str, Path],
-        resume_id: Optional[str] = None,
+        file_path: str | Path,
+        resume_id: str | None = None,
         enable_embeddings: bool = True
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Process a resume file through the complete ingestion pipeline.
         
@@ -171,9 +167,9 @@ class IngestionPipeline:
     
     def process_resume_legacy(
         self,
-        file_path: Union[str, Path],
-        resume_id: Optional[str] = None
-    ) -> Dict[str, Any]:
+        file_path: str | Path,
+        resume_id: str | None = None
+    ) -> dict[str, Any]:
         """
         Process a resume file without embeddings (legacy compatibility).
         
@@ -199,7 +195,7 @@ class IngestionPipeline:
             'timing': result['timing']
         }
     
-    def print_timing_summary(self, timing: Dict[str, Any]) -> None:
+    def print_timing_summary(self, timing: dict[str, Any]) -> None:
         """
         Print a formatted timing summary for the pipeline.
         
@@ -223,7 +219,7 @@ class IngestionPipeline:
             print(f"Cache Hit Rate:   {cache_stats['hit_rate']:.2%}")
             print("=" * 80)
     
-    def print_stats_summary(self, stats: Dict[str, Any]) -> None:
+    def print_stats_summary(self, stats: dict[str, Any]) -> None:
         """
         Print a formatted statistics summary for the pipeline.
         

@@ -14,10 +14,10 @@ import json
 import logging
 import time
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Any
 
-from ..indexing.indexing_service import IndexingService
 from ..chunks.schema import Chunk
+from ..indexing.indexing_service import IndexingService
 from ..models import ResumeMetadata
 
 logger = logging.getLogger(__name__)
@@ -37,14 +37,14 @@ class IndexRecoveryService:
     def __init__(
         self,
         indexing_service: IndexingService,
-        cache_dir: Optional[Path] = None,
-        bm25_index_path: Optional[Path] = None,
+        cache_dir: Path | None = None,
+        bm25_index_path: Path | None = None,
     ):
         self.indexing_service = indexing_service
         self.cache_dir = Path(cache_dir) if cache_dir else Path("data/cache")
         self.bm25_index_path = Path(bm25_index_path) if bm25_index_path else Path("data/indexes/bm25")
 
-    def _load_cached_chunks(self) -> Optional[List[Chunk]]:
+    def _load_cached_chunks(self) -> list[Chunk] | None:
         """Load cached chunk objects from disk (not from CSV)."""
         chunks_path = self.cache_dir / "chunks.json"
         if not chunks_path.exists():
@@ -78,7 +78,7 @@ class IndexRecoveryService:
             logger.error("Failed to load cached chunks: %s", e)
             return None
 
-    def verify_indexes(self) -> Dict[str, Any]:
+    def verify_indexes(self) -> dict[str, Any]:
         """Return current index counts."""
         stats = self.indexing_service.get_statistics()
         return {
@@ -88,7 +88,7 @@ class IndexRecoveryService:
             "bm25_stats": stats.get("bm25_stats"),
         }
 
-    def recover_indexes(self) -> Dict[str, Any]:
+    def recover_indexes(self) -> dict[str, Any]:
         """
         Run index recovery.
 

@@ -10,25 +10,23 @@ SOLID Principles Applied:
 """
 
 import logging
-from typing import Optional, Dict, Any
 
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
     Distance,
-    VectorParams,
-    HnswConfigDiff,
-    CollectionParams,
-    PayloadSchemaType,
-    KeywordIndexParams,
+    Filter,
     FloatIndexParams,
+    HnswConfigDiff,
     IntegerIndexParams,
+    KeywordIndexParams,
+    PayloadSchemaType,
+    VectorParams,
 )
 
 from .schema import (
-    QdrantCollectionConfig,
-    DistanceMetric,
-    HnswConfig,
     CollectionInfo,
+    DistanceMetric,
+    QdrantCollectionConfig,
 )
 
 logger = logging.getLogger(__name__)
@@ -45,7 +43,7 @@ class CollectionManager:
     def __init__(
         self,
         client: QdrantClient,
-        config: Optional[QdrantCollectionConfig] = None
+        config: QdrantCollectionConfig | None = None
     ):
         """
         Initialize the collection manager.
@@ -112,7 +110,7 @@ class CollectionManager:
             return True
             
         except Exception as e:
-            logger.error(f"Failed to create collection {self.config.collection_name}: {str(e)}")
+            logger.error(f"Failed to create collection {self.config.collection_name}: {e!s}")
             return False
     
     def _create_payload_indexes(self) -> None:
@@ -210,7 +208,7 @@ class CollectionManager:
             logger.info("All payload indexes created successfully")
             
         except Exception as e:
-            logger.warning(f"Failed to create some payload indexes: {str(e)}")
+            logger.warning(f"Failed to create some payload indexes: {e!s}")
             # Don't fail the collection creation if indexes fail
     
     def delete_collection(self) -> bool:
@@ -230,7 +228,7 @@ class CollectionManager:
             return True
             
         except Exception as e:
-            logger.error(f"Failed to delete collection {self.config.collection_name}: {str(e)}")
+            logger.error(f"Failed to delete collection {self.config.collection_name}: {e!s}")
             return False
     
     def collection_exists(self) -> bool:
@@ -248,10 +246,10 @@ class CollectionManager:
             return exists
             
         except Exception as e:
-            logger.error(f"Failed to check collection existence: {str(e)}")
+            logger.error(f"Failed to check collection existence: {e!s}")
             return False
     
-    def get_collection_info(self) -> Optional[CollectionInfo]:
+    def get_collection_info(self) -> CollectionInfo | None:
         """
         Get detailed information about the collection.
         
@@ -278,7 +276,7 @@ class CollectionManager:
             return collection_info
             
         except Exception as e:
-            logger.error(f"Failed to get collection info: {str(e)}")
+            logger.error(f"Failed to get collection info: {e!s}")
             return None
     
     def update_collection_config(self, new_config: QdrantCollectionConfig) -> bool:
@@ -299,7 +297,7 @@ class CollectionManager:
             return True
             
         except Exception as e:
-            logger.error(f"Failed to update collection configuration: {str(e)}")
+            logger.error(f"Failed to update collection configuration: {e!s}")
             return False
     
     def clear_collection(self) -> bool:
@@ -314,15 +312,15 @@ class CollectionManager:
                 logger.info(f"Collection {self.config.collection_name} does not exist")
                 return True
             
-            # Delete all points
+            # Delete all points using an empty filter
             self.client.delete(
                 collection_name=self.config.collection_name,
-                points_selector=None  # Delete all points
+                points_selector=Filter()
             )
             
             logger.info(f"Collection {self.config.collection_name} cleared successfully")
             return True
             
         except Exception as e:
-            logger.error(f"Failed to clear collection {self.config.collection_name}: {str(e)}")
+            logger.error(f"Failed to clear collection {self.config.collection_name}: {e!s}")
             return False

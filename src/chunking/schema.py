@@ -5,7 +5,8 @@ This module defines Pydantic data models for chunks extracted from resume docume
 These models provide type safety, validation, and serialization capabilities.
 """
 
-from typing import List, Optional, Dict, Any
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 from src.models import ResumeMetadata
@@ -30,17 +31,17 @@ class ChunkMetadata(BaseModel):
         summary: Professional summary / objective
         source_section: The original section this chunk came from
     """
-    candidate_name: Optional[str] = Field(None, description="Full name of the candidate")
-    experience: Optional[int] = Field(None, description="Years of experience")
-    location: Optional[str] = Field(None, description="Geographic location")
-    role: Optional[str] = Field(None, description="Current or primary role")
-    education: Optional[str] = Field(None, description="Education level or institution")
-    skills: List[str] = Field(default_factory=list, description="List of skills from the resume")
-    email: Optional[str] = Field(None, description="Email address")
-    phone: Optional[str] = Field(None, description="Phone number")
-    summary: Optional[str] = Field(None, description="Professional summary / objective")
-    source_section: Optional[str] = Field(None, description="Original section name")
-    extraction_notes: Optional[str] = Field(None, description="Per-resume extraction log: sources, fallbacks, and missing fields")
+    candidate_name: str | None = Field(None, description="Full name of the candidate")
+    experience: int | None = Field(None, description="Years of experience")
+    location: str | None = Field(None, description="Geographic location")
+    role: str | None = Field(None, description="Current or primary role")
+    education: str | None = Field(None, description="Education level or institution")
+    skills: list[str] = Field(default_factory=list, description="List of skills from the resume")
+    email: str | None = Field(None, description="Email address")
+    phone: str | None = Field(None, description="Phone number")
+    summary: str | None = Field(None, description="Professional summary / objective")
+    source_section: str | None = Field(None, description="Original section name")
+    extraction_notes: str | None = Field(None, description="Per-resume extraction log: sources, fallbacks, and missing fields")
 
 
 class Chunk(BaseModel):
@@ -62,14 +63,14 @@ class Chunk(BaseModel):
     """
     chunk_id: str = Field(..., description="Unique chunk identifier")
     resume_id: str = Field(..., description="Resume identifier")
-    candidate_name: Optional[str] = Field(None, description="Candidate name")
+    candidate_name: str | None = Field(None, description="Candidate name")
     section: str = Field(..., description="Section name (e.g., 'experience_1', 'skills')")
     text: str = Field(..., description="Chunk text content")
     metadata: ChunkMetadata = Field(..., description="Chunk metadata")
     resume_metadata: ResumeMetadata = Field(..., description="Canonical resume metadata")
     chunk_order: int = Field(..., description="Order within resume")
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """
         Convert the Chunk to a dictionary.
         

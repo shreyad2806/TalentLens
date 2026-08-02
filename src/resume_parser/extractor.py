@@ -6,17 +6,16 @@ and TXT files. It handles file I/O, format detection, and error handling.
 """
 
 import io
-from typing import Optional, Union
 from pathlib import Path
 
-# PDF extraction
-from PyPDF2 import PdfReader
+# File handling
+from typing import BinaryIO
 
 # DOCX extraction
 import docx
 
-# File handling
-from typing import BinaryIO
+# PDF extraction
+from PyPDF2 import PdfReader
 
 
 class TextExtractor:
@@ -33,7 +32,7 @@ class TextExtractor:
     """
     
     @staticmethod
-    def extract_from_file(file_path: Union[str, Path]) -> str:
+    def extract_from_file(file_path: str | Path) -> str:
         """
         Extract text from a file given its path.
         
@@ -101,7 +100,7 @@ class TextExtractor:
             raise ValueError(f"Unsupported file format: {file_extension}")
     
     @staticmethod
-    def extract_from_pdf(file_path: Union[str, Path]) -> str:
+    def extract_from_pdf(file_path: str | Path) -> str:
         """
         Extract text from a PDF file.
         
@@ -119,7 +118,7 @@ class TextExtractor:
                 result = TextExtractor._extract_pdf_from_object(file)
                 return result
         except Exception as e:
-            raise Exception(f"Failed to extract text from PDF: {str(e)}")
+            raise Exception(f"Failed to extract text from PDF: {e!s}")
     
     @staticmethod
     def _extract_pdf_from_object(file_object: BinaryIO) -> str:
@@ -153,10 +152,10 @@ class TextExtractor:
             return text.strip()
             
         except Exception as e:
-            raise Exception(f"PDF extraction failed: {str(e)}")
+            raise Exception(f"PDF extraction failed: {e!s}")
     
     @staticmethod
-    def extract_from_docx(file_path: Union[str, Path]) -> str:
+    def extract_from_docx(file_path: str | Path) -> str:
         """
         Extract text from a DOCX file.
         
@@ -173,7 +172,7 @@ class TextExtractor:
             with open(file_path, 'rb') as file:
                 return TextExtractor._extract_docx_from_object(file)
         except Exception as e:
-            raise Exception(f"Failed to extract text from DOCX: {str(e)}")
+            raise Exception(f"Failed to extract text from DOCX: {e!s}")
     
     @staticmethod
     def _extract_docx_from_object(file_object: BinaryIO) -> str:
@@ -199,10 +198,10 @@ class TextExtractor:
             return text.strip()
             
         except Exception as e:
-            raise Exception(f"DOCX extraction failed: {str(e)}")
+            raise Exception(f"DOCX extraction failed: {e!s}")
     
     @staticmethod
-    def extract_from_txt(file_path: Union[str, Path]) -> str:
+    def extract_from_txt(file_path: str | Path) -> str:
         """
         Extract text from a TXT file.
         
@@ -224,9 +223,9 @@ class TextExtractor:
                 with open(file_path, 'r', encoding='latin-1') as file:
                     return file.read().strip()
             except Exception as e:
-                raise Exception(f"TXT extraction failed: {str(e)}")
+                raise Exception(f"TXT extraction failed: {e!s}")
         except Exception as e:
-            raise Exception(f"Failed to extract text from TXT: {str(e)}")
+            raise Exception(f"Failed to extract text from TXT: {e!s}")
     
     @staticmethod
     def _extract_txt_from_object(file_object: BinaryIO) -> str:
@@ -255,9 +254,9 @@ class TextExtractor:
                 text = file_object.read().decode('latin-1')
                 return text.strip()
             except Exception as e:
-                raise Exception(f"TXT extraction failed: {str(e)}")
+                raise Exception(f"TXT extraction failed: {e!s}")
         except Exception as e:
-            raise Exception(f"TXT extraction failed: {str(e)}")
+            raise Exception(f"TXT extraction failed: {e!s}")
     
     @staticmethod
     def extract_from_text(text: str) -> str:

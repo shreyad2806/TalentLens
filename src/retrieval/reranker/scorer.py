@@ -34,7 +34,8 @@ SOLID Principles Applied:
 
 import logging
 import time
-from typing import List, Any, Optional, Dict, Tuple
+from typing import Any
+
 import numpy as np
 
 logger = logging.getLogger(__name__)
@@ -81,8 +82,8 @@ class CrossEncoderScorer:
         self,
         model_loader: Any,
         batch_processor: Any,
-        cache: Optional[Any] = None,
-        normalize: Optional[str] = None
+        cache: Any | None = None,
+        normalize: str | None = None
     ):
         """
         Initialize the cross-encoder scorer.
@@ -121,8 +122,8 @@ class CrossEncoderScorer:
     def score_candidates(
         self,
         query: str,
-        candidates: List[Any]
-    ) -> List[float]:
+        candidates: list[Any]
+    ) -> list[float]:
         """
         Score candidates using cross-encoder.
         
@@ -197,8 +198,8 @@ class CrossEncoderScorer:
     def _score_uncached(
         self,
         query: str,
-        candidates: List[Any]
-    ) -> List[float]:
+        candidates: list[Any]
+    ) -> list[float]:
         """
         Score uncached candidates using cross-encoder.
         
@@ -221,7 +222,7 @@ class CrossEncoderScorer:
         
         return scores
     
-    def _normalize_scores(self, scores: List[float]) -> List[float]:
+    def _normalize_scores(self, scores: list[float]) -> list[float]:
         """
         Normalize scores using the specified strategy.
         
@@ -244,7 +245,7 @@ class CrossEncoderScorer:
             logger.warning(f"Unknown normalization strategy: {self.normalize}")
             return scores
     
-    def _normalize_minmax(self, scores: List[float]) -> List[float]:
+    def _normalize_minmax(self, scores: list[float]) -> list[float]:
         """
         Normalize scores to [0, 1] range using min-max normalization.
         
@@ -266,7 +267,7 @@ class CrossEncoderScorer:
         normalized = (scores_array - min_score) / (max_score - min_score)
         return normalized.tolist()
     
-    def _normalize_zscore(self, scores: List[float]) -> List[float]:
+    def _normalize_zscore(self, scores: list[float]) -> list[float]:
         """
         Normalize scores to zero mean and unit variance.
         
@@ -288,7 +289,7 @@ class CrossEncoderScorer:
         normalized = (scores_array - mean) / std
         return normalized.tolist()
     
-    def _normalize_sigmoid(self, scores: List[float]) -> List[float]:
+    def _normalize_sigmoid(self, scores: list[float]) -> list[float]:
         """
         Apply sigmoid transformation to scores.
         
@@ -306,7 +307,7 @@ class CrossEncoderScorer:
         normalized = 1 / (1 + np.exp(-scores_array))
         return normalized.tolist()
     
-    def get_score_statistics(self, scores: List[float]) -> Dict[str, float]:
+    def get_score_statistics(self, scores: list[float]) -> dict[str, float]:
         """
         Get statistics about the scores.
         

@@ -11,9 +11,10 @@ Architecture Notes:
 - Immutable data structures for safety
 """
 
-from typing import Optional, Dict, Any, List
-from pydantic import BaseModel, Field, computed_field, field_validator
 from datetime import datetime
+from typing import Any
+
+from pydantic import BaseModel, Field, computed_field, field_validator
 
 from src.models import ResumeMetadata
 
@@ -38,12 +39,12 @@ class DenseSearchResult(BaseModel):
 
     @computed_field
     @property
-    def candidate_name(self) -> Optional[str]:
+    def candidate_name(self) -> str | None:
         return self.resume_metadata.candidate_name
 
     @computed_field
     @property
-    def metadata(self) -> Dict[str, Any]:
+    def metadata(self) -> dict[str, Any]:
         """Legacy compatibility: expose resume metadata as a flat dict."""
         return self.resume_metadata.model_dump(mode="json")
     
@@ -131,9 +132,9 @@ class AggregatedCandidateResult(BaseModel):
     candidate_name: str = Field(..., description="Name of the candidate")
     resume_id: str = Field(..., description="Unique identifier for the resume")
     final_score: float = Field(..., ge=0.0, le=1.0, description="Final aggregated score")
-    section_scores: Dict[str, float] = Field(default_factory=dict, description="Section-specific scores")
-    evidence_chunks: List[Dict[str, Any]] = Field(default_factory=list, description="Evidence chunks")
-    metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
+    section_scores: dict[str, float] = Field(default_factory=dict, description="Section-specific scores")
+    evidence_chunks: list[dict[str, Any]] = Field(default_factory=list, description="Evidence chunks")
+    metadata: dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
     
     class Config:
         """Pydantic configuration."""

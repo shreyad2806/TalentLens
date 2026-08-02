@@ -16,12 +16,13 @@ SOLID Principles Applied:
 - Dependency Inversion: Depends on cache interface abstraction
 """
 
+import hashlib
 import logging
 import time
-import hashlib
-from typing import Optional, Dict, Any, List
-from functools import wraps
 from collections import OrderedDict
+from functools import wraps
+from typing import Any
+
 from .schema import DenseSearchResult
 
 logger = logging.getLogger(__name__)
@@ -57,7 +58,7 @@ class QueryCache:
         """
         self.max_size = max_size
         self.ttl_seconds = ttl_seconds
-        self.cache: OrderedDict[str, Dict[str, Any]] = OrderedDict()
+        self.cache: OrderedDict[str, dict[str, Any]] = OrderedDict()
         self.hits = 0
         self.misses = 0
         
@@ -65,7 +66,7 @@ class QueryCache:
             f"QueryCache initialized with max_size={max_size}, ttl={ttl_seconds}s"
         )
     
-    def _generate_key(self, query: str, filters: Optional[Dict[str, Any]] = None, top_k: int = 10) -> str:
+    def _generate_key(self, query: str, filters: dict[str, Any] | None = None, top_k: int = 10) -> str:
         """
         Generate a cache key for the query.
         
@@ -88,7 +89,7 @@ class QueryCache:
         key_string = "|".join(key_parts)
         return hashlib.md5(key_string.encode()).hexdigest()
     
-    def get(self, query: str, filters: Optional[Dict[str, Any]] = None, top_k: int = 10) -> Optional[List[DenseSearchResult]]:
+    def get(self, query: str, filters: dict[str, Any] | None = None, top_k: int = 10) -> list[DenseSearchResult] | None:
         """
         Get cached results for a query.
         
@@ -127,7 +128,7 @@ class QueryCache:
         
         return cache_entry['results']
     
-    def set(self, query: str, results: List[DenseSearchResult], filters: Optional[Dict[str, Any]] = None, top_k: int = 10) -> None:
+    def set(self, query: str, results: list[DenseSearchResult], filters: dict[str, Any] | None = None, top_k: int = 10) -> None:
         """
         Cache results for a query.
         
@@ -143,7 +144,7 @@ class QueryCache:
         if len(self.cache) >= self.max_size and key not in self.cache:
             oldest_key = next(iter(self.cache))
             del self.cache[oldest_key]
-            logger.debug(f"Cache eviction: removed oldest entry")
+            logger.debug("Cache eviction: removed oldest entry")
         
         # Store the cache entry
         self.cache[key] = {
@@ -166,7 +167,7 @@ class QueryCache:
         self.misses = 0
         logger.info("Cache cleared")
     
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """
         Get cache statistics.
         
@@ -185,7 +186,7 @@ class QueryCache:
             'ttl_seconds': self.ttl_seconds
         }
     
-    def invalidate_query(self, query: str, filters: Optional[Dict[str, Any]] = None, top_k: int = 10) -> bool:
+    def invalidate_query(self, query: str, filters: dict[str, Any] | None = None, top_k: int = 10) -> bool:
         """
         Invalidate a specific query from cache.
         
@@ -222,7 +223,7 @@ def cached_query(cache: QueryCache):
     """
     def decorator(func):
         @wraps(func)
-        def wrapper(query: str, top_k: int = 10, filters: Optional[Dict[str, Any]] = None, *args, **kwargs):
+        def wrapper(query: str, top_k: int = 10, filters: dict[str, Any] | None = None, *args, **kwargs):
             # Try to get from cache
             cached_results = cache.get(query, filters, top_k)
             if cached_results is not None:

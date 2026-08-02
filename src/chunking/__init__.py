@@ -15,8 +15,8 @@ The chunking layer preserves metadata and follows logical resume boundaries
 instead of using fixed-size token chunking.
 """
 
-from .schema import Chunk
 from .chunk_service import ChunkService
+from .schema import Chunk
 
 __all__ = [
     "Chunk",

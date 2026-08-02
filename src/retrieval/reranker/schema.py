@@ -18,10 +18,11 @@ SOLID Principles Applied:
 - Interface Segregation: Focused schema interfaces
 """
 
-from typing import List, Dict, Any, Optional
 from datetime import datetime
-from pydantic import BaseModel, Field, field_validator
 from enum import Enum
+from typing import Any
+
+from pydantic import BaseModel, Field, field_validator
 
 
 class RerankEvidence(str, Enum):
@@ -81,11 +82,11 @@ class RerankedResult(BaseModel):
     resume_id: str = Field(..., description="ID of the resume")
     chunk_id: str = Field(..., description="ID of the chunk")
     section: str = Field(..., description="Section of the resume")
-    original_rank: Optional[int] = Field(None, description="Original rank from hybrid retrieval")
-    original_score: Optional[float] = Field(None, description="Original score from hybrid retrieval")
+    original_rank: int | None = Field(None, description="Original rank from hybrid retrieval")
+    original_score: float | None = Field(None, description="Original score from hybrid retrieval")
     rerank_score: float = Field(..., description="Score from cross-encoder reranking")
     final_rank: int = Field(..., description="Final rank after reranking")
-    metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
+    metadata: dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
     matched_text: str = Field(..., description="Text that matched in the retrieval")
     evidence: RerankEvidence = Field(
         default=RerankEvidence.CROSS_ENCODER,
@@ -138,7 +139,7 @@ class RerankedResult(BaseModel):
             raise ValueError(f"Final rank must be non-negative, got {v}")
         return v
     
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """
         Convert RerankedResult to a dictionary.
         
@@ -147,7 +148,7 @@ class RerankedResult(BaseModel):
         """
         return self.model_dump()
     
-    def get_score_delta(self) -> Optional[float]:
+    def get_score_delta(self) -> float | None:
         """
         Calculate the difference between rerank score and original score.
         
@@ -162,7 +163,7 @@ class RerankedResult(BaseModel):
             return self.rerank_score - self.original_score
         return None
     
-    def get_rank_delta(self) -> Optional[int]:
+    def get_rank_delta(self) -> int | None:
         """
         Calculate the change in rank after reranking.
         
@@ -211,7 +212,7 @@ class RerankMetrics(BaseModel):
     avg_rerank_score: float = Field(default=0.0, description="Average rerank score")
     min_rerank_score: float = Field(default=0.0, description="Minimum rerank score")
     max_rerank_score: float = Field(default=0.0, description="Maximum rerank score")
-    avg_score_delta: Optional[float] = Field(None, description="Average score delta")
+    avg_score_delta: float | None = Field(None, description="Average score delta")
     total_latency: float = Field(..., description="Total reranking latency in seconds")
     avg_latency: float = Field(..., description="Average latency per candidate")
     batch_size: int = Field(default=32, description="Batch size used for inference")
@@ -236,7 +237,7 @@ class RerankMetrics(BaseModel):
             raise ValueError(f"Cache hit rate must be between 0 and 1, got {v}")
         return v
     
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """
         Convert RerankMetrics to a dictionary.
         

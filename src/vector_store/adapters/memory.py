@@ -12,12 +12,17 @@ Architecture Notes:
 - Uses cosine similarity for vector search
 """
 
+import hashlib
+import json
 import math
-from typing import List, Dict, Any, Optional
+import time
+from pathlib import Path
+from typing import Any
+
+from ...models import ResumeMetadata
+from ..config import VectorStoreConfig
 from ..interface import VectorStore, VectorStoreError
 from ..schema import VectorRecord
-from ..config import VectorStoreConfig
-from ...models import ResumeMetadata
 
 
 class MemoryVectorStore(VectorStore):
@@ -42,7 +47,7 @@ class MemoryVectorStore(VectorStore):
     }
     """
     
-    def __init__(self, config: Optional[VectorStoreConfig] = None):
+    def __init__(self, config: VectorStoreConfig | None = None):
         """
         Initialize the memory vector store.
         
@@ -50,10 +55,10 @@ class MemoryVectorStore(VectorStore):
             config: Optional configuration. If None, uses default config.
         """
         self.config = config
-        self._store: Dict[str, Dict[str, Any]] = {}
+        self._store: dict[str, dict[str, Any]] = {}
         self._closed = False
     
-    def upsert(self, records: List[VectorRecord]) -> Dict[str, Any]:
+    def upsert(self, records: list[VectorRecord]) -> dict[str, Any]:
         """
         Insert or update vector records in the store.
         
@@ -82,7 +87,7 @@ class MemoryVectorStore(VectorStore):
                 }
                 upserted_count += 1
             except Exception as e:
-                errors.append(f"Failed to upsert record {record.id}: {str(e)}")
+                errors.append(f"Failed to upsert record {record.id}: {e!s}")
         
         return {
             "success": len(errors) == 0,
@@ -90,7 +95,7 @@ class MemoryVectorStore(VectorStore):
             "errors": errors
         }
     
-    def query(self, vector: List[float], k: int = 10, filters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    def query(self, vector: list[float], k: int = 10, filters: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         """
         Query the vector store for similar vectors using cosine similarity.
         
@@ -144,7 +149,7 @@ class MemoryVectorStore(VectorStore):
         results.sort(key=lambda x: x["score"], reverse=True)
         return results[:k]
     
-    def delete(self, ids: List[str]) -> Dict[str, Any]:
+    def delete(self, ids: list[str]) -> dict[str, Any]:
         """
         Delete vector records by their IDs.
         
@@ -176,7 +181,7 @@ class MemoryVectorStore(VectorStore):
             "errors": errors
         }
     
-    def delete_resume(self, resume_id: str) -> Dict[str, Any]:
+    def delete_resume(self, resume_id: str) -> dict[str, Any]:
         """
         Delete all vector records for a specific resume.
         
@@ -209,7 +214,7 @@ class MemoryVectorStore(VectorStore):
             "errors": []
         }
     
-    def fetch(self, id: str) -> Optional[VectorRecord]:
+    def fetch(self, id: str) -> VectorRecord | None:
         """
         Fetch a single vector record by its ID.
         
@@ -239,7 +244,7 @@ class MemoryVectorStore(VectorStore):
             resume_metadata=resume_metadata
         )
     
-    def fetch_resume(self, resume_id: str) -> List[VectorRecord]:
+    def fetch_resume(self, resume_id: str) -> list[VectorRecord]:
         """
         Fetch all vector records for a specific resume.
         
@@ -284,7 +289,7 @@ class MemoryVectorStore(VectorStore):
         
         return len(self._store)
     
-    def clear(self) -> Dict[str, Any]:
+    def clear(self) -> dict[str, Any]:
         """
         Clear all vector records from the store.
         
@@ -306,7 +311,7 @@ class MemoryVectorStore(VectorStore):
             "errors": []
         }
     
-    def health(self) -> Dict[str, Any]:
+    def health(self) -> dict[str, Any]:
         """
         Check the health status of the vector store.
         
@@ -330,7 +335,7 @@ class MemoryVectorStore(VectorStore):
         self._closed = True
         self._store.clear()
     
-    def _apply_filters(self, metadata: Dict[str, Any], filters: Dict[str, Any]) -> bool:
+    def _apply_filters(self, metadata: dict[str, Any], filters: dict[str, Any]) -> bool:
         """
         Apply metadata filters before similarity search.
 
@@ -375,3 +380,136 @@ class MemoryVectorStore(VectorStore):
                     return False
 
         return True
+    
+    def serialize(self) -> dict[str, Any]:
+        """Convert the in-memory store to a serializable dictionary."""
+        records = []
+        for record_id, data in self._store.items():
+            records.append({
+                "id": record_id,
+                "vector": data["vector"],
+                "chunk_id": data["chunk_id"],
+                "section": data["section"],
+                "resume_metadata": data["resume_metadata"]
+            })
+        
+        dimension = self.config.dimension if self.config else 384
+        if records:
+            dimension = len(records[0]["vector"])
+        
+        # Simple checksum of the JSON representation of the records
+        payload = json.dumps(records, sort_keys=True, default=str)
+        checksum = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+        
+        return {
+            "version": "1.0",
+            "dimension": dimension,
+            "count": len(records),
+            "metadata_count": sum(1 for r in records if r.get("resume_metadata")),
+            "checksum": checksum,
+            "records": records,
+            "saved_at": time.time()
+        }
+    
+    def deserialize(self, data: dict[str, Any]) -> None:
+        """Restore the in-memory store from a serialized dictionary."""
+        if not data or "records" not in data:
+            raise VectorStoreError("Invalid memory vector store data: missing 'records'", "MemoryVectorStore")
+        
+        self._store.clear()
+        for record in data["records"]:
+            self._store[record["id"]] = {
+                "vector": record["vector"],
+                "chunk_id": record.get("chunk_id", ""),
+                "section": record.get("section", ""),
+                "resume_metadata": record.get("resume_metadata", {})
+            }
+    
+    def save(self, path: str | None = None) -> dict[str, Any]:
+        """Persist the in-memory store to a JSON file."""
+        save_path = Path(path) if path else Path("data/vector_store/memory.json")
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        data = self.serialize()
+        with open(save_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, default=str)
+        
+        return {
+            "success": True,
+            "path": str(save_path),
+            "vectors_saved": data["count"],
+            "dimension": data["dimension"],
+            "checksum": data["checksum"]
+        }
+    
+    def load(self, path: str | None = None) -> dict[str, Any]:
+        """Restore the in-memory store from a JSON file."""
+        load_path = Path(path) if path else Path("data/vector_store/memory.json")
+        
+        if not load_path.exists():
+            return {
+                "success": False,
+                "path": str(load_path),
+                "vectors_restored": 0,
+                "error": f"Persistence file not found: {load_path}"
+            }
+        
+        try:
+            with open(load_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            
+            self.deserialize(data)
+            
+            return {
+                "success": True,
+                "path": str(load_path),
+                "vectors_restored": data.get("count", 0),
+                "dimension": data.get("dimension", 0),
+                "checksum": data.get("checksum", "")
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "path": str(load_path),
+                "vectors_restored": 0,
+                "error": str(e)
+            }
+    
+    def integrity_check(self) -> dict[str, Any]:
+        """Validate the in-memory store's integrity."""
+        errors = []
+        warnings = []
+        
+        expected_dimension = self.config.dimension if self.config else None
+        count = len(self._store)
+        metadata_count = 0
+        dimension = None
+        
+        for record_id, data in self._store.items():
+            vector = data.get("vector", [])
+            if not vector:
+                errors.append(f"Record {record_id}: empty vector")
+                continue
+            
+            if dimension is None:
+                dimension = len(vector)
+            elif len(vector) != dimension:
+                errors.append(f"Record {record_id}: dimension mismatch ({len(vector)} != {dimension})")
+            
+            if expected_dimension is not None and len(vector) != expected_dimension:
+                errors.append(f"Record {record_id}: dimension {len(vector)} does not match expected {expected_dimension}")
+            
+            if not data.get("resume_metadata"):
+                warnings.append(f"Record {record_id}: missing metadata")
+            else:
+                metadata_count += 1
+        
+        return {
+            "valid": len(errors) == 0,
+            "dimension": dimension,
+            "count": count,
+            "metadata_count": metadata_count,
+            "expected_dimension": expected_dimension,
+            "errors": errors,
+            "warnings": warnings
+        }

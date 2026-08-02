@@ -16,9 +16,9 @@ SOLID Principles Applied:
 """
 
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 
 class FilterOperator(str, Enum):
@@ -68,7 +68,7 @@ class OrFilterGroup(BaseModel):
     Example: match candidates in Bangalore OR Mumbai.
     """
 
-    conditions: List[FilterCondition] = Field(
+    conditions: list[FilterCondition] = Field(
         ...,
         min_length=1,
         description="Conditions combined with OR logic",
@@ -109,67 +109,67 @@ class MetadataFilter(BaseModel):
         not_conditions      — Explicit NOT conditions (exclude on match)
     """
 
-    minimum_experience: Optional[float] = Field(
+    minimum_experience: float | None = Field(
         None, ge=0, description="Minimum years of experience (inclusive)"
     )
-    maximum_experience: Optional[float] = Field(
+    maximum_experience: float | None = Field(
         None, ge=0, description="Maximum years of experience (inclusive)"
     )
-    location: Optional[str] = Field(
+    location: str | None = Field(
         None, description="Primary location — exact match, case-insensitive"
     )
-    preferred_locations: Optional[List[str]] = Field(
+    preferred_locations: list[str] | None = Field(
         None, description="Preferred locations — OR logic, contains match"
     )
-    skills: Optional[List[str]] = Field(
+    skills: list[str] | None = Field(
         None, description="Required skills — list intersection (>=1 match)"
     )
-    excluded_skills: Optional[List[str]] = Field(
+    excluded_skills: list[str] | None = Field(
         None, description="Excluded skills — NOT intersection"
     )
-    education: Optional[List[str]] = Field(
+    education: list[str] | None = Field(
         None, description="Education keywords — contains match on any entry"
     )
-    degree: Optional[str] = Field(
+    degree: str | None = Field(
         None, description="Degree requirement — exact match, case-insensitive"
     )
-    current_company: Optional[str] = Field(
+    current_company: str | None = Field(
         None, description="Current employer — contains match"
     )
-    previous_company: Optional[str] = Field(
+    previous_company: str | None = Field(
         None, description="Previous employer — contains match on any entry"
     )
-    salary_min: Optional[float] = Field(
+    salary_min: float | None = Field(
         None, ge=0, description="Minimum salary in LPA (inclusive)"
     )
-    salary_max: Optional[float] = Field(
+    salary_max: float | None = Field(
         None, ge=0, description="Maximum salary in LPA (inclusive)"
     )
-    notice_period: Optional[int] = Field(
+    notice_period: int | None = Field(
         None, ge=0, description="Maximum notice period in days (inclusive)"
     )
-    work_mode: Optional[str] = Field(
+    work_mode: str | None = Field(
         None, description="Work mode: remote | hybrid | onsite"
     )
-    employment_type: Optional[str] = Field(
+    employment_type: str | None = Field(
         None, description="Employment type: full-time | part-time | contract | intern"
     )
-    certifications: Optional[List[str]] = Field(
+    certifications: list[str] | None = Field(
         None, description="Required certifications — list intersection"
     )
-    languages: Optional[List[str]] = Field(
+    languages: list[str] | None = Field(
         None, description="Required languages — list intersection"
     )
-    availability: Optional[str] = Field(
+    availability: str | None = Field(
         None, description="Availability status — exact match"
     )
-    custom_filters: Optional[Dict[str, Any]] = Field(
+    custom_filters: dict[str, Any] | None = Field(
         None, description="Arbitrary key-value filters — contains match"
     )
-    or_groups: Optional[List[OrFilterGroup]] = Field(
+    or_groups: list[OrFilterGroup] | None = Field(
         None, description="Explicit OR filter groups"
     )
-    not_conditions: Optional[List[FilterCondition]] = Field(
+    not_conditions: list[FilterCondition] | None = Field(
         None, description="Explicit NOT filter conditions"
     )
 
@@ -222,23 +222,23 @@ class CandidateMetadata(BaseModel):
 
     candidate_id: str = Field(..., description="Unique candidate identifier")
     resume_id: str = Field(..., description="Resume identifier")
-    candidate_name: Optional[str] = Field(None, description="Candidate display name")
-    experience_years: Optional[float] = Field(None, ge=0, description="Total experience in years")
-    location: Optional[str] = Field(None, description="Primary location")
-    preferred_locations: List[str] = Field(default_factory=list, description="Preferred work locations")
-    skills: List[str] = Field(default_factory=list, description="Candidate skills")
-    education: List[str] = Field(default_factory=list, description="Education entries")
-    degree: Optional[str] = Field(None, description="Highest or relevant degree")
-    current_company: Optional[str] = Field(None, description="Current employer")
-    previous_companies: List[str] = Field(default_factory=list, description="Previous employers")
-    salary_expectation: Optional[float] = Field(None, ge=0, description="Expected salary in LPA")
-    notice_period_days: Optional[int] = Field(None, ge=0, description="Notice period in days")
-    work_mode: Optional[str] = Field(None, description="Preferred work mode")
-    employment_type: Optional[str] = Field(None, description="Preferred employment type")
-    certifications: List[str] = Field(default_factory=list, description="Certifications held")
-    languages: List[str] = Field(default_factory=list, description="Languages spoken")
-    availability: Optional[str] = Field(None, description="Availability status")
-    custom_fields: Dict[str, Any] = Field(default_factory=dict, description="Extensible metadata")
+    candidate_name: str | None = Field(None, description="Candidate display name")
+    experience_years: float | None = Field(None, ge=0, description="Total experience in years")
+    location: str | None = Field(None, description="Primary location")
+    preferred_locations: list[str] = Field(default_factory=list, description="Preferred work locations")
+    skills: list[str] = Field(default_factory=list, description="Candidate skills")
+    education: list[str] = Field(default_factory=list, description="Education entries")
+    degree: str | None = Field(None, description="Highest or relevant degree")
+    current_company: str | None = Field(None, description="Current employer")
+    previous_companies: list[str] = Field(default_factory=list, description="Previous employers")
+    salary_expectation: float | None = Field(None, ge=0, description="Expected salary in LPA")
+    notice_period_days: int | None = Field(None, ge=0, description="Notice period in days")
+    work_mode: str | None = Field(None, description="Preferred work mode")
+    employment_type: str | None = Field(None, description="Preferred employment type")
+    certifications: list[str] = Field(default_factory=list, description="Certifications held")
+    languages: list[str] = Field(default_factory=list, description="Languages spoken")
+    availability: str | None = Field(None, description="Availability status")
+    custom_fields: dict[str, Any] = Field(default_factory=dict, description="Extensible metadata")
 
     class Config:
         frozen = True
@@ -247,11 +247,11 @@ class CandidateMetadata(BaseModel):
 class FilterResult(BaseModel):
     """Output of a metadata filtering operation."""
 
-    candidate_ids: List[str] = Field(..., description="Filtered candidate IDs for retrieval")
+    candidate_ids: list[str] = Field(..., description="Filtered candidate IDs for retrieval")
     total_before: int = Field(..., ge=0, description="Candidate count before filtering")
     total_after: int = Field(..., ge=0, description="Candidate count after filtering")
     filters_applied: int = Field(..., ge=0, description="Number of active filter criteria")
-    parse_latency_ms: Optional[float] = Field(None, ge=0, description="Filter parsing latency")
+    parse_latency_ms: float | None = Field(None, ge=0, description="Filter parsing latency")
     filter_latency_ms: float = Field(..., ge=0, description="Filter application latency")
     cache_hit: bool = Field(default=False, description="Whether result was served from cache")
 

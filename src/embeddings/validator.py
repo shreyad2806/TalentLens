@@ -12,10 +12,10 @@ Validations include:
 - Empty vector detection
 """
 
-from typing import List, Optional, Set
-from .schema import EmbeddingRecord
-from ..config import EMBEDDING_DIM
 import math
+
+from ..config import EMBEDDING_DIM
+from .schema import EmbeddingRecord
 
 
 class EmbeddingValidator:
@@ -29,7 +29,7 @@ class EmbeddingValidator:
     in the vector database, improving retrieval accuracy and system reliability.
     """
     
-    def __init__(self, expected_dimension: Optional[int] = None):
+    def __init__(self, expected_dimension: int | None = None):
         """
         Initialize the embedding validator.
         
@@ -50,7 +50,7 @@ class EmbeddingValidator:
         """
         return text is not None and len(text.strip()) > 0
     
-    def validate_vector_not_empty(self, vector: List[float]) -> bool:
+    def validate_vector_not_empty(self, vector: list[float]) -> bool:
         """
         Validate that the vector is not empty.
         
@@ -62,7 +62,7 @@ class EmbeddingValidator:
         """
         return vector is not None and len(vector) > 0
     
-    def validate_vector_dimension(self, vector: List[float]) -> bool:
+    def validate_vector_dimension(self, vector: list[float]) -> bool:
         """
         Validate that the vector has the correct dimension.
         
@@ -74,7 +74,7 @@ class EmbeddingValidator:
         """
         return len(vector) == self.expected_dimension
     
-    def validate_vector_no_nan(self, vector: List[float]) -> bool:
+    def validate_vector_no_nan(self, vector: list[float]) -> bool:
         """
         Validate that the vector contains no NaN values.
         
@@ -86,7 +86,7 @@ class EmbeddingValidator:
         """
         return not any(math.isnan(val) for val in vector)
     
-    def validate_vector_no_inf(self, vector: List[float]) -> bool:
+    def validate_vector_no_inf(self, vector: list[float]) -> bool:
         """
         Validate that the vector contains no infinite values.
         
@@ -128,7 +128,7 @@ class EmbeddingValidator:
         
         return True
     
-    def filter_duplicates(self, records: List[EmbeddingRecord]) -> List[EmbeddingRecord]:
+    def filter_duplicates(self, records: list[EmbeddingRecord]) -> list[EmbeddingRecord]:
         """
         Filter out duplicate embedding records based on chunk_id.
         
@@ -138,8 +138,8 @@ class EmbeddingValidator:
         Returns:
             List of unique embedding records
         """
-        seen_chunk_ids: Set[str] = set()
-        unique_records: List[EmbeddingRecord] = []
+        seen_chunk_ids: set[str] = set()
+        unique_records: list[EmbeddingRecord] = []
         
         for record in records:
             chunk_id_str = str(record.chunk_id)
@@ -149,7 +149,7 @@ class EmbeddingValidator:
         
         return unique_records
     
-    def filter_invalid(self, records: List[EmbeddingRecord]) -> List[EmbeddingRecord]:
+    def filter_invalid(self, records: list[EmbeddingRecord]) -> list[EmbeddingRecord]:
         """
         Filter out invalid embedding records.
         
@@ -161,7 +161,7 @@ class EmbeddingValidator:
         Returns:
             List of valid embedding records
         """
-        valid_records: List[EmbeddingRecord] = []
+        valid_records: list[EmbeddingRecord] = []
         
         for record in records:
             if self.validate_embedding_record(record):
@@ -169,7 +169,7 @@ class EmbeddingValidator:
         
         return valid_records
     
-    def validate_and_filter(self, records: List[EmbeddingRecord]) -> List[EmbeddingRecord]:
+    def validate_and_filter(self, records: list[EmbeddingRecord]) -> list[EmbeddingRecord]:
         """
         Validate and filter embedding records.
         

@@ -8,10 +8,10 @@ with its corresponding embedding vector.
 The vectorizer does NOT concatenate chunks - one Chunk becomes one Vector.
 """
 
-from typing import List
-from .schema import EmbeddingRecord
-from .model_loader import get_model_loader
+
 from .cache import get_embedding_cache
+from .model_loader import get_model_loader
+from .schema import EmbeddingRecord
 
 
 class Vectorizer:
@@ -33,11 +33,12 @@ class Vectorizer:
         self.model_loader = get_model_loader()
         self.cache = get_embedding_cache()
     
-    def _build_record(self, chunk, vector: List[float]) -> EmbeddingRecord:
+    def _build_record(self, chunk, vector: list[float]) -> EmbeddingRecord:
         """Build an EmbeddingRecord from a chunk and its vector."""
         embedding_record = EmbeddingRecord(
             chunk_id=str(chunk.chunk_id),
             section=chunk.section,
+            text=chunk.text,
             vector=vector,
             vector_dimension=len(vector),
             model_name=self.model_loader.get_model_name(),
@@ -81,7 +82,7 @@ class Vectorizer:
         
         return self._build_record(chunk, vector)
     
-    def vectorize_chunks(self, chunks: List, batch_size: int = 32) -> List[EmbeddingRecord]:
+    def vectorize_chunks(self, chunks: list, batch_size: int = 32) -> list[EmbeddingRecord]:
         """
         Convert multiple Chunk objects to EmbeddingRecord objects efficiently.
         
@@ -99,8 +100,8 @@ class Vectorizer:
             return []
 
         # Separate cached and missing chunks
-        cached_entries: List[tuple] = []
-        missing_chunks: List = []
+        cached_entries: list[tuple] = []
+        missing_chunks: list = []
 
         for chunk in chunks:
             cached = self.cache.get(chunk.text)
@@ -124,7 +125,7 @@ class Vectorizer:
                 self.cache.set(chunk.text, vector)
 
         # Re-assemble records in input order
-        records: List[EmbeddingRecord] = []
+        records: list[EmbeddingRecord] = []
         for chunk in chunks:
             cached = self.cache.get(chunk.text)
             records.append(self._build_record(chunk, cached))

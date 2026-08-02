@@ -19,13 +19,14 @@ SOLID Principles Applied:
 
 import logging
 import time
-from typing import List, Dict, Any, Optional
+from typing import Any
 
-from .schema import HybridSearchResult, FusionMetrics
-from .fusion_service import FusionService
-from .validator import HybridRetrievalValidator
+from src.debug_logger import log_stage_end, log_stage_start
+
 from .cache import HybridResultCache
-from src.debug_logger import log_stage_start, log_stage_end, log_error
+from .fusion_service import FusionService
+from .schema import HybridSearchResult
+from .validator import HybridRetrievalValidator
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +55,7 @@ class HybridRetrievalService:
         self,
         dense_retrieval_service: Any,
         sparse_retrieval_service: Any,
-        strategy: Optional[Any] = None,
+        strategy: Any | None = None,
         strategy_name: str = "rrf",
         cache_enabled: bool = True,
         cache_max_size: int = 1000,
@@ -107,8 +108,8 @@ class HybridRetrievalService:
         self,
         query: str,
         top_k: int = 10,
-        filters: Optional[Dict[str, Any]] = None
-    ) -> List[HybridSearchResult]:
+        filters: dict[str, Any] | None = None
+    ) -> list[HybridSearchResult]:
         """
         Search using hybrid retrieval (dense + sparse + RRF).
         
@@ -226,8 +227,8 @@ class HybridRetrievalService:
         self,
         query: str,
         top_k: int,
-        filters: Optional[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
+        filters: dict[str, Any] | None
+    ) -> list[dict[str, Any]]:
         """
         Retrieve results from dense service.
         
@@ -276,8 +277,8 @@ class HybridRetrievalService:
         self,
         query: str,
         top_k: int,
-        filters: Optional[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
+        filters: dict[str, Any] | None
+    ) -> list[dict[str, Any]]:
         """
         Retrieve results from sparse service.
         
@@ -322,7 +323,7 @@ class HybridRetrievalService:
             logger.error(f"Sparse retrieval failed: {e}")
             return []
     
-    def get_cache_stats(self) -> Dict[str, Any]:
+    def get_cache_stats(self) -> dict[str, Any]:
         """
         Get cache statistics.
         
