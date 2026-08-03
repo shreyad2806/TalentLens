@@ -728,26 +728,54 @@ with drawer_col:
                     st.markdown(f"<p style='margin:0 0 0.15rem 0; font-size:0.72rem; color:#F8FAFC; font-weight:600;'>Chunk {i} — {src} (score {score:.4f})</p>", unsafe_allow_html=True)
                     st.markdown(f"<p style='margin:0 0 0.5rem 0; font-size:0.72rem; color:#94A3B8;'>{text}</p>", unsafe_allow_html=True)
 
-            # ── Match Explanation ──
-            _drawer_section("Match Explanation")
-            reasons = c.get('explanation') or _why_matched(c)
-            for reason in reasons:
-                st.markdown(f"<p style='margin:0.05rem 0; color:#94A3B8; font-size:0.77rem;'>✓ {html.escape(reason)}</p>", unsafe_allow_html=True)
+            # ── Why this matched ──
+            _drawer_section("Why this matched")
+            match_details = c.get('match_details') or []
+            for detail in match_details:
+                label = html.escape(str(detail.get('label', '')))
+                score = detail.get('score', 0)
+                value = str(detail.get('value', '')).strip()
+                value_html = _highlight(html.escape(value), hl_terms) if value else ""
+                if value_html:
+                    st.markdown(
+                        f"<p style='margin:0.05rem 0; color:#94A3B8; font-size:0.77rem;'>"
+                        f"✓ {label}: {value_html} <span style='color:#22C55E; font-weight:600;'>{score}%</span></p>",
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    st.markdown(
+                        f"<p style='margin:0.05rem 0; color:#94A3B8; font-size:0.77rem;'>"
+                        f"✓ {label} <span style='color:#22C55E; font-weight:600;'>{score}%</span></p>",
+                        unsafe_allow_html=True,
+                    )
 
-            components = [
-                ("Role", c.get('role_match', 0) / 100 if isinstance(c.get('role_match'), (int, float)) else 0),
-                ("Skills", c.get('skill_match', 0) / 100 if isinstance(c.get('skill_match'), (int, float)) else 0),
-                ("Keyword", c.get('keyword_match', 0) / 100 if isinstance(c.get('keyword_match'), (int, float)) else 0),
-                ("Semantic", c.get('semantic_match', 0) / 100 if isinstance(c.get('semantic_match'), (int, float)) else 0),
-                ("Industry", c.get('industry_match', 0) / 100 if isinstance(c.get('industry_match'), (int, float)) else 0),
-                ("Experience", c.get('experience_match', 0) / 100 if isinstance(c.get('experience_match'), (int, float)) else 0),
-                ("Education", c.get('education_match', 0) / 100 if isinstance(c.get('education_match'), (int, float)) else 0),
-                ("Location", c.get('location_match', 0) / 100 if isinstance(c.get('location_match'), (int, float)) else 0),
+            # ── Matched metadata ──
+            _drawer_section("Matched Details")
+            matched_fields = [
+                ("Skills", "matched_skills"),
+                ("Role", "matched_role"),
+                ("Industry", "matched_industry"),
+                ("Education", "matched_education"),
+                ("Certifications", "matched_certifications"),
             ]
-            for label, val in components:
-                if val > 0:
-                    st.caption(f"{label}: {int(round(val*100))}%")
-                    st.progress(min(1.0, val), text="")
+            for field_label, field_key in matched_fields:
+                values = [str(v) for v in (c.get(field_key) or []) if v]
+                if values:
+                    joined = _highlight(html.escape(", ".join(values)), hl_terms)
+                    st.markdown(
+                        f"<p style='margin:0.05rem 0; color:#94A3B8; font-size:0.77rem;'>"
+                        f"<span style='color:#F8FAFC; font-weight:600;'>{html.escape(field_label)}:</span> {joined}</p>",
+                        unsafe_allow_html=True,
+                    )
+
+            sections = c.get('retrieved_sections') or c.get('matched_sections') or []
+            if sections:
+                joined = _highlight(html.escape(", ".join(sections)), hl_terms)
+                st.markdown(
+                    f"<p style='margin:0.05rem 0; color:#94A3B8; font-size:0.77rem;'>"
+                    f"<span style='color:#F8FAFC; font-weight:600;'>Retrieved Resume Sections:</span> {joined}</p>",
+                    unsafe_allow_html=True,
+                )
 
             if st.button("Close", use_container_width=True):
                 st.session_state.selected_candidate = None

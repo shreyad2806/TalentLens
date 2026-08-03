@@ -7,7 +7,11 @@ sentences that are present in the resume content itself.
 
 from __future__ import annotations
 
+import logging
+import os
 import re
+import time
+from typing import Any
 
 
 def _sentences(text: str) -> list[str]:
@@ -116,103 +120,128 @@ def _why_match_line(
     return "Strong match because of " + ", ".join(unique) + "."
 
 
-def generate_resume_summary(
-    resume_text: str,
-    matched_text: str,
-    query: str,
-    role: str,
+logger = logging.getLogger(__name__)
+
+
+def _call_openai(prompt: str) -> str:
+    """Call OpenAI if configured, otherwise return empty string."""
+    api_key = os.getenv("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY_TALENTLENS")
+    if not api_key:
+        return ""
+    try:
+        import openai  # type: ignore
+        client = openai.OpenAI(api_key=api_key)
+        response = client.chat.completions.create(
+            model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+            messages=[
+                {"role": "system", "content": "You are a helpful technical recruiter assistant."},
+                {"role": "user", "content": prompt},
+            ],
+            max_tokens=300,
+            temperature=0.2,
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        logger.warning("OpenAI summary failed: %s", e)
+        return ""
+
+
+def _build_summary_prompt(
+    retrieved_chunks: list[dict[str, Any]],
+    role: str | None,
+    experience_years: float | None,
     education: list[str] | None,
     skills: list[str] | None,
     matched_skills: list[str] | None,
 ) -> str:
-    """Return at most 3 short paragraphs: Professional, Experience, Key Strengths.
+    context = "\n\n".join(
+        f"[{i + 1}] {c.get('text', '')}" for i, c in enumerate(retrieved_chunks)
+    )
+    if not context:
+        context = "[No retrieved chunks]"
 
-    Only sentences that exist in the retrieved resume content are used.
+    header = f"Role: {role or 'Not specified'} | Experience: {experience_years or 'Not specified'} years"
+    if skills:
+        header += f" | Skills: {', '.join(skills[:12])}"
+    if matched_skills:
+        header += f" | Matched Skills: {', '.join(matched_skills[:12])}"
+
+    return (
+        "You are a technical recruiter assistant. Generate a concise recruiter-friendly "
+        "candidate summary using ONLY the retrieved resume chunks below.\n\n"
+        "Summary format (include only the sections supported by the chunks; "
+        "omit unavailable sections):\n"
+        "Professional Summary\n"
+        "1-2 sentences describing the candidate.\n\n"
+        "Experience\n"
+        "Years of experience, primary domains, leadership level.\n\n"
+        "Core Expertise\n"
+        "Top technologies, business expertise, major strengths.\n\n"
+        "Rules:\n"
+        "- Maximum 120 words.\n"
+        "- Never invent missing information.\n"
+        "- If a section is unavailable, omit it and its heading.\n"
+        "- Do not include filler like 'Based on the context'.\n"
+        "- Use only facts present in the chunks.\n\n"
+        f"{header}\n\n"
+        "Retrieved Chunks:\n"
+        f"{context}\n\n"
+        "Summary:"
+    )
+
+
+def _fallback_summary(
+    role: str | None,
+    experience_years: float | None,
+    skills: list[str] | None,
+    matched_skills: list[str] | None,
+) -> str:
+    """Build a grounded summary from metadata fields only."""
+    parts: list[str] = []
+    if role and experience_years is not None:
+        parts.append(f"{role} with {experience_years:g} years of experience.")
+    elif role:
+        parts.append(f"{role}.")
+    elif experience_years is not None:
+        parts.append(f"Professional with {experience_years:g} years of experience.")
+
+    tech_skills = [s for s in (skills or []) if s][:6]
+    if tech_skills:
+        parts.append(f"Strong background in {', '.join(tech_skills)}.")
+
+    if matched_skills:
+        parts.append(f"Experienced in {', '.join(matched_skills[:6])}.")
+
+    summary = " ".join(parts)
+    words = summary.split()
+    if len(words) > 120:
+        summary = " ".join(words[:120])
+    return summary
+
+
+def generate_resume_summary(
+    resume_text: str,
+    matched_text: str,
+    retrieved_chunks: list[dict[str, Any]],
+    role: str | None,
+    experience_years: float | None,
+    education: list[str] | None,
+    skills: list[str] | None,
+    matched_skills: list[str] | None,
+) -> str:
+    """Generate a concise, recruiter-friendly summary from retrieved resume chunks.
+
+    First tries OpenAI if configured, then falls back to a deterministic summary
+    built only from the supplied metadata and retrieved chunks.
     """
-    source = (resume_text or "").strip()
-    if not source and matched_text:
-        source = matched_text.strip()
-    if not source:
-        return "No resume text available for summarization."
-
-    sentences = _sentences(source)
-    if not sentences:
-        return source[:300]
-
-    # Normalise search terms
-    qt = _tokens(query) | set(s.lower() for s in (matched_skills or []))
-    ms = set(s.lower() for s in (matched_skills or []))
-    sk = set(s.lower() for s in (skills or []))
-    edu = [e for e in (education or []) if e and e.strip()]
-
-    # Score and rank sentences
-    ranked = [
-        (s, _score_sentence(s, qt, ms, sk, role or "", edu))
-        for s in sentences
-    ]
-    ranked.sort(key=lambda x: x[1], reverse=True)
-
-    # Pick up to 3 diverse, high-scoring sentences
-    selected: list[str] = []
-    for s, _ in ranked:
-        if len(selected) >= 3:
-            break
-        if all(_similar(s, existing) < 0.6 for existing in selected):
-            selected.append(s)
-
-    # Build three paragraphs
-    paragraphs: list[str] = []
-
-    # 1. Professional Summary: role / years / overview
-    prof_sents: list[str] = []
-    for s in selected:
-        if (role and role.lower() in s.lower()) or re.search(r"\b\d+\s*years?\b", s, re.IGNORECASE):
-            prof_sents.append(s)
-            break
-    if not prof_sents and selected:
-        prof_sents.append(selected[0])
-    paragraphs.append(" ".join(prof_sents[:2]))
-
-    # 2. Experience Summary: action / responsibilities
-    exp_sents: list[str] = []
-    for s in selected:
-        if re.search(
-            r"\b(led|managed|developed|built|engineered|designed|implemented|created|architected|optimized|oversaw|coordinated|executed|analyzed|forecasted|budgeted|planned)\b",
-            s,
-            re.IGNORECASE,
-        ):
-            exp_sents.append(s)
-            break
-    if not exp_sents:
-        # Pick the next-best non-prof sentence
-        for s in selected:
-            if s not in prof_sents:
-                exp_sents.append(s)
-                break
-    paragraphs.append(" ".join(exp_sents[:2]))
-
-    # 3. Key Strengths: matched skills + why match
-    key_sents: list[str] = []
-    for s in selected:
-        if any(sk.lower() in s.lower() for sk in (matched_skills or [])):
-            key_sents.append(s)
-            break
-    why = _why_match_line(role or "", edu, matched_skills or [])
-    if why and why not in key_sents:
-        key_sents.append(why)
-    paragraphs.append(" ".join(key_sents[:2]))
-
-    # Remove duplicates while preserving order and trim to 3 paragraphs
-    seen: set[str] = set()
-    final: list[str] = []
-    for p in paragraphs:
-        if p and p not in seen:
-            seen.add(p)
-            final.append(p)
-
-    if not final[0]:
-        final[0] = selected[0]
-
-    # Final cap: each paragraph one short sentence or two; never more than 3 paragraphs
-    out = "\n\n".join(final[:3])
-    return out
+    start_time = time.perf_counter()
+    prompt = _build_summary_prompt(retrieved_chunks, role, experience_years, education, skills, matched_skills)
+    answer = _call_openai(prompt)
+    if answer:
+        word_count = len(answer.split())
+        if word_count <= 160:  # allow slack for formatting before truncating
+            logger.info("LLM summary generated in %.3fs (%d words)", time.perf_counter() - start_time, word_count)
+            return answer
+    summary = _fallback_summary(role, experience_years, skills, matched_skills)
+    logger.info("Deterministic summary generated in %.3fs", time.perf_counter() - start_time)
+    return summary

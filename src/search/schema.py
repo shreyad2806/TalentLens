@@ -7,6 +7,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from src.models import ResumeMetadata, get_display_name
+from src.normalization.role_normalizer import RoleNormalizer
 
 
 class SearchFilters(BaseModel):
@@ -117,8 +118,8 @@ class SearchResult(BaseModel):
 
         matched_set = {sk.lower() for sk in self.matched_skills}
         all_skills = self._clean_skills(m.skills or [])
-        top_skills = all_skills[:4]
-        extra_skills = max(0, len(all_skills) - 4)
+        top_skills = all_skills[:5]
+        extra_skills = max(0, len(all_skills) - 5)
 
         d["id"] = m.resume_id
         d["name"] = get_display_name(m, self.source_filename)
@@ -141,7 +142,11 @@ class SearchResult(BaseModel):
         d["projects"] = (m.projects or [])[:6]
         d["certifications"] = (m.certifications or [])[:6]
         d["summary"] = (m.summary or "")[:250]
-        d["role"] = m.role or ""
+        d["role"] = RoleNormalizer.normalize(m.role) or m.role or ""
+        d["matched_role"] = d["role"] if s.get("role", 0.0) > 0.0 else ""
+        d["matched_industry"] = s.get("matched_industry", [])
+        d["matched_education"] = s.get("matched_education", [])
+        d["retrieved_sections"] = self.matched_sections
         d["location"] = m.location or ""
         d["explanation"] = self.explanation
         d["retrieved_chunks"] = self.retrieved_chunks
@@ -158,6 +163,52 @@ class SearchResult(BaseModel):
         d["semantic_match"] = round(s.get("semantic", 0.0) * 100, 2)
         d["keyword_match"] = round(s.get("keyword", 0.0) * 100, 2)
         d["match_pct"] = d["overall_match"]
+
+        # Build a deterministic "Why this matched" list with confidence scores.
+        match_details: list[dict[str, Any]] = []
+        if s.get("role", 0.0) > 0.0 and m.role:
+            match_details.append({
+                "label": "Role Match",
+                "score": round(s.get("role", 0.0) * 100, 2),
+                "value": d["matched_role"],
+                "type": "role",
+            })
+        for sk in self.matched_skills:
+            match_details.append({
+                "label": f"{sk.title()} Match",
+                "score": 100,
+                "value": sk.title(),
+                "type": "skill",
+            })
+        if s.get("experience", 0.0) > 0.0 and m.experience_years is not None and m.experience_years > 0:
+            match_details.append({
+                "label": "Experience Match",
+                "score": round(s.get("experience", 0.0) * 100, 2),
+                "value": f"{m.experience_years:g} years",
+                "type": "experience",
+            })
+        for dt in s.get("matched_industry", []):
+            match_details.append({
+                "label": f"{dt.title()} Industry Match",
+                "score": round(s.get("industry", 0.0) * 100, 2),
+                "value": dt.title(),
+                "type": "industry",
+            })
+        for edu in s.get("matched_education", []):
+            match_details.append({
+                "label": f"{edu} Education Match",
+                "score": round(s.get("education", 0.0) * 100, 2),
+                "value": edu,
+                "type": "education",
+            })
+        if s.get("semantic", 0.0) > 0.0:
+            match_details.append({
+                "label": "Semantic Similarity",
+                "score": round(s.get("semantic", 0.0) * 100, 2),
+                "value": "",
+                "type": "semantic",
+            })
+        d["match_details"] = match_details
 
         # Confidence is a blend of extraction quality and retrieval strength.
         if self.metadata_confidence:

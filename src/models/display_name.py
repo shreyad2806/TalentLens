@@ -8,12 +8,20 @@ parser improvements.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
-from src.resume_parser.name_validator import is_valid_candidate_name, normalize_candidate_name
+from src.normalization.role_normalizer import RoleNormalizer
+from src.resume_parser.name_validator import (
+    fallback_display_name,
+    is_valid_candidate_name,
+    normalize_candidate_name,
+)
 
 from .resume_metadata import ResumeMetadata
+
+logger = logging.getLogger(__name__)
 
 
 def get_display_name(
@@ -25,19 +33,30 @@ def get_display_name(
     Priority:
       1. A validated ``candidate_name`` from metadata extraction.
       2. The source resume filename (without extension).
-      3. A stable ``Resume #<resume_id>`` label.
+      3. ``<Role> Professional`` from canonical role.
+      4. A stable ``Resume #<resume_id>`` label.
 
     The canonical ``metadata.candidate_name`` is left unchanged.
     """
     if isinstance(metadata.candidate_name, str) and is_valid_candidate_name(metadata.candidate_name):
-        return normalize_candidate_name(metadata.candidate_name)
+        name = normalize_candidate_name(metadata.candidate_name)
+        logger.info("Name resolved from candidate_name: %r", name)
+        return name
 
     if source_filename:
         stem = Path(source_filename).stem
         if is_valid_candidate_name(stem):
-            return normalize_candidate_name(stem)
+            name = normalize_candidate_name(stem)
+            logger.info("Name resolved from filename: %r", name)
+            return name
 
     if metadata.role:
-        role = metadata.role.strip().title()
-        return f"{role} Professional"
-    return "Candidate"
+        normalized = RoleNormalizer.normalize(metadata.role) or metadata.role
+        role = normalized.strip().title()
+        fallback = f"{role} Professional"
+        logger.info("Name resolved from role: %r", fallback)
+        return fallback
+
+    fallback = fallback_display_name(metadata.resume_id)
+    logger.info("Name resolved from fallback: %r", fallback)
+    return fallback

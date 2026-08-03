@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 import re
+
+logger = logging.getLogger(__name__)
 
 
 class RoleNormalizer:
@@ -17,7 +20,8 @@ class RoleNormalizer:
 
     # Ordered patterns: first match wins.
     _PATTERNS = [
-        (re.compile(r"\b(backend)\b", re.IGNORECASE), "Backend Software Engineer"),
+        (re.compile(r"\b(finance\s+(manager|lead|executive))\b", re.IGNORECASE), "Finance Manager"),
+        (re.compile(r"\b(software\s+(engineer|developer)|software|backend\s+(engineer|developer)|backend|frontend\s+(engineer|developer)|frontend|full\s*stack\s+(engineer|developer)|fullstack\s+(engineer|developer)|fullstack)\b", re.IGNORECASE), "Software Engineer"),
         (re.compile(r"\b(ml|machine learning)\b", re.IGNORECASE), "Machine Learning Engineer"),
         (re.compile(r"\b(ai)\b", re.IGNORECASE), "AI Engineer"),
         (re.compile(r"\b(data scientist)\b", re.IGNORECASE), "Data Scientist"),
@@ -41,7 +45,9 @@ class RoleNormalizer:
         cleaned = role.strip()
         for pattern, canonical in cls._PATTERNS:
             if pattern.search(cleaned):
+                logger.info("Role normalized: %r -> %r", cleaned, canonical)
                 return canonical
+        logger.info("Role unchanged: %r", cleaned)
         return cleaned
 
     @classmethod

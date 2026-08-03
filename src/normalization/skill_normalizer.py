@@ -8,7 +8,10 @@ Responsibilities:
 
 from __future__ import annotations
 
+import logging
 import re
+
+logger = logging.getLogger(__name__)
 
 
 class SkillNormalizer:
@@ -141,6 +144,7 @@ class SkillNormalizer:
         "quick", "fast", "learner", "adaptable", "flexible", "detail", "oriented",
         "player", "leadership", "organizational", "multitasking", "listener",
         "personality", "confident", "smart", "energetic", "creative",
+        "team", "teamwork",
     }
 
     # Connector / sentence words: their presence marks a sentence fragment,
@@ -178,30 +182,38 @@ class SkillNormalizer:
 
         # 1. Exact taxonomy hit always wins.
         if key in cls._MAPPING:
-            return cls._MAPPING[key]
+            canonical = cls._MAPPING[key]
+            logger.info("Skill aliased: %r -> %r", raw, canonical)
+            return canonical
 
         # 2. Reject sentence fragments: too many words or too long.
         words = key.split()
         if len(words) > 4 or len(raw) > 40:
+            logger.info("Skill rejected (too long/fragment): %r", raw)
             return None
 
         # 3. Reject fluff / soft-skill phrases.
         if set(words) & cls._NOISE_TOKENS:
+            logger.info("Skill rejected (noise): %r", raw)
             return None
 
         # 3b. Reject sentence fragments containing connector words.
         if set(words) & cls._CONNECTOR_TOKENS:
+            logger.info("Skill rejected (connector): %r", raw)
             return None
 
         # 4. Reject fragments with sentence punctuation or verbs-like endings.
         if re.search(r"[.!?;:]", raw):
+            logger.info("Skill rejected (punctuation): %r", raw)
             return None
 
         # 5. Keep as-is but title-case for display (preserve acronyms).
-        return " ".join(
+        display = " ".join(
             w if (w.isupper() and len(w) > 1) else w.capitalize()
             for w in raw.split()
         )
+        logger.info("Skill kept: %r -> %r", raw, display)
+        return display
 
     @classmethod
     def normalize_list(cls, skills: list[str]) -> list[str]:

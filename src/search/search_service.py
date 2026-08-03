@@ -78,8 +78,9 @@ OVERALL_SCORING_WEIGHTS = {
 FINAL_SCORE_WEIGHTS = {
     "cross_encoder": 0.40,
     "semantic": 0.25,
-    "skill": 0.20,
+    "skill": 0.15,
     "role": 0.10,
+    "industry": 0.05,
     "experience": 0.05,
 }
 
@@ -381,9 +382,12 @@ class SearchService:
                 + FINAL_SCORE_WEIGHTS["semantic"] * r.score_breakdown.get("semantic", 0.0)
                 + FINAL_SCORE_WEIGHTS["skill"] * r.score_breakdown.get("skill", 0.0)
                 + FINAL_SCORE_WEIGHTS["role"] * r.score_breakdown.get("role", 0.0)
+                + FINAL_SCORE_WEIGHTS["industry"] * r.score_breakdown.get("industry", 0.0)
                 + FINAL_SCORE_WEIGHTS["experience"] * r.score_breakdown.get("experience", 0.0)
             )
             r.final_score = round(final, 4)
+            r.score_breakdown["cross_encoder"] = round(r.rerank_score, 4)
+            r.score_breakdown["final"] = r.final_score
 
         rerank_pool.sort(key=lambda x: x.final_score, reverse=True)
         final = rerank_pool[:top_k]
@@ -418,20 +422,22 @@ class SearchService:
         )
         for rank_i, r in enumerate(final, start=1):
             logger.info(
-                "Top candidate %d | id=%s name=%s | final=%.4f semantic=%.4f bm25=%.4f "
-                "skill=%.4f role=%.4f experience=%.4f | matched_skills=%s matched_role=%r industry=%.4f",
+                "Top candidate %d | id=%s name=%s | semantic=%.4f bm25=%.4f "
+                "skill=%.4f role=%.4f industry=%.4f experience=%.4f cross_encoder=%.4f final=%.4f | "
+                "matched_skills=%s matched_role=%r",
                 rank_i,
                 r.resume_metadata.resume_id,
                 get_display_name(r.resume_metadata, r.source_filename),
-                r.final_score,
                 r.score_breakdown.get("semantic", 0.0),
                 r.score_breakdown.get("sparse", 0.0),
                 r.score_breakdown.get("skill", 0.0),
                 r.score_breakdown.get("role", 0.0),
+                r.score_breakdown.get("industry", 0.0),
                 r.score_breakdown.get("experience", 0.0),
+                r.score_breakdown.get("cross_encoder", r.rerank_score),
+                r.final_score,
                 r.matched_skills,
                 r.resume_metadata.role or "",
-                r.score_breakdown.get("industry", 0.0),
             )
 
         return final
@@ -492,11 +498,11 @@ class SearchService:
         self,
         resume: ResumeDocument,
         matched_text: str,
-        query: str,
+        retrieved_chunks: list[dict[str, Any]],
         matched_skills: list[str],
     ) -> str:
         """Generate and cache a concise recruiter-friendly summary from retrieved text."""
-        key = f"{resume.resume_metadata.resume_id}::{query.strip().lower()}"
+        key = resume.resume_metadata.resume_id
         if key in self._summary_cache:
             return self._summary_cache[key]
 
@@ -504,8 +510,9 @@ class SearchService:
         summary = generate_resume_summary(
             resume_text=resume.resume_text or "",
             matched_text=matched_text,
-            query=query,
-            role=m.role or "",
+            retrieved_chunks=retrieved_chunks,
+            role=m.role,
+            experience_years=m.experience_years,
             education=m.education or [],
             skills=m.skills or [],
             matched_skills=matched_skills,
@@ -635,6 +642,7 @@ class SearchService:
         summary_text = (resume.summary or "").lower()
         searchable_text = f"{resume_text} {summary_text}"
         industry_hits = {d for d in domain_terms if d in searchable_text}
+        matched_industry_terms = sorted(industry_hits)
         industry_score = (
             1.0 if domain_terms and (domain_terms & industry_hits) else
             len(industry_hits) / len(domain_terms) if domain_terms else 0.0
@@ -659,6 +667,12 @@ class SearchService:
             t for t in query_terms
             if any(t in s.lower() for s in edu_strings)
         }
+        matched_education_entries = [
+            edu
+            for edu in edu_strings
+            if any(term in edu.lower() for term in query_terms)
+            or any(dt in edu.lower() for dt in domain_terms)
+        ]
         education_score = (
             len(edu_hits) / len(query_terms) if query_terms and edu_strings else 0.0
         )
@@ -782,11 +796,11 @@ class SearchService:
         # Resume preview
         preview = ResumePreviewGenerator().generate(resume)
 
-        # AI summary from retrieved resume content (cached per resume/query)
+        # AI summary from retrieved resume content (cached per resume)
         ai_summary = self._get_ai_summary(
             resume=resume,
             matched_text=matched_text,
-            query=query,
+            retrieved_chunks=retrieved_chunks,
             matched_skills=matched_skills,
         )
 
@@ -805,6 +819,8 @@ class SearchService:
             "applicable": [k for k, v in applicability.items() if v],
             "raw_scores": {k: round(v, 4) for k, v in component_scores.items()},
             "denominator": round(denominator, 4),
+            "matched_industry": matched_industry_terms,
+            "matched_education": matched_education_entries,
         }
 
         return SearchResult(

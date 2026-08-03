@@ -56,6 +56,8 @@ INVALID_CANDIDATE_NAMES = {
     "personal information",
     "key competencies",
     "budgeting extensive",
+    "dependability staff",
+    "dependability",
 }
 
 # Common resume section headings that should not appear as names.
