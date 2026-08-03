@@ -37,4 +37,7 @@ def get_display_name(
         if is_valid_candidate_name(stem):
             return normalize_candidate_name(stem)
 
-    return f"Resume #{metadata.resume_id}"
+    if metadata.role:
+        role = metadata.role.strip().title()
+        return f"{role} Professional"
+    return "Candidate"

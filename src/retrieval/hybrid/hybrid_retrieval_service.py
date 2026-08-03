@@ -77,6 +77,7 @@ class HybridRetrievalService:
         self.sparse_service = sparse_retrieval_service
         self.fusion_service = FusionService(strategy=strategy, strategy_name=strategy_name)
         self.validator = HybridRetrievalValidator()
+        self.last_metrics: FusionMetrics | None = None
         
         if cache_enabled:
             self.cache = HybridResultCache(
@@ -108,7 +109,9 @@ class HybridRetrievalService:
         self,
         query: str,
         top_k: int = 10,
-        filters: dict[str, Any] | None = None
+        filters: dict[str, Any] | None = None,
+        dense_top_k: int = 50,
+        sparse_top_k: int = 50,
     ) -> list[HybridSearchResult]:
         """
         Search using hybrid retrieval (dense + sparse + RRF).
@@ -144,14 +147,14 @@ class HybridRetrievalService:
         logger.info(f"Incoming Filters: {filters}")
         log_stage_start(9, "HYBRID FUSION", Query=query[:80], Top_K=top_k, Strategy="RRF", Filters=filters)
         
-        # Dense retrieval
+        # Dense retrieval (top 50 by default for a wide fusion pool)
         dense_start = time.perf_counter()
-        dense_results = self._retrieve_dense(query, top_k, filters)
+        dense_results = self._retrieve_dense(query, max(dense_top_k, top_k), filters)
         dense_latency = time.perf_counter() - dense_start
         
-        # Sparse retrieval
+        # Sparse retrieval (top 50 by default for a wide fusion pool)
         sparse_start = time.perf_counter()
-        sparse_results = self._retrieve_sparse(query, top_k, filters)
+        sparse_results = self._retrieve_sparse(query, max(sparse_top_k, top_k), filters)
         sparse_latency = time.perf_counter() - sparse_start
         
         # Fusion
@@ -167,6 +170,7 @@ class HybridRetrievalService:
         metrics.dense_latency = dense_latency
         metrics.sparse_latency = sparse_latency
         metrics.total_latency = time.perf_counter() - start_time
+        self.last_metrics = metrics
         
         # Validate results
         self.validator.validate_results(fused_results, strict=False)
@@ -194,6 +198,20 @@ class HybridRetrievalService:
         # Return top-k results
         final_results = fused_results[:top_k]
         logger.info(f"Remaining Candidates: {len(final_results)}")
+        
+        # ── Retrieval quality log (per query) ────────────────────────────────
+        dense_scores = [r.get("score", 0.0) for r in dense_results]
+        sparse_scores = [r.get("bm25_score", 0.0) for r in sparse_results]
+        fused_rrf = [r.rrf_score for r in final_results]
+        print("\n[RETRIEVAL QUALITY]")
+        print(f"  Query:            {query[:80]}")
+        print(f"  Dense retrieved:  {len(dense_results)} (top score={max(dense_scores):.4f})" if dense_scores else "  Dense retrieved:  0")
+        print(f"  Sparse retrieved: {len(sparse_results)} (top score={max(sparse_scores):.4f})" if sparse_scores else "  Sparse retrieved: 0")
+        print(f"  Fused pool:       {len(fused_results)}")
+        print(f"  Overlap:          {metrics.overlap_count}  dense_only={metrics.dense_only_count}  sparse_only={metrics.sparse_only_count}")
+        if fused_rrf:
+            print(f"  RRF range:        {min(fused_rrf):.4f} – {max(fused_rrf):.4f}")
+        print(f"  Latency:          dense={dense_latency*1000:.0f}ms sparse={sparse_latency*1000:.0f}ms fusion={fusion_latency*1000:.0f}ms total={metrics.total_latency*1000:.0f}ms")
         
         # Stage 9 END banner
         top10_fused = []
