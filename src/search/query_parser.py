@@ -70,6 +70,54 @@ _STOPWORDS = {
     "looking", "need", "want", "required", "senior", "junior",
 }
 
+# Configurable role dictionary: raw lower phrase -> canonical display role.
+_ROLE_TEMPLATES = {
+    "frontend developer": "Frontend Developer",
+    "frontend engineer": "Frontend Engineer",
+    "backend developer": "Backend Developer",
+    "backend engineer": "Backend Engineer",
+    "full stack developer": "Full Stack Developer",
+    "full stack engineer": "Full Stack Engineer",
+    "fullstack developer": "Full Stack Developer",
+    "fullstack engineer": "Full Stack Engineer",
+    "mobile developer": "Mobile Developer",
+    "mobile engineer": "Mobile Engineer",
+    "android developer": "Mobile Developer",
+    "ios developer": "iOS Developer",
+    "data scientist": "Data Scientist",
+    "data analyst": "Data Analyst",
+    "software engineer": "Software Engineer",
+    "software developer": "Software Developer",
+    "web developer": "Web Developer",
+    "devops engineer": "DevOps Engineer",
+    "machine learning engineer": "Machine Learning Engineer",
+    "ml engineer": "Machine Learning Engineer",
+    "ai engineer": "AI Engineer",
+    "data engineer": "Data Engineer",
+    "cloud engineer": "Cloud Engineer",
+    "site reliability engineer": "Site Reliability Engineer",
+    "sre": "Site Reliability Engineer",
+}
+
+# Tokens that are programming languages, frameworks, or platforms and must
+# never be merged into the role phrase.
+_ROLE_FRAMEWORK_TOKENS = {
+    k for k in SkillNormalizer._MAPPING if " " not in k
+} | {
+    "reactjs", "vuejs", "angularjs", "nodejs", "node", "springboot",
+    "spring", "hibernate", "jquery", "bootstrap", "net", ".net", "dotnet",
+    "laravel", "rails", "ruby", "php", "golang", "rust", "scala", "perl",
+    "mongodb", "postgres", "postgresql", "mysql", "sqlite", "redis",
+    "oracle", "cassandra", "dynamodb", "elasticsearch", "kafka", "rabbitmq",
+    "graphql", "rest", "soap", "oauth", "jwt", "json", "xml", "yaml",
+    "html", "html5", "css", "css3", "sass", "less", "webpack", "babel",
+    "eslint", "prettier", "npm", "yarn", "pip", "maven", "gradle", "cmake",
+    "jenkins", "gitlab", "github", "bitbucket", "circleci", "travis",
+    "terraform", "ansible", "puppet", "chef", "vagrant", "nginx", "apache",
+    "tomcat", "jetty", "kubernetes", "docker", "aws", "gcp", "azure",
+    "firebase", "heroku", "netlify", "vercel", "digitalocean", "linode",
+}
+
 
 @dataclass
 class ParsedQuery:
@@ -120,21 +168,24 @@ class QueryParser:
         return parsed
 
     def _extract_role(self, lower: str) -> str | None:
+        # 1. Explicit role templates take priority.
+        for pattern, canonical in sorted(_ROLE_TEMPLATES.items(), key=lambda x: -len(x[0])):
+            if re.search(rf"(?<![\w]){re.escape(pattern)}(?![\w])", lower):
+                return canonical
+
+        # 2. Fallback: find a role noun and strip leading framework/tech tokens.
         words = lower.split()
         for i, w in enumerate(words):
             token = w.strip(".,")
             if token in _ROLE_NOUNS:
-                # Take up to 2 preceding non-stopword words as the role qualifier.
                 start = i
-                qualifiers: list[str] = []
                 for j in range(i - 1, max(-1, i - 3), -1):
                     prev = words[j].strip(".,")
-                    if prev in _STOPWORDS or prev in _EDUCATION_MAP:
+                    if prev in _STOPWORDS or prev in _EDUCATION_MAP or prev in _ROLE_FRAMEWORK_TOKENS:
                         break
-                    qualifiers.insert(0, prev)
                     start = j
                 phrase = " ".join(words[start:i + 1])
-                return phrase.title()
+                return _ROLE_TEMPLATES.get(phrase, phrase.title())
         return None
 
     def _extract_industry(self, lower: str, role: str | None) -> str | None:

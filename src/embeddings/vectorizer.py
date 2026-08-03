@@ -82,7 +82,7 @@ class Vectorizer:
         
         return self._build_record(chunk, vector)
     
-    def vectorize_chunks(self, chunks: list, batch_size: int = 32) -> list[EmbeddingRecord]:
+    def vectorize_chunks(self, chunks: list, batch_size: int = 32, use_cache: bool = True) -> list[EmbeddingRecord]:
         """
         Convert multiple Chunk objects to EmbeddingRecord objects efficiently.
         
@@ -92,12 +92,26 @@ class Vectorizer:
         Args:
             chunks: List of Chunk objects to vectorize
             batch_size: Number of chunks to encode in a single model forward pass
+            use_cache: Whether to read/write the persistent embedding cache
             
         Returns:
             List of EmbeddingRecord objects
         """
         if not chunks:
             return []
+
+        if not use_cache:
+            # Fast path for transient queries: never touches the persistent cache
+            model = self.model_loader.get_model()
+            texts = [c.text for c in chunks]
+            encoded = model.encode(
+                texts,
+                batch_size=batch_size,
+                show_progress_bar=False,
+                convert_to_numpy=True,
+                normalize_embeddings=False,
+            )
+            return [self._build_record(chunk, vector.tolist()) for chunk, vector in zip(chunks, encoded)]
 
         # Separate cached and missing chunks
         cached_entries: list[tuple] = []

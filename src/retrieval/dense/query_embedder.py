@@ -62,6 +62,7 @@ class QueryEmbedder:
             expected_dimension: Expected dimension of embedding vectors. If None, uses config default.
         """
         self.dimension = expected_dimension or EMBEDDING_DIM
+        self._query_cache: dict[str, list[float]] = {}
 
         # Dependency injection: prefer provided EmbeddingService.
         if embedding_service is not None:
@@ -76,6 +77,8 @@ class QueryEmbedder:
         except Exception as e:
             logger.error(f"Failed to initialize embedding service: {e}")
             raise
+
+        self.embedding_service.warmup()
 
     
     def embed_query(self, query: str) -> list[float]:
@@ -98,7 +101,12 @@ class QueryEmbedder:
         """
         if not query or not query.strip():
             raise ValueError("Query cannot be empty")
-        
+
+        q = query.strip()
+        if q in self._query_cache:
+            logger.debug(f"Returning cached query embedding for: {q[:50]}...")
+            return self._query_cache[q]
+
         # Create a mock chunk object for the query
         # The embedding service expects a Chunk object, so we create a minimal one
         from src.chunks.schema import Chunk, ChunkMetadata
@@ -117,16 +125,17 @@ class QueryEmbedder:
         
         try:
             # Generate embedding using the embedding service
-            embedding_record = self.embedding_service.embed_chunks([query_chunk])
-            
+            embedding_record = self.embedding_service.embed_chunks([query_chunk], save=False)
+
             if not embedding_record:
                 raise RuntimeError("Failed to generate embedding")
-            
+
             # Extract the embedding vector
             embedding = embedding_record[0].vector
-            
+            self._query_cache[q] = embedding
+
             logger.debug(f"Generated embedding for query: {query[:50]}... (dimension: {len(embedding)})")
-            
+
             return embedding
             
         except Exception as e:
@@ -169,7 +178,7 @@ class QueryEmbedder:
         
         try:
             # Generate embeddings using the embedding service
-            embedding_records = self.embedding_service.embed_chunks(query_chunks)
+            embedding_records = self.embedding_service.embed_chunks(query_chunks, save=False)
             
             if not embedding_record:
                 raise RuntimeError("Failed to generate embeddings")

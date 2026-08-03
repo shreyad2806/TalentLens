@@ -44,6 +44,7 @@ class EmbeddingService:
         """
         self.vectorizer = Vectorizer()
         self.validator = EmbeddingValidator(expected_dimension=expected_dimension or EMBEDDING_DIM)
+        self.warmup()
         self._print_model_info()
     
     def _print_model_info(self) -> None:
@@ -97,7 +98,7 @@ class EmbeddingService:
         
         return embedding_record
     
-    def embed_chunks(self, chunks: list, batch_size: int = 32) -> list[EmbeddingRecord]:
+    def embed_chunks(self, chunks: list, batch_size: int = 32, save: bool = True) -> list[EmbeddingRecord]:
         """
         Generate embeddings for multiple Chunk objects.
         
@@ -122,10 +123,11 @@ class EmbeddingService:
         ]
         
         # Generate embedding records in batches
-        embedding_records = self.vectorizer.vectorize_chunks(valid_chunks, batch_size=batch_size)
+        embedding_records = self.vectorizer.vectorize_chunks(valid_chunks, batch_size=batch_size, use_cache=save)
         
         # Persist cache to avoid rebuilding unchanged embeddings later
-        self.vectorizer.save_cache()
+        if save:
+            self.vectorizer.save_cache()
         
         # Validate and filter records
         valid_records = self.validator.validate_and_filter(embedding_records)

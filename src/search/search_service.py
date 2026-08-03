@@ -38,13 +38,14 @@ FIELD_WEIGHTS = {
 # Default weights for the enhanced ranking model.
 # Exposed through the RANKING_WEIGHTS env var as JSON.
 ENHANCED_RANKING_DEFAULT_WEIGHTS = {
-    "dense": 0.25,
-    "sparse": 0.15,
+    "role": 0.40,
+    "industry": 0.20,
     "skill": 0.20,
-    "role": 0.15,
     "experience": 0.10,
-    "location": 0.10,
-    "education": 0.05,
+    "dense": 0.10,  # semantic/vector contribution
+    "sparse": 0.00,
+    "location": 0.00,
+    "education": 0.00,
 }
 
 # Domain keywords that should not be treated as skills. They are matched against
@@ -63,25 +64,25 @@ QUERY_DOMAINS = {
 }
 
 # Weighted components for the new Overall Match score.
-# Keyword Match is sparse/term-overlap based; Semantic is dense/vector similarity.
+# Role dominates; industry and skill are secondary; experience and semantic are supporting.
 OVERALL_SCORING_WEIGHTS = {
-    "role": 0.35,
-    "industry": 0.25,
+    "role": 0.40,
+    "industry": 0.20,
     "skill": 0.20,
     "experience": 0.10,
-    "education": 0.05,
-    "semantic": 0.05,
+    "education": 0.00,
+    "semantic": 0.10,
     "keyword": 0.0,
     "location": 0.0,
 }
 
 FINAL_SCORE_WEIGHTS = {
-    "cross_encoder": 0.40,
-    "semantic": 0.25,
-    "skill": 0.15,
-    "role": 0.10,
-    "industry": 0.05,
-    "experience": 0.05,
+    "cross_encoder": 0.00,
+    "semantic": 0.10,
+    "skill": 0.20,
+    "role": 0.40,
+    "industry": 0.20,
+    "experience": 0.10,
 }
 
 _RESUME_CACHE: dict[str, ResumeDocument] | None = None
@@ -288,12 +289,19 @@ class SearchService:
         RERANK_POOL = 20
 
         # 1. Hybrid retrieval: dense top 50 + sparse top 50 fused with RRF
+        # Query-parsed role/skills are semantically soft, so they are enforced
+        # during _score_resume, not as exact Qdrant filters that can choke dense.
+        retrieval_filter_data = filters.model_dump(exclude_none=True)
+        for soft_key in ("role", "skills", "industry", "certifications", "source_dataset"):
+            retrieval_filter_data.pop(soft_key, None)
+        retrieval_filters = retrieval_filter_data or None
+
         hybrid_results = []
         if self.hybrid_service is not None:
             for attempt in range(3):
                 try:
                     hybrid_results = self.hybrid_service.search(
-                        query, top_k=FUSED_POOL, filters=filters.model_dump(exclude_none=True)
+                        query, top_k=FUSED_POOL, filters=retrieval_filters
                     )
                     break
                 except Exception as exc:
@@ -483,7 +491,7 @@ class SearchService:
             return []
 
         weights = self._normalize_weights()
-        components = ["dense", "sparse", "skill", "role", "experience", "location", "education"]
+        components = ["role", "industry", "skill", "experience", "dense", "sparse", "location", "education"]
 
         # Normalize each component globally across the result pool
         maxes = {c: max((r.score_breakdown.get(c, 0.0) for r in scored), default=1.0) for c in components}
@@ -663,15 +671,18 @@ class SearchService:
 
         skill_display = "N/A" if not skill_match_available else f"{round(skill_score * 100, 2)}%"
 
-        # --- role match (query/domain terms or simple stems in role) ---
+        # --- role match (exact query role first, then query/domain term overlap) ---
         role_text = (resume.role or "").lower()
+        filter_role = (filters.role or "").lower()
         role_terms = query_terms | domain_terms
-        role_hits = {t for t in role_terms if t in role_text or _stem_term(t) in role_text}
-        role_score = 1.0 if domain_terms and any(
-            d in role_text or _stem_term(d) in role_text for d in domain_terms
-        ) else (
-            len(role_hits) / len(role_terms) if role_terms else 0.0
-        )
+
+        if filter_role and filter_role in role_text:
+            role_score = 1.0
+        elif domain_terms and any(d in role_text or _stem_term(d) in role_text for d in domain_terms):
+            role_score = 1.0
+        else:
+            role_hits = {t for t in role_terms if t in role_text or _stem_term(t) in role_text}
+            role_score = len(role_hits) / len(role_terms) if role_terms else 0.0
 
         # --- industry match (domain terms in resume text) ---
         resume_text = (resume.resume_text or "").lower()
@@ -740,13 +751,13 @@ class SearchService:
         }
 
         # All six weighted components always apply; missing evidence simply
-        # contributes 0.0. This guarantees a fixed 35/25/20/10/5/5 split.
+        # contributes 0.0. This guarantees a fixed 40/20/20/10/10 split.
         applicability = {
             "role": True,
             "industry": True,
             "skill": True,
             "experience": True,
-            "education": True,
+            "education": False,
             "semantic": True,
             "location": False,
             "keyword": False,

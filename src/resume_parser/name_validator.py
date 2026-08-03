@@ -58,6 +58,12 @@ INVALID_CANDIDATE_NAMES = {
     "budgeting extensive",
     "dependability staff",
     "dependability",
+    "company name",
+    "core qualifications",
+    "other information",
+    "accenture outstanding performer award",
+    "outstanding performer award",
+    "performer award",
 }
 
 # Common resume section headings that should not appear as names.
@@ -67,6 +73,9 @@ HEADING_KEYWORDS = {
     "achievements", "awards", "publications", "interests", "hobbies",
     "contact", "personal", "career", "employment", "work", "relevant",
     "professional", "computer", "critical", "budgeting", "key", "competencies",
+    "company", "core", "qualifications", "other", "information", "name",
+    "outstanding", "performer", "award", "accomplishments", "activities",
+    "affiliations", "associations", "declaration", "details", "overview",
 }
 
 
@@ -115,6 +124,11 @@ def is_valid_candidate_name(name: Any, reason: bool = False) -> bool | tuple[boo
         return (False, "contains_digit") if reason else False
     if len(name) > 60:
         return (False, "too_long") if reason else False
+
+    # Reject common multi-word section headings exactly.
+    lower = name.lower()
+    if lower in INVALID_CANDIDATE_NAMES:
+        return (False, f"invalid_heading:{lower}") if reason else False
 
     tokens = name.split()
     if len(tokens) < 2 or len(tokens) > 4:

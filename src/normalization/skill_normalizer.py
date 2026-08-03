@@ -130,6 +130,18 @@ class SkillNormalizer:
         "spring boot": "Spring Boot",
         "springboot": "Spring Boot",
         "spring": "Spring",
+        "fastapi": "FastAPI",
+        "fast api": "FastAPI",
+        "flask": "Flask",
+        "django": "Django",
+        "android": "Android",
+        "ios": "iOS",
+        "kotlin": "Kotlin",
+        "swift": "Swift",
+        "php": "PHP",
+        "ruby": "Ruby",
+        "golang": "Go",
+        "rust": "Rust",
     }
 
     # Fluff tokens: any skill containing one of these words (as a token) is
@@ -144,7 +156,9 @@ class SkillNormalizer:
         "quick", "fast", "learner", "adaptable", "flexible", "detail", "oriented",
         "player", "leadership", "organizational", "multitasking", "listener",
         "personality", "confident", "smart", "energetic", "creative",
-        "team", "teamwork",
+        "team", "teamwork", "competitive", "competitively", "dynamic",
+        "dynamically", "proactive", "proactively", "page", "pages",
+        "aggressive", "assertive",
     }
 
     # Connector / sentence words: their presence marks a sentence fragment,

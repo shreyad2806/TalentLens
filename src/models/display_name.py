@@ -32,15 +32,22 @@ def get_display_name(
 
     Priority:
       1. A validated ``candidate_name`` from metadata extraction.
-      2. The source resume filename (without extension).
-      3. ``<Role> Professional`` from canonical role.
-      4. A stable ``Resume #<resume_id>`` label.
+      2. A validated ``full_name`` if present on the metadata.
+      3. The source resume filename (without extension).
+      4. ``<Role> Professional`` from canonical role.
+      5. A stable ``Resume #<resume_id>`` label.
 
     The canonical ``metadata.candidate_name`` is left unchanged.
     """
     if isinstance(metadata.candidate_name, str) and is_valid_candidate_name(metadata.candidate_name):
         name = normalize_candidate_name(metadata.candidate_name)
         logger.info("Name resolved from candidate_name: %r", name)
+        return name
+
+    full_name = getattr(metadata, "full_name", None)
+    if isinstance(full_name, str) and is_valid_candidate_name(full_name):
+        name = normalize_candidate_name(full_name)
+        logger.info("Name resolved from full_name: %r", name)
         return name
 
     if source_filename:
