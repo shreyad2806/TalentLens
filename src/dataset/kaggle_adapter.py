@@ -63,10 +63,16 @@ class KaggleAdapter(BaseDatasetAdapter):
 
         resume_id = str(record["ID"])
 
-        # role: CSV Category is the most reliable signal for this dataset.
+        # role: CSV Category is the most reliable for this dataset.
         role = record.get("Category") or None
         if not role and parsed.experience:
             role = parsed.experience[0].title
+
+        # Extract canonical primary occupation from parsed work history.
+        primary_occupation = (parsed.metadata or {}).get("primary_occupation") or {}
+        primary_role = primary_occupation.get("primary_role") or role
+        role_family = primary_occupation.get("role_family")
+        seniority = primary_occupation.get("seniority")
 
         # Experience years from the parser, with a sensible cap.
         experience_years = None
@@ -88,7 +94,10 @@ class KaggleAdapter(BaseDatasetAdapter):
         metadata = ResumeMetadata(
             resume_id=resume_id,
             candidate_name=parsed.name,
-            role=role,
+            role=primary_role,
+            primary_role=primary_role,
+            role_family=role_family,
+            seniority=seniority,
             skills=parsed.skills or [],
             location=(parsed.metadata or {}).get("location"),
             experience_years=experience_years,

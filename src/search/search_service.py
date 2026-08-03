@@ -22,6 +22,7 @@ from src.preview import ResumePreviewGenerator
 from src.summarization import generate_resume_summary
 
 from .query_parser import ParsedQuery, get_query_parser
+from .role_similarity import RoleSimilarityScorer
 from .schema import SearchFilters, SearchResult
 
 # How much each filter field contributes to the metadata score.
@@ -83,6 +84,17 @@ FINAL_SCORE_WEIGHTS = {
     "role": 0.40,
     "industry": 0.20,
     "experience": 0.10,
+}
+
+# Suitability scoring: candidate fit rather than retrieval confidence.
+# Role and skill dominate; project, experience, education, and semantic support.
+SUITABILITY_SCORE_WEIGHTS = {
+    "role": 0.35,
+    "skill": 0.25,
+    "experience": 0.15,
+    "project": 0.10,
+    "education": 0.05,
+    "semantic": 0.10,
 }
 
 _RESUME_CACHE: dict[str, ResumeDocument] | None = None
@@ -175,6 +187,76 @@ def _tokenize_skills(skills: list[str] | None) -> set[str]:
             if token:
                 tokens.add(token)
     return tokens
+
+
+# Evidence-tier weights for where a term appears in a resume.
+# Work/professional experience is strongest, education/coursework is weakest.
+SECTION_TIER_WEIGHTS = {
+    "work_experience": 1.00,
+    "projects": 0.80,
+    "skills": 0.50,
+    "certifications": 0.30,
+    "education": 0.10,
+}
+
+# Section heading patterns mapped to the tier keys above.
+SECTION_HEADING_PATTERNS: list[tuple[str, str]] = [
+    (r"(?:^|\n)\s*(?:work|professional|employment|career).*?(?:experience|history)\s*(?:[:|\-]|\n|$)", "work_experience"),
+    (r"(?:^|\n)\s*(?:projects?|personal projects|side projects?)\s*(?:[:|\-]|\n|$)", "projects"),
+    (r"(?:^|\n)\s*(?:technical\s+)?skills?\s*(?:[:|\-]|\n|$)", "skills"),
+    (r"(?:^|\n)\s*(?:certifications?|licenses?|accreditations?)\s*(?:[:|\-]|\n|$)", "certifications"),
+    (r"(?:^|\n)\s*(?:education|academic|coursework|qualifications?|degrees?)\s*(?:[:|\-]|\n|$)", "education"),
+]
+
+
+def _get_section_intervals(text: str) -> list[tuple[int, int, float]]:
+    """Return (start, end, weight) intervals for each section body in a resume.
+
+    Heading patterns are matched case-insensitively. Text before the first
+    recognised heading is treated as work experience by default.
+    """
+    lower = text.lower()
+    matches: list[tuple[int, int, float, str]] = []
+    for pattern, key in SECTION_HEADING_PATTERNS:
+        for match in re.finditer(pattern, lower, re.IGNORECASE):
+            matches.append((match.start(), match.end(), SECTION_TIER_WEIGHTS[key], key))
+    if not matches:
+        return [(0, len(lower), SECTION_TIER_WEIGHTS["work_experience"])]
+    matches.sort(key=lambda x: x[0])
+    intervals: list[tuple[int, int, float]] = []
+    if matches[0][0] > 0:
+        intervals.append((0, matches[0][0], SECTION_TIER_WEIGHTS["work_experience"]))
+    for i, (start, end, weight, key) in enumerate(matches):
+        body_start = end
+        body_end = matches[i + 1][0] if i + 1 < len(matches) else len(lower)
+        if body_start < body_end:
+            intervals.append((body_start, body_end, weight))
+    return intervals
+
+
+def _section_weighted_term_score(text: str, terms: set[str]) -> float:
+    """Score query term presence weighted by the resume section in which it appears.
+
+    For each query term the highest-weighted section containing the term is
+    used. The final score is the average of those best weights, capped at 1.0.
+    """
+    if not text or not terms:
+        return 0.0
+    intervals = _get_section_intervals(text)
+    lower = text.lower()
+    term_weights: dict[str, float] = {}
+    for term in terms:
+        pattern = re.compile(rf"\b{re.escape(term)}\b")
+        for match in pattern.finditer(lower):
+            pos = match.start()
+            for start, end, weight in intervals:
+                if start <= pos < end:
+                    if weight > term_weights.get(term, 0.0):
+                        term_weights[term] = weight
+                    break
+    if not term_weights:
+        return 0.0
+    return min(1.0, sum(term_weights.values()) / len(terms))
 
 
 class SearchService:
@@ -551,7 +633,8 @@ class SearchService:
             resume_text=resume.resume_text or "",
             matched_text=matched_text,
             retrieved_chunks=retrieved_chunks,
-            role=m.role,
+            primary_role=m.primary_role or m.role,
+            role_family=m.role_family,
             experience_years=m.experience_years,
             education=m.education or [],
             skills=m.skills or [],
@@ -659,43 +742,45 @@ class SearchService:
                 elif "sparse" in src:
                     bm25_score = max(bm25_score, float(chunk.score or 0.0))
 
-        # --- skill matching (only when actual skills exist) ---
+        # --- skill matching weighted by section (work > projects > skills > certs > education) ---
+        matched_skills: list[str] = []
         wanted_skills = _tokenize_skills(filters.skills) or skill_terms
         skill_match_available = bool(wanted_skills)
-        if skill_match_available and resume.skills:
-            resume_skills = _tokenize_skills(resume.skills)
-            matched_skills = sorted(resume_skills & wanted_skills)
-            skill_score = min(1.0, len(matched_skills) / len(wanted_skills))
+        if skill_match_available:
+            resume_skills = _tokenize_skills(resume.skills) if resume.skills else set()
+            text_tokens = set(re.split(r"[,;\s]+", (resume.resume_text or "").lower()))
+            matched_skills = sorted((resume_skills | text_tokens) & wanted_skills)
+            # Education mentions of a skill count far less than work-experience mentions.
+            skill_score = _section_weighted_term_score((resume.resume_text or "").lower(), wanted_skills)
         else:
             skill_score = 0.0
 
         skill_display = "N/A" if not skill_match_available else f"{round(skill_score * 100, 2)}%"
 
-        # --- role match (exact query role first, then query/domain term overlap) ---
-        role_text = (resume.role or "").lower()
+        # --- role match (occupation-aware similarity; contributes 40% of final) ---
+        primary_role = resume.primary_role or resume.role
         filter_role = (filters.role or "").lower()
-        role_terms = query_terms | domain_terms
+        role_text = (primary_role or "").lower()
+        occupation_query = (filters.role or query).lower()
 
         if filter_role and filter_role in role_text:
-            role_score = 1.0
-        elif domain_terms and any(d in role_text or _stem_term(d) in role_text for d in domain_terms):
+            # Explicit filter role is present in the candidate's primary role.
             role_score = 1.0
         else:
-            role_hits = {t for t in role_terms if t in role_text or _stem_term(t) in role_text}
-            role_score = len(role_hits) / len(role_terms) if role_terms else 0.0
+            # Deterministic, embedding-free occupation similarity scoring.
+            role_score = RoleSimilarityScorer.score(occupation_query, primary_role)
 
-        # --- industry match (domain terms in resume text) ---
+        # --- industry match (domain terms in resume text, weighted by section) ---
         resume_text = (resume.resume_text or "").lower()
         summary_text = (resume.summary or "").lower()
         searchable_text = f"{resume_text} {summary_text}"
-        industry_hits = {d for d in domain_terms if d in searchable_text or _stem_term(d) in searchable_text}
-        matched_industry_terms = sorted(industry_hits)
-        industry_score = (
-            1.0 if domain_terms and (domain_terms & industry_hits) else
-            len(industry_hits) / len(domain_terms) if domain_terms else 0.0
+        # Weight domain mentions by section: work > projects > skills > certs > education.
+        industry_score = _section_weighted_term_score(searchable_text, domain_terms)
+        matched_industry_terms = sorted(
+            {d for d in domain_terms if d in searchable_text or _stem_term(d) in searchable_text}
         )
 
-        # --- experience match (query terms in resume text, plus explicit filter) ---
+        # --- experience match (query terms in resume text, weighted by section) ---
         min_y = filters.experience_min or 0.0
         max_y = filters.experience_max or float("inf")
         if filters.experience_min is not None or filters.experience_max is not None:
@@ -704,10 +789,15 @@ class SearchService:
         else:
             exp_filter_match = False
 
-        exp_hits = {t for t in query_terms if t in resume_text}
-        experience_score = 1.0 if exp_filter_match else (
-            len(exp_hits) / len(query_terms) if query_terms else 0.0
-        )
+        if exp_filter_match:
+            experience_score = 1.0
+        else:
+            experience_score = _section_weighted_term_score(resume_text or "", query_terms)
+
+        # --- project match (query terms in project descriptions) ---
+        project_terms = query_terms | wanted_skills | domain_terms
+        project_text = " ".join(resume.projects or []).lower()
+        project_score = _section_weighted_term_score(project_text, project_terms)
 
         # --- education match (query terms in education entries) ---
         edu_hits = {
@@ -738,40 +828,21 @@ class SearchService:
         # --- semantic similarity from dense retrieval ---
         semantic_similarity = min(1.0, max(0.0, semantic_score))
 
-        # --- Overall Match (deterministic fixed weighted composite) ---
+        # --- Suitability Score (candidate fit, 0-1) ---
         component_scores = {
             "role": role_score,
             "skill": skill_score,
-            "industry": industry_score,
             "experience": experience_score,
+            "project": project_score,
             "education": education_score,
-            "location": location_score,
             "semantic": semantic_similarity,
-            "keyword": keyword_score,
         }
 
-        # All six weighted components always apply; missing evidence simply
-        # contributes 0.0. This guarantees a fixed 40/20/20/10/10 split.
-        applicability = {
-            "role": True,
-            "industry": True,
-            "skill": True,
-            "experience": True,
-            "education": False,
-            "semantic": True,
-            "location": False,
-            "keyword": False,
-        }
-
-        numerator = 0.0
-        denominator = 0.0
-        for key, applicable in applicability.items():
-            if applicable:
-                weight = OVERALL_SCORING_WEIGHTS[key]
-                numerator += component_scores[key] * weight
-                denominator += weight
-
-        overall_match = round(min(1.0, numerator), 4)
+        # All six components always apply; missing evidence contributes 0.0.
+        overall_match = round(
+            min(1.0, sum(component_scores[k] * SUITABILITY_SCORE_WEIGHTS[k] for k in SUITABILITY_SCORE_WEIGHTS)),
+            4,
+        )
 
         # --- explainability reasons (uses only real evidence) ---
         explanation: list[str] = []
@@ -855,19 +926,20 @@ class SearchService:
 
         score_breakdown = {
             "overall": overall_match,
-            "dense": round(semantic_score, 4),
-            "sparse": round(bm25_score, 4),
-            "keyword": round(keyword_score, 4),
-            "skill": round(skill_score, 4),
+            "suitability_score_0_100": round(overall_match * 100, 2),
             "role": round(role_score, 4),
-            "industry": round(industry_score, 4),
+            "skill": round(skill_score, 4),
             "experience": round(experience_score, 4),
-            "location": round(location_score, 4),
+            "project": round(project_score, 4),
             "education": round(education_score, 4),
             "semantic": round(semantic_similarity, 4),
-            "applicable": [k for k, v in applicability.items() if v],
+            "industry": round(industry_score, 4),
+            "location": round(location_score, 4),
+            "keyword": round(keyword_score, 4),
+            "dense": round(semantic_score, 4),
+            "sparse": round(bm25_score, 4),
             "raw_scores": {k: round(v, 4) for k, v in component_scores.items()},
-            "denominator": round(denominator, 4),
+            "denominator": 1.0,
             "matched_industry": matched_industry_terms,
             "matched_education": matched_education_entries,
         }

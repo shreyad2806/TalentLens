@@ -519,6 +519,12 @@ class CSVIngestionService:
                     if role:
                         break
 
+        # Extract canonical primary occupation from work history / category.
+        primary_occupation = (document.metadata or {}).get("primary_occupation") or {}
+        primary_role = primary_occupation.get("primary_role") or role
+        role_family = primary_occupation.get("role_family")
+        seniority = primary_occupation.get("seniority")
+
         # education as list of strings
         education = []
         for edu in document.education or []:
@@ -546,7 +552,10 @@ class CSVIngestionService:
         metadata = ResumeMetadata(
             resume_id=record_id,
             candidate_name=candidate_name,
-            role=role,
+            role=primary_role,
+            primary_role=primary_role,
+            role_family=role_family,
+            seniority=seniority,
             skills=skills,
             location=location,
             experience_years=experience_years,

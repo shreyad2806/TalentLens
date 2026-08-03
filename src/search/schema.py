@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from src.models import ResumeMetadata, get_display_name
 from src.normalization.role_normalizer import RoleNormalizer
+from src.normalization.skill_importance import SkillImportanceRanker
 
 
 class SearchFilters(BaseModel):
@@ -74,38 +75,47 @@ class SearchResult(BaseModel):
         return cleaned
 
     def _ai_summary(self, m: ResumeMetadata, top_skills: list[str]) -> str:
-        """Generate a 2–3 line recruiter-friendly summary from metadata."""
+        """Generate a 3-sentence recruiter-friendly summary from metadata."""
         parts: list[str] = []
-        name = get_display_name(m, self.source_filename)
-        role = (m.role or "").strip().title() if m.role else ""
-        years = f"{m.experience_years:g} years" if m.experience_years and m.experience_years > 0 else ""
-        location = (m.location or "").strip() if m.location else ""
+        role = (m.primary_role or m.role or "").strip()
+        role_family = (m.role_family or "").strip()
+        key_domain = role_family or role
 
-        # Sentence 1: identity
-        if name and role:
-            parts.append(f"{name} is a {role}.")
-        elif name:
-            parts.append(f"{name}.")
+        # Sentence 1: role + years + key domain
+        if role and m.experience_years is not None and m.experience_years > 0:
+            if key_domain and key_domain != role:
+                parts.append(f"{role} with {m.experience_years:g} years of hands-on experience, primarily in {key_domain}.")
+            else:
+                parts.append(f"{role} with {m.experience_years:g} years of hands-on experience.")
         elif role:
-            parts.append(f"{role} professional.")
+            parts.append(f"{role} with relevant hands-on experience.")
+        elif m.experience_years is not None and m.experience_years > 0:
+            parts.append(f"Professional with {m.experience_years:g} years of hands-on experience.")
         else:
             parts.append("Candidate profile.")
 
-        # Sentence 2: experience + location
-        context_parts = []
-        if years:
-            context_parts.append(years)
-        if location:
-            context_parts.append(f"based in {location}")
-        if context_parts:
-            parts.append("Brings " + ", ".join(context_parts) + ".")
-
-        # Sentence 3: top skills
+        # Sentence 2: primary technologies
         if top_skills:
-            parts.append("Key skills: " + ", ".join(top_skills[:6]) + ".")
+            tech = [s for s in top_skills if s][:6]
+            if len(tech) == 1:
+                tech_clause = tech[0]
+            else:
+                tech_clause = ", ".join(tech[:-1]) + f" and {tech[-1]}" if len(tech) > 1 else tech[0]
+            parts.append(f"They work with {tech_clause}.")
+
+        # Sentence 3: work focus before education
+        if key_domain:
+            work_focus = f"Recent work has been in {key_domain}"
+            if m.education and m.education[0]:
+                parts.append(f"{work_focus}, supported by {str(m.education[0]).strip()}.")
+            else:
+                parts.append(f"{work_focus}.")
+        elif m.education and m.education[0]:
+            parts.append(f"Background includes {str(m.education[0]).strip()}.")
+        else:
+            parts.append("Relevant background for this search.")
 
         summary = " ".join(parts)
-        # Guard against long summaries.
         if len(summary) > 220:
             summary = summary[:217] + "..."
         return summary
@@ -118,8 +128,15 @@ class SearchResult(BaseModel):
 
         matched_set = {sk.lower() for sk in self.matched_skills}
         all_skills = self._clean_skills(m.skills or [])
-        top_skills = all_skills[:5]
-        extra_skills = max(0, len(all_skills) - 5)
+        ranked = SkillImportanceRanker.rank(
+            all_skills,
+            role_family=m.role_family,
+            primary_role=m.primary_role or m.role,
+        )
+        primary_skills = ranked["primary"]
+        secondary_skills = ranked["secondary"]
+        top_skills = primary_skills[:5]
+        extra_skills = max(0, len(primary_skills) - 5)
 
         d["id"] = m.resume_id
         d["name"] = get_display_name(m, self.source_filename)
@@ -130,7 +147,11 @@ class SearchResult(BaseModel):
         d["top_skills"] = top_skills
         d["extra_skills"] = extra_skills
         d["all_skills_count"] = len(all_skills)
+        d["primary_skills_count"] = len(primary_skills)
+        d["secondary_skills_count"] = len(secondary_skills)
         d["skills"] = all_skills
+        d["primary_skills"] = primary_skills
+        d["secondary_skills"] = secondary_skills
         d["matched_skills"] = self._clean_skills(self.matched_skills, matched=matched_set)
         d["score"] = round(self.final_score, 4)
         d["section"] = self.matched_sections[0] if self.matched_sections else "unknown"
@@ -142,7 +163,10 @@ class SearchResult(BaseModel):
         d["projects"] = (m.projects or [])[:6]
         d["certifications"] = (m.certifications or [])[:6]
         d["summary"] = (m.summary or "")[:250]
-        d["role"] = RoleNormalizer.normalize(m.role) or m.role or ""
+        d["primary_role"] = RoleNormalizer.normalize(m.primary_role or m.role) or m.primary_role or m.role or ""
+        d["role"] = d["primary_role"]
+        d["role_family"] = m.role_family or ""
+        d["seniority"] = m.seniority or ""
         d["matched_role"] = d["role"] if s.get("role", 0.0) > 0.0 else ""
         d["matched_industry"] = s.get("matched_industry", [])
         d["matched_education"] = s.get("matched_education", [])
@@ -166,7 +190,16 @@ class SearchResult(BaseModel):
         d["education_match"] = round(s.get("education", 0.0) * 100, 2)
         d["semantic_match"] = round(s.get("semantic", 0.0) * 100, 2)
         d["keyword_match"] = round(s.get("keyword", 0.0) * 100, 2)
+        d["project_match"] = round(s.get("project", 0.0) * 100, 2)
         d["match_pct"] = d["overall_match"]
+        d["score_breakdown"] = {
+            "Role": round(s.get("role", 0.0) * 100, 2),
+            "Skill": round(s.get("skill", 0.0) * 100, 2),
+            "Experience": round(s.get("experience", 0.0) * 100, 2),
+            "Project": round(s.get("project", 0.0) * 100, 2),
+            "Education": round(s.get("education", 0.0) * 100, 2),
+            "Semantic": round(s.get("semantic", 0.0) * 100, 2),
+        }
 
         # Build a deterministic "Why this matched" list with confidence scores.
         match_details: list[dict[str, Any]] = []
@@ -214,12 +247,9 @@ class SearchResult(BaseModel):
             })
         d["match_details"] = match_details
 
-        # Confidence is a blend of extraction quality and retrieval strength.
-        if self.metadata_confidence:
-            meta_conf = sum(self.metadata_confidence.values()) / len(self.metadata_confidence)
-        else:
-            meta_conf = 1.0
-        retrieval_conf = min(1.0, (self.rrf_score or 0.0) * 50.0)
-        d["confidence"] = round(min(1.0, meta_conf * (0.6 + 0.4 * retrieval_conf)), 2)
+        # Confidence is now the candidate suitability score (0-100) rather than
+        # a retrieval-confidence blend.
+        d["suitability_score"] = round(self.final_score * 100, 2)
+        d["confidence"] = d["suitability_score"]
 
         return d

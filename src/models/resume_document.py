@@ -58,6 +58,21 @@ class ResumeDocument(BaseModel):
 
     @computed_field
     @property
+    def primary_role(self) -> Any:
+        return self.resume_metadata.primary_role
+
+    @computed_field
+    @property
+    def role_family(self) -> Any:
+        return self.resume_metadata.role_family
+
+    @computed_field
+    @property
+    def seniority(self) -> Any:
+        return self.resume_metadata.seniority
+
+    @computed_field
+    @property
     def skills(self) -> Any:
         return self.resume_metadata.skills
 

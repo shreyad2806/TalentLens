@@ -17,6 +17,7 @@ from typing import Any
 
 from .name_validator import INVALID_CANDIDATE_NAMES, is_valid_candidate_name, normalize_candidate_name
 from .normalizer import MetadataNormalizer
+from .occupation_extractor import PrimaryOccupationExtractor
 from .schema import Certification, Education, Experience, Project, ResumeDocument
 from .section_parser import SectionParser
 
@@ -98,6 +99,13 @@ class QualityMetadataExtractor:
             "normalized_skills_count": skill_stats.get("normalized_skills_count", 0),
         }
 
+        primary_occupation = PrimaryOccupationExtractor.extract(
+            parsed_resume={"experience": [e.model_dump() for e in experience] if experience else []},
+            category=record.get("Category") if record else None,
+            headline=summary,
+        )
+        extraction_stats["primary_occupation"] = primary_occupation
+
         return ResumeDocument(
             name=candidate_name,
             email=contact.get("email"),
@@ -118,6 +126,7 @@ class QualityMetadataExtractor:
                 "sections_detected": list(sections.keys()),
                 "contact": contact,
                 "extraction_stats": extraction_stats,
+                "primary_occupation": primary_occupation,
                 "field_confidence": {
                     "candidate_name": name_conf,
                     "role": role_conf,
