@@ -30,6 +30,7 @@ import logging
 import time
 from collections.abc import Callable
 
+from ...resume_parser.normalizer import MetadataNormalizer
 from .schema import (
     CandidateMetadata,
     FilterCondition,
@@ -387,15 +388,24 @@ class FilterEngine:
         self, candidate: CandidateMetadata, condition: FilterCondition
     ) -> bool:
         value = getattr(candidate, condition.field, [])
+        filter_value = condition.value
+
+        # Normalize skills through the canonical taxonomy so that
+        # Java, Core Java, Java SE, J2EE, etc. all match 'java'.
+        if condition.field == "skills":
+            value = MetadataNormalizer.normalize_skills_for_qdrant(value)
+            if isinstance(filter_value, list):
+                filter_value = MetadataNormalizer.normalize_skills_for_qdrant(filter_value)
+
         if condition.operator == FilterOperator.INTERSECTS:
-            if isinstance(condition.value, list):
-                return _list_intersects(value, condition.value)
+            if isinstance(filter_value, list):
+                return _list_intersects(value, filter_value)
             return False
         if condition.operator == FilterOperator.CONTAINS:
-            if isinstance(condition.value, str):
-                return any(_contains(item, condition.value) for item in value)
+            if isinstance(filter_value, str):
+                return any(_contains(item, filter_value) for item in value)
             return False
-        return self._apply_operator(value, condition.operator, condition.value)
+        return self._apply_operator(value, condition.operator, filter_value)
 
     @staticmethod
     def _apply_operator(candidate_value, operator: FilterOperator, filter_value) -> bool:

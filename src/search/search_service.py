@@ -21,7 +21,7 @@ from src.models import ResumeDocument, get_display_name
 from src.preview import ResumePreviewGenerator
 from src.summarization import generate_resume_summary
 
-from .query_parser import ParsedQuery, QueryParser
+from .query_parser import ParsedQuery, get_query_parser
 from .schema import SearchFilters, SearchResult
 
 # How much each filter field contributes to the metadata score.
@@ -65,14 +65,14 @@ QUERY_DOMAINS = {
 # Weighted components for the new Overall Match score.
 # Keyword Match is sparse/term-overlap based; Semantic is dense/vector similarity.
 OVERALL_SCORING_WEIGHTS = {
-    "role": 0.25,
+    "role": 0.35,
+    "industry": 0.25,
     "skill": 0.20,
-    "keyword": 0.15,
-    "industry": 0.10,
     "experience": 0.10,
     "education": 0.05,
-    "location": 0.05,
-    "semantic": 0.10,
+    "semantic": 0.05,
+    "keyword": 0.0,
+    "location": 0.0,
 }
 
 FINAL_SCORE_WEIGHTS = {
@@ -108,6 +108,17 @@ def _load_resume_cache() -> dict[str, ResumeDocument]:
 
     _RESUME_CACHE = cache
     return _RESUME_CACHE
+
+
+def _stem_term(term: str) -> str:
+    """Return a very lightweight stem for industry/role matching.
+
+    Currently strips a trailing 'ing' so that 'banking' also matches 'bank',
+    'corporate banking', 'bank manager', etc.
+    """
+    if term.endswith("ing"):
+        return term[:-3]
+    return term
 
 
 def _fmt_experience(years: float | None) -> str:
@@ -192,9 +203,12 @@ class SearchService:
             except Exception:
                 reranker = None
         self.reranker = reranker
+        cache_start = time.perf_counter()
         self._resume_cache = _load_resume_cache()
+        self.metadata_load_time = time.perf_counter() - cache_start
         self._summary_cache: dict[str, str] = {}
-        self.query_parser = QueryParser()
+        self._ai_summary_time: float = 0.0
+        self.query_parser = get_query_parser()
         self.last_parsed_query: ParsedQuery | None = None
         self.last_search_metrics: dict[str, Any] | None = None
         self.use_enhanced_ranking = use_enhanced_ranking or False
@@ -242,9 +256,12 @@ class SearchService:
         """
         filters = filters or SearchFilters()
         search_start = time.perf_counter()
+        self._ai_summary_time = 0.0
 
         # Parse the query and enrich filters with extracted intent.
+        parse_start = time.perf_counter()
         parsed = self.query_parser.parse(query)
+        parse_time = time.perf_counter() - parse_start
         self.last_parsed_query = parsed
         fd = filters.model_dump()
         if parsed.role and not fd.get("role"):
@@ -335,8 +352,15 @@ class SearchService:
                 "rrf_candidates": len(scored),
                 "cross_encoder_candidates": 0,
                 "returned_candidates": min(len(scored), top_k),
+                "query_parse_ms": parse_time * 1000,
+                "scoring_ms": scoring_time * 1000,
+                "metadata_scoring_ms": (scoring_time - self._ai_summary_time) * 1000,
+                "summary_ms": self._ai_summary_time * 1000,
                 "latency_ms": (time.perf_counter() - search_start) * 1000,
                 "embedding_time_ms": hybrid_metrics.get("dense_latency", 0.0) * 1000,
+                "dense_retrieval_ms": hybrid_metrics.get("dense_latency", 0.0) * 1000,
+                "sparse_retrieval_ms": hybrid_metrics.get("sparse_latency", 0.0) * 1000,
+                "fusion_ms": hybrid_metrics.get("fusion_latency", 0.0) * 1000,
                 "retrieval_time_ms": (hybrid_metrics.get("sparse_latency", 0.0) + hybrid_metrics.get("fusion_latency", 0.0)) * 1000,
                 "rerank_time_ms": 0.0,
                 "generation_time_ms": scoring_time * 1000,
@@ -405,8 +429,15 @@ class SearchService:
             "rrf_candidates": hybrid_metrics.get("fused_candidate_count", len(scored)),
             "cross_encoder_candidates": len(rerank_pool),
             "returned_candidates": len(final),
+            "query_parse_ms": parse_time * 1000,
+            "scoring_ms": scoring_time * 1000,
+            "metadata_scoring_ms": (scoring_time - self._ai_summary_time) * 1000,
+            "summary_ms": self._ai_summary_time * 1000,
             "latency_ms": (time.perf_counter() - search_start) * 1000,
             "embedding_time_ms": hybrid_metrics.get("dense_latency", 0.0) * 1000,
+            "dense_retrieval_ms": hybrid_metrics.get("dense_latency", 0.0) * 1000,
+            "sparse_retrieval_ms": hybrid_metrics.get("sparse_latency", 0.0) * 1000,
+            "fusion_ms": hybrid_metrics.get("fusion_latency", 0.0) * 1000,
             "retrieval_time_ms": (hybrid_metrics.get("sparse_latency", 0.0) + hybrid_metrics.get("fusion_latency", 0.0)) * 1000,
             "rerank_time_ms": rerank_time * 1000,
             "generation_time_ms": scoring_time * 1000,
@@ -507,6 +538,7 @@ class SearchService:
             return self._summary_cache[key]
 
         m = resume.resume_metadata
+        summary_start = time.perf_counter()
         summary = generate_resume_summary(
             resume_text=resume.resume_text or "",
             matched_text=matched_text,
@@ -517,6 +549,7 @@ class SearchService:
             skills=m.skills or [],
             matched_skills=matched_skills,
         )
+        self._ai_summary_time += time.perf_counter() - summary_start
         self._summary_cache[key] = summary
         return summary
 
@@ -630,18 +663,21 @@ class SearchService:
 
         skill_display = "N/A" if not skill_match_available else f"{round(skill_score * 100, 2)}%"
 
-        # --- role match (whole or partial query term presence in role) ---
+        # --- role match (query/domain terms or simple stems in role) ---
         role_text = (resume.role or "").lower()
-        role_hits = {t for t in query_terms if t in role_text}
-        role_score = 1.0 if domain_terms and any(d in role_text for d in domain_terms) else (
-            len(role_hits) / len(query_terms) if query_terms else 0.0
+        role_terms = query_terms | domain_terms
+        role_hits = {t for t in role_terms if t in role_text or _stem_term(t) in role_text}
+        role_score = 1.0 if domain_terms and any(
+            d in role_text or _stem_term(d) in role_text for d in domain_terms
+        ) else (
+            len(role_hits) / len(role_terms) if role_terms else 0.0
         )
 
         # --- industry match (domain terms in resume text) ---
         resume_text = (resume.resume_text or "").lower()
         summary_text = (resume.summary or "").lower()
         searchable_text = f"{resume_text} {summary_text}"
-        industry_hits = {d for d in domain_terms if d in searchable_text}
+        industry_hits = {d for d in domain_terms if d in searchable_text or _stem_term(d) in searchable_text}
         matched_industry_terms = sorted(industry_hits)
         industry_score = (
             1.0 if domain_terms and (domain_terms & industry_hits) else
@@ -691,7 +727,7 @@ class SearchService:
         # --- semantic similarity from dense retrieval ---
         semantic_similarity = min(1.0, max(0.0, semantic_score))
 
-        # --- Overall Match (dynamically normalized weighted composite) ---
+        # --- Overall Match (deterministic fixed weighted composite) ---
         component_scores = {
             "role": role_score,
             "skill": skill_score,
@@ -703,15 +739,17 @@ class SearchService:
             "keyword": keyword_score,
         }
 
+        # All six weighted components always apply; missing evidence simply
+        # contributes 0.0. This guarantees a fixed 35/25/20/10/5/5 split.
         applicability = {
-            "role": filters.role is not None or role_score > 0.0,
-            "skill": (skill_match_available and skill_score > 0.0) or (filters.skills is not None and len(filters.skills) > 0),
-            "industry": domain_terms and industry_score > 0.0,
-            "experience": filters.experience_min is not None or filters.experience_max is not None or experience_score > 0.0,
-            "education": filters.education is not None or education_score > 0.0,
-            "location": filters.location is not None or location_score > 0.0,
-            "semantic": semantic_similarity > 0.0,
-            "keyword": len(query_terms) > 0,
+            "role": True,
+            "industry": True,
+            "skill": True,
+            "experience": True,
+            "education": True,
+            "semantic": True,
+            "location": False,
+            "keyword": False,
         }
 
         numerator = 0.0
@@ -722,7 +760,7 @@ class SearchService:
                 numerator += component_scores[key] * weight
                 denominator += weight
 
-        overall_match = round(min(1.0, numerator / denominator), 4) if denominator > 0 else 0.0
+        overall_match = round(min(1.0, numerator), 4)
 
         # --- explainability reasons (uses only real evidence) ---
         explanation: list[str] = []

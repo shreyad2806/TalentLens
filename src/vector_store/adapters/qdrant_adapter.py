@@ -22,6 +22,7 @@ import logging
 import os
 from typing import Any
 
+from ...resume_parser.normalizer import MetadataNormalizer
 from ..config import VectorStoreConfig
 from ..interface import VectorStore, VectorStoreError
 from ..qdrant.schema import QdrantPayload
@@ -86,6 +87,10 @@ class QdrantAdapter(VectorStore):
     def _vector_record_to_payload(self, record: VectorRecord) -> dict[str, Any]:
         """Convert VectorRecord to QdrantPayload dictionary."""
         resume_metadata = record.resume_metadata.model_dump(mode="json")
+        # Normalize skills once for Qdrant's exact, case-sensitive MatchAny filter.
+        resume_metadata["skills"] = MetadataNormalizer.normalize_skills_for_qdrant(
+            resume_metadata.get("skills")
+        )
         return {
             "resume_id": record.resume_id,
             "candidate_name": record.candidate_name,
@@ -163,7 +168,7 @@ class QdrantAdapter(VectorStore):
             if filters:
                 from ..qdrant import QdrantFilter
                 qdrant_filter = QdrantFilter(
-                    skills=filters.get("skills"),
+                    skills=MetadataNormalizer.normalize_skills_for_qdrant(filters.get("skills")),
                     experience_min=filters.get("experience_min"),
                     experience_max=filters.get("experience_max"),
                     location=filters.get("location"),

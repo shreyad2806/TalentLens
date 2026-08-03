@@ -51,7 +51,8 @@ class BootstrapService:
         self,
         resume_paths: list | None = None,
         base_path: str | None = None,
-        verbose: bool = True
+        verbose: bool = True,
+        bundle=None,
     ):
         """
         Initialize the bootstrap service.
@@ -62,6 +63,7 @@ class BootstrapService:
             base_path: Base directory to resolve relative paths from.
                       If None, uses current working directory.
             verbose: Whether to print detailed progress information
+            bundle: Optional prebuilt RetrievalBundle. If None, one is created.
         """
         self.resume_loader = ResumeLoader(resume_paths=resume_paths)
         self.base_path = base_path
@@ -69,8 +71,9 @@ class BootstrapService:
         
         # Initialize indexing pipeline (dependency injected from composition root)
         # NOTE: composition_root is the only place allowed to construct BM25Index/EmbeddingService/VectorStoreService.
-        from .composition_root import create_retrieval_bundle
-        bundle = create_retrieval_bundle()
+        if bundle is None:
+            from .composition_root import create_retrieval_bundle
+            bundle = create_retrieval_bundle()
 
         self.indexing_pipeline = IndexingPipeline(
             bm25_index=bundle.bm25_index,

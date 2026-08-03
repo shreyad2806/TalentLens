@@ -63,6 +63,9 @@ class MetadataNormalizer:
         # Languages / frameworks
         "java": "Java",
         "core java": "Java",
+        "java se": "Java",
+        "j2ee": "Java",
+        "j2se": "Java",
         "javascript": "JavaScript",
         "java script": "JavaScript",
         "typescript": "TypeScript",
@@ -301,6 +304,26 @@ class MetadataNormalizer:
             if canonical and canonical not in seen:
                 seen.add(canonical)
                 out.append(canonical)
+        return out
+
+    @classmethod
+    def normalize_skills_for_qdrant(cls, skills: list[str] | None) -> list[str]:
+        """
+        Normalize skills for Qdrant payload and filters.
+
+        Produces lowercase, trimmed, deduplicated skill names that are
+        safe for Qdrant's exact, case-sensitive MatchAny keyword filter.
+        """
+        if not skills:
+            return []
+        canonical = cls.normalize_skills(skills)
+        seen: set = set()
+        out: list[str] = []
+        for s in canonical:
+            low = s.lower().strip()
+            if low and low not in seen:
+                seen.add(low)
+                out.append(low)
         return out
 
     @classmethod

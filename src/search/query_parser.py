@@ -202,3 +202,14 @@ class QueryParser:
             if re.search(rf"(?<![\w]){re.escape(loc)}(?![\w])", lower):
                 return loc.title()
         return None
+
+
+_QUERY_PARSER: QueryParser | None = None
+
+
+def get_query_parser() -> QueryParser:
+    """Return the singleton QueryParser, creating it on first call."""
+    global _QUERY_PARSER
+    if _QUERY_PARSER is None:
+        _QUERY_PARSER = QueryParser()
+    return _QUERY_PARSER

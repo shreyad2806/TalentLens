@@ -1,10 +1,13 @@
 """TalentLens — AI Resume Intelligence Platform (one-page dashboard)."""
 from __future__ import annotations
 
+import hashlib
 import html
 import logging
 import os
-
+import re
+import time
+from pathlib import Path
 import streamlit as st
 
 st.set_page_config(page_title="TalentLens", page_icon="🎯", layout="wide")
@@ -22,6 +25,21 @@ def _talentlens_css() -> str:
       }
 
       header, footer, #MainMenu, [data-testid="stToolbar"] { display: none !important; }
+
+      .block-container {
+        max-width: 1500px !important;
+        width: 100% !important;
+        margin: 0 auto !important;
+        padding: 0.5rem 1.25rem 1.25rem 1.25rem !important;
+      }
+
+      [data-testid="stSidebar"] {
+        min-width: 280px !important;
+        max-width: 300px !important;
+        width: 300px !important;
+      }
+
+      [data-testid="stSidebarContent"] { padding: 1rem !important; }
 
       [data-testid="stSidebar"] {
         background-color: #0B1220 !important;
@@ -76,12 +94,6 @@ def _talentlens_css() -> str:
         border-color: #6D5DF6 !important;
       }
 
-      [data-testid="stColumn"]:last-child {
-        position: sticky !important;
-        top: 0.5rem !important;
-        align-self: flex-start !important;
-      }
-
       .match-circle {
         width: 48px;
         height: 48px;
@@ -90,7 +102,7 @@ def _talentlens_css() -> str:
         display: flex;
         align-items: center;
         justify-content: center;
-        margin: 0 auto;
+        margin: 0 0.5rem 0 auto;
       }
       .match-circle-inner {
         width: 36px;
@@ -224,16 +236,42 @@ def _talentlens_css() -> str:
 st.markdown(_talentlens_css(), unsafe_allow_html=True)
 
 
+def _compute_cache_key() -> str:
+    """Build a cache key from dataset content and active configuration."""
+    base = Path(__file__).resolve().parent
+    dataset_path = base / "combined" / "production_dataset.json"
+    parts: list[str] = []
+    if dataset_path.exists():
+        h = hashlib.md5()
+        with open(dataset_path, "rb") as f:
+            for chunk in iter(lambda: f.read(8192), b""):
+                h.update(chunk)
+        parts.append(h.hexdigest())
+    else:
+        parts.append("no-dataset")
+
+    parts.extend([
+        os.getenv("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5"),
+        os.getenv("RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2"),
+        os.getenv("VECTOR_STORE_PROVIDER", "qdrant"),
+        str(os.getenv("EMBEDDING_DIM", "")),
+    ])
+    return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()[:32]
+
+
 @st.cache_resource(show_spinner=False)
-def _get_retrieval_bundle():
+def _get_retrieval_bundle(cache_key: str):
+    logging.info("[CACHE-MISS] Creating retrieval bundle for cache_key=%s", cache_key)
     from src.bootstrap.composition_root import create_retrieval_bundle
     return create_retrieval_bundle()
 
 
 @st.cache_resource(show_spinner=False)
-def _run_bootstrap():
+def _run_bootstrap(cache_key: str):
+    logging.info("[CACHE-MISS] Running bootstrap for cache_key=%s", cache_key)
     from src.bootstrap.bootstrap_service import BootstrapService
-    return BootstrapService(verbose=False).bootstrap()
+    bundle = _get_retrieval_bundle(cache_key)
+    return BootstrapService(verbose=False, bundle=bundle).bootstrap()
 
 
 if "page" not in st.session_state:
@@ -293,6 +331,241 @@ def _clean_confidence(candidate: dict) -> str:
     return "Low"
 
 
+def _render_drawer(candidate: dict | None) -> None:
+    if not candidate:
+        return
+    c = candidate
+    hl_terms = list(c.get('matched_keywords', [])) + list(c.get('matched_skills', []))
+
+    with st.container(border=True):
+        # ── Header ──
+        st.markdown(f"<h3 style='margin:0; font-size:1rem;'>{html.escape(c.get('name', 'Candidate'))}</h3>", unsafe_allow_html=True)
+        role = html.escape(str(c.get('role') or 'Role not specified'))
+        loc = html.escape(str(c.get('location') or ''))
+        sub = f"{role} • {loc}" if loc else role
+        st.markdown(f"<p class='muted' style='margin:0 0 0.6rem 0; font-size:0.72rem;'>{sub}</p>", unsafe_allow_html=True)
+
+        pct = int(round(c.get('overall_match', 0)))
+        conf = _clean_confidence(c)
+        st.markdown(
+            f"""
+            <div class='match-circle-lg' style='--pct:{pct}%;'>
+              <div class='match-circle-inner'>
+                <span class='match-number'>{pct}%</span>
+                <span class='match-label'>{conf}</span>
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        # ── Professional Summary ──
+        _drawer_section("Professional Summary")
+        summary = str(c.get('summary') or '').strip() or str(c.get('ai_summary') or '').split("\n\n")[0]
+        if summary:
+            st.markdown(f"<p style='margin:0; color:#94A3B8; font-size:0.77rem; line-height:1.4;'>{_highlight(summary[:400], hl_terms)}</p>", unsafe_allow_html=True)
+        else:
+            st.caption("No summary extracted.")
+
+        # ── Experience ──
+        _drawer_section("Experience")
+        exp = str(c.get('experience') or 'Not specified')
+        st.markdown(f"<p style='margin:0; color:#94A3B8; font-size:0.77rem;'>{html.escape(exp)}{' • ' + role if c.get('role') else ''}</p>", unsafe_allow_html=True)
+
+        # ── Education ──
+        _drawer_section("Education")
+        education = [e for e in c.get('education', []) if e]
+        if education:
+            for e in education[:3]:
+                st.markdown(f"<p style='margin:0.05rem 0; color:#94A3B8; font-size:0.77rem;'>🎓 {_highlight(str(e)[:120], hl_terms)}</p>", unsafe_allow_html=True)
+        else:
+            st.caption("No education extracted.")
+
+        # ── Projects ──
+        projects = [p for p in c.get('projects', []) if p]
+        if projects:
+            _drawer_section("Projects")
+            for p in projects[:4]:
+                st.markdown(f"<p style='margin:0.05rem 0; color:#94A3B8; font-size:0.77rem;'>• {_highlight(str(p)[:120], hl_terms)}</p>", unsafe_allow_html=True)
+
+        # ── Skills ──
+        skills = c.get('skills') or c.get('top_skills') or []
+        if skills:
+            _drawer_section("Skills")
+            matched_lower = [m.lower() for m in c.get('matched_skills', [])]
+            chips = []
+            for s in skills[:15]:
+                cls = "skill-chip matched" if s.lower() in matched_lower else "skill-chip"
+                chips.append(f"<span class='{cls}'>{html.escape(s)}</span>")
+            if len(skills) > 15:
+                chips.append(f"<span class='skill-chip more'>+{len(skills) - 15}</span>")
+            st.markdown("".join(chips), unsafe_allow_html=True)
+
+        # ── Retrieved Chunks ──
+        with st.expander("Retrieved Chunks"):
+            chunks = c.get('retrieved_chunks', [])
+            if not chunks:
+                st.caption("No retrieved chunks available.")
+            for i, chunk in enumerate(chunks, start=1):
+                src = html.escape(str(chunk.get('source', 'hybrid')).replace('RetrievalSource.', '').lower())
+                score = float(chunk.get('score', 0.0))
+                text = _highlight(str(chunk.get('text', '')), hl_terms)
+                st.markdown(f"<p style='margin:0 0 0.15rem 0; font-size:0.72rem; color:#F8FAFC; font-weight:600;'>Chunk {i} — {src} (score {score:.4f})</p>", unsafe_allow_html=True)
+                st.markdown(f"<p style='margin:0 0 0.5rem 0; font-size:0.72rem; color:#94A3B8;'>{text}</p>", unsafe_allow_html=True)
+
+        # ── Why this matched ──
+        _drawer_section("Why this matched")
+        match_details = c.get('match_details') or []
+        for detail in match_details:
+            label = html.escape(str(detail.get('label', '')))
+            score = detail.get('score', 0)
+            value = str(detail.get('value', '')).strip()
+            value_html = _highlight(html.escape(value), hl_terms) if value else ""
+            if value_html:
+                st.markdown(
+                    f"<p style='margin:0.05rem 0; color:#94A3B8; font-size:0.77rem;'>"
+                    f"✓ {label}: {value_html} <span style='color:#22C55E; font-weight:600;'>{score}%</span></p>",
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.markdown(
+                    f"<p style='margin:0.05rem 0; color:#94A3B8; font-size:0.77rem;'>"
+                    f"✓ {label} <span style='color:#22C55E; font-weight:600;'>{score}%</span></p>",
+                    unsafe_allow_html=True,
+                )
+
+        # ── Matched metadata ──
+        _drawer_section("Matched Details")
+
+        def _fmt_list(values: list | tuple | None, label: str) -> str | None:
+            values = [str(v).strip() for v in (values or []) if v]
+            if not values:
+                return None
+            return f"<span style='color:#F8FAFC; font-weight:600;'>{html.escape(label)}:</span> {_highlight(html.escape(', '.join(values)), hl_terms)}"
+
+        def _fmt_scalar(value, label: str) -> str | None:
+            text = str(value).strip() if value is not None else ""
+            if not text:
+                return None
+            return f"<span style='color:#F8FAFC; font-weight:600;'>{html.escape(label)}:</span> {_highlight(html.escape(text), hl_terms)}"
+
+        for label, key in [
+            ("Matched Role", "matched_role"),
+            ("Matched Skills", "matched_skills"),
+            ("Matched Experience", "matched_experience"),
+            ("Matched Education", "matched_education"),
+            ("Matched Industry", "matched_industry"),
+        ]:
+            raw = c.get(key)
+            if isinstance(raw, (list, tuple)):
+                html_out = _fmt_list(raw, label)
+            else:
+                html_out = _fmt_scalar(raw, label)
+            if html_out:
+                st.markdown(
+                    f"<p style='margin:0.05rem 0; color:#94A3B8; font-size:0.77rem;'>{html_out}</p>",
+                    unsafe_allow_html=True,
+                )
+
+        sections = c.get('retrieved_sections') or c.get('matched_sections') or []
+        if sections:
+            joined = _highlight(html.escape(", ".join(sections)), hl_terms)
+            st.markdown(
+                f"<p style='margin:0.05rem 0; color:#94A3B8; font-size:0.77rem;'>"
+                f"<span style='color:#F8FAFC; font-weight:600;'>Retrieved Resume Sections:</span> {joined}</p>",
+                unsafe_allow_html=True,
+            )
+
+        chunk_ids = c.get('retrieved_chunk_ids') or []
+        if chunk_ids:
+            joined = html.escape(", ".join(str(cid) for cid in chunk_ids if cid))
+            st.markdown(
+                f"<p style='margin:0.05rem 0; color:#94A3B8; font-size:0.77rem;'>"
+                f"<span style='color:#F8FAFC; font-weight:600;'>Retrieved Chunk IDs:</span> {joined}</p>",
+                unsafe_allow_html=True,
+            )
+
+        metadata_score = c.get('metadata_score')
+        if metadata_score is not None:
+            st.markdown(
+                f"<p style='margin:0.05rem 0; color:#94A3B8; font-size:0.77rem;'>"
+                f"<span style='color:#F8FAFC; font-weight:600;'>Matched Metadata:</span> {round(metadata_score, 2)}</p>",
+                unsafe_allow_html=True,
+            )
+
+        confidence = c.get('confidence')
+        if confidence is not None:
+            st.markdown(
+                f"<p style='margin:0.05rem 0; color:#94A3B8; font-size:0.77rem;'>"
+                f"<span style='color:#F8FAFC; font-weight:600;'>Confidence score:</span> {round(confidence, 2)}</p>",
+                unsafe_allow_html=True,
+            )
+
+        if st.button("Close", use_container_width=True):
+            st.session_state.selected_candidate = None
+            st.rerun()
+
+
+def _render_performance_panel(bundle, search_service) -> None:
+    def _table(title: str, rows: dict[str, float]) -> str:
+        html_rows = ""
+        for label, ms in rows.items():
+            style = "color:#F87171; font-weight:600;" if ms > 200 else "color:#F8FAFC;"
+            html_rows += (
+                f"<tr>"
+                f"<td style='padding:0.2rem 0.5rem; color:#94A3B8; white-space:nowrap;'>{html.escape(label)}</td>"
+                f"<td style='padding:0.2rem 0.5rem; text-align:right; {style}'>{ms:.1f} ms</td>"
+                f"</tr>"
+            )
+        return (
+            f"<h5 style='margin:0.5rem 0 0.25rem 0; color:#F8FAFC; font-size:0.85rem;'>{html.escape(title)}</h5>"
+            f"<table style='width:100%; font-size:0.78rem; border-collapse:collapse;'>"
+            f"{html_rows}"
+            f"</table>"
+        )
+
+    startup = getattr(bundle, "startup_metrics", {}) or {}
+    startup_rows = {
+        "Vector Store": startup.get("vector_store_ms", 0.0),
+        "Embedding Service Init": startup.get("embedding_service_ms", 0.0),
+        "BM25 Init": startup.get("bm25_init_ms", 0.0),
+        "BM25 Load": startup.get("bm25_load_ms", 0.0),
+        "Dense Service Init": startup.get("dense_service_ms", 0.0),
+        "Sparse Service Init": startup.get("sparse_service_ms", 0.0),
+        "Hybrid Service Init": startup.get("hybrid_service_ms", 0.0),
+        "Reranker Init": startup.get("reranker_init_ms", 0.0),
+        "Embedding Model Load": startup.get("embedding_model_load_ms", 0.0),
+        "Cross-Encoder Load": startup.get("cross_encoder_load_ms", 0.0),
+        "Total Startup": startup.get("total_ms", 0.0),
+    }
+    st.markdown(_table("Startup", startup_rows), unsafe_allow_html=True)
+
+    if not (search_service and getattr(search_service, "last_search_metrics", None)):
+        st.caption("No search has been run this session.")
+        return
+
+    m = search_service.last_search_metrics
+    ui_ms = 0.0
+    if "last_search_end" in st.session_state:
+        ui_ms = (time.perf_counter() - st.session_state.last_search_end) * 1000
+        m["ui_ms"] = ui_ms
+
+    search_rows = {
+        "Query Parse": m.get("query_parse_ms", 0.0),
+        "Embedding": m.get("embedding_time_ms", 0.0),
+        "Dense Retrieval": m.get("dense_retrieval_ms", 0.0),
+        "Sparse Retrieval": m.get("sparse_retrieval_ms", 0.0),
+        "Fusion": m.get("fusion_ms", 0.0),
+        "Metadata Scoring": m.get("metadata_scoring_ms", 0.0),
+        "Summary Generation": m.get("summary_ms", 0.0),
+        "Reranking": m.get("rerank_time_ms", 0.0),
+        "UI Rendering": ui_ms,
+        "Total Search": m.get("latency_ms", 0.0),
+        "Total (with UI)": m.get("latency_ms", 0.0) + ui_ms,
+    }
+    st.markdown(_table("Last Search", search_rows), unsafe_allow_html=True)
+
+
 def _add_to_shortlist(candidate: dict) -> None:
     cid = candidate.get("id")
     if not cid or cid in st.session_state.shortlist_map:
@@ -338,16 +611,25 @@ def _why_matched(candidate: dict) -> list[str]:
     return reasons
 
 
+cache_key = _compute_cache_key()
+
+if st.session_state.get("_bundle_cache_key") == cache_key:
+    logging.info("[CACHE-HIT] Reusing cached retrieval bundle for cache_key=%s", cache_key)
+st.session_state._bundle_cache_key = cache_key
+
 if not st.session_state.bootstrap_complete:
     with st.spinner("Initializing TalentLens indexes..."):
-        st.session_state.bootstrap_result = _run_bootstrap()
+        st.session_state.bootstrap_result = _run_bootstrap(cache_key)
         st.session_state.bootstrap_complete = True
     st.rerun()
 
-bundle = _get_retrieval_bundle()
+bundle = _get_retrieval_bundle(cache_key)
 if st.session_state.search_service is None:
     from src.search.search_service import SearchService
-    st.session_state.search_service = SearchService(hybrid_service=bundle.hybrid_service)
+    st.session_state.search_service = SearchService(
+        hybrid_service=bundle.hybrid_service,
+        reranker=bundle.reranker,
+    )
 
 
 with st.sidebar:
@@ -372,12 +654,17 @@ with st.sidebar:
     st.markdown(f"<p class='muted' style='font-size:0.7rem; margin-top:0.5rem;'>{vector_count} vectors • {bm25_count} indexed</p>", unsafe_allow_html=True)
 
 
-main_col, drawer_col = st.columns([3.0, 1.0])
+selected = st.session_state.selected_candidate
+if selected:
+    main_col, drawer_col = st.columns([3.0, 1.0])
+else:
+    main_col = st.container()
+    drawer_col = None
 
 with main_col:
     if st.session_state.page == "Dashboard":
-        st.markdown("<h1 style='font-size:1.5rem; margin-bottom:0.1rem;'>TalentLens</h1>", unsafe_allow_html=True)
-        st.markdown("<p class='muted' style='margin-bottom:0.6rem; font-size:0.78rem;'>Search thousands of resumes using natural language.</p>", unsafe_allow_html=True)
+        st.markdown("<h1 style='font-size:1.5rem; margin:0;'>TalentLens</h1>", unsafe_allow_html=True)
+        st.markdown("<p class='muted' style='margin:0 0 0.25rem 0; font-size:0.78rem;'>Search thousands of resumes using natural language.</p>", unsafe_allow_html=True)
 
         with st.container(border=True):
             with st.form("search_form", clear_on_submit=False):
@@ -389,8 +676,6 @@ with main_col:
                         label_visibility="collapsed",
                     )
                 with c2:
-                    st.write("")
-                    st.write("")
                     submitted = st.form_submit_button("Search", type="primary", use_container_width=True, help="Press Enter in the query box to search")
 
                 st.markdown("<p style='font-weight:600; color:#F8FAFC; margin:0.6rem 0 0.25rem; font-size:0.8rem;'>Filters</p>", unsafe_allow_html=True)
@@ -411,8 +696,6 @@ with main_col:
                 with f5:
                     max_results = st.selectbox("Max Results", [5, 10, 15, 20], index=1)
                 with f6:
-                    st.write("")
-                    st.write("")
                     reset = st.form_submit_button("Reset", type="secondary")
 
         if reset:
@@ -457,6 +740,7 @@ with main_col:
                         filters=filters,
                     )
                     st.session_state.search_results = [r.to_frontend_dict() for r in results]
+                    st.session_state.last_search_end = time.perf_counter()
                     st.session_state.selected_candidate = None
                     st.session_state.is_loading = False
                     st.toast(f"Found {len(results)} candidates", icon="🎯")
@@ -535,7 +819,7 @@ with main_col:
 
             for i, c in enumerate(st.session_state.search_results[:st.session_state.displayed_count]):
                 with st.container(border=True):
-                    r1, r2, r3 = st.columns([0.08, 0.62, 0.30])
+                    r1, r2, r3 = st.columns([0.08, 0.70, 0.22])
 
                     with r1:
                         st.markdown(f"<div class='avatar-circle' aria-label='{html.escape(c.get('name', 'Candidate'))} avatar' title='{html.escape(c.get('name', 'Candidate'))}'>{_initials(c.get('name', ''))}</div>", unsafe_allow_html=True)
@@ -603,7 +887,7 @@ with main_col:
                 if not c:
                     continue
                 with st.container(border=True):
-                    r1, r2, r3 = st.columns([0.08, 0.62, 0.30])
+                    r1, r2, r3 = st.columns([0.08, 0.70, 0.22])
                     with r1:
                         st.markdown(f"<div class='avatar-circle' aria-label='{html.escape(c.get('name', 'Candidate'))} avatar' title='{html.escape(c.get('name', 'Candidate'))}'>{_initials(c.get('name', ''))}</div>", unsafe_allow_html=True)
                     with r2:
@@ -647,136 +931,10 @@ with main_col:
                                 st.rerun()
 
 
-with drawer_col:
-    if st.session_state.selected_candidate:
-        c = st.session_state.selected_candidate
-        hl_terms = list(c.get('matched_keywords', [])) + list(c.get('matched_skills', []))
+    with st.expander("Performance", expanded=False):
+        _render_performance_panel(bundle, st.session_state.search_service)
 
-        with st.container(border=True):
-            # ── Header ──
-            st.markdown(f"<h3 style='margin:0; font-size:1rem;'>{html.escape(c.get('name', 'Candidate'))}</h3>", unsafe_allow_html=True)
-            role = html.escape(str(c.get('role') or 'Role not specified'))
-            loc = html.escape(str(c.get('location') or ''))
-            sub = f"{role} • {loc}" if loc else role
-            st.markdown(f"<p class='muted' style='margin:0 0 0.6rem 0; font-size:0.72rem;'>{sub}</p>", unsafe_allow_html=True)
 
-            pct = int(round(c.get('overall_match', 0)))
-            conf = _clean_confidence(c)
-            st.markdown(
-                f"""
-                <div class='match-circle-lg' style='--pct:{pct}%;'>
-                  <div class='match-circle-inner'>
-                    <span class='match-number'>{pct}%</span>
-                    <span class='match-label'>{conf}</span>
-                  </div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
-            # ── Professional Summary ──
-            _drawer_section("Professional Summary")
-            summary = str(c.get('summary') or '').strip() or str(c.get('ai_summary') or '').split("\n\n")[0]
-            if summary:
-                st.markdown(f"<p style='margin:0; color:#94A3B8; font-size:0.77rem; line-height:1.4;'>{_highlight(summary[:400], hl_terms)}</p>", unsafe_allow_html=True)
-            else:
-                st.caption("No summary extracted.")
-
-            # ── Experience ──
-            _drawer_section("Experience")
-            exp = str(c.get('experience') or 'Not specified')
-            st.markdown(f"<p style='margin:0; color:#94A3B8; font-size:0.77rem;'>{html.escape(exp)}{' • ' + role if c.get('role') else ''}</p>", unsafe_allow_html=True)
-
-            # ── Education ──
-            _drawer_section("Education")
-            education = [e for e in c.get('education', []) if e]
-            if education:
-                for e in education[:3]:
-                    st.markdown(f"<p style='margin:0.05rem 0; color:#94A3B8; font-size:0.77rem;'>🎓 {_highlight(str(e)[:120], hl_terms)}</p>", unsafe_allow_html=True)
-            else:
-                st.caption("No education extracted.")
-
-            # ── Projects ──
-            projects = [p for p in c.get('projects', []) if p]
-            if projects:
-                _drawer_section("Projects")
-                for p in projects[:4]:
-                    st.markdown(f"<p style='margin:0.05rem 0; color:#94A3B8; font-size:0.77rem;'>• {_highlight(str(p)[:120], hl_terms)}</p>", unsafe_allow_html=True)
-
-            # ── Skills ──
-            skills = c.get('skills') or c.get('top_skills') or []
-            if skills:
-                _drawer_section("Skills")
-                matched_lower = [m.lower() for m in c.get('matched_skills', [])]
-                chips = []
-                for s in skills[:15]:
-                    cls = "skill-chip matched" if s.lower() in matched_lower else "skill-chip"
-                    chips.append(f"<span class='{cls}'>{html.escape(s)}</span>")
-                if len(skills) > 15:
-                    chips.append(f"<span class='skill-chip more'>+{len(skills) - 15}</span>")
-                st.markdown("".join(chips), unsafe_allow_html=True)
-
-            # ── Retrieved Chunks ──
-            with st.expander("Retrieved Chunks"):
-                chunks = c.get('retrieved_chunks', [])
-                if not chunks:
-                    st.caption("No retrieved chunks available.")
-                for i, chunk in enumerate(chunks, start=1):
-                    src = html.escape(str(chunk.get('source', 'hybrid')).replace('RetrievalSource.', '').lower())
-                    score = float(chunk.get('score', 0.0))
-                    text = _highlight(str(chunk.get('text', '')), hl_terms)
-                    st.markdown(f"<p style='margin:0 0 0.15rem 0; font-size:0.72rem; color:#F8FAFC; font-weight:600;'>Chunk {i} — {src} (score {score:.4f})</p>", unsafe_allow_html=True)
-                    st.markdown(f"<p style='margin:0 0 0.5rem 0; font-size:0.72rem; color:#94A3B8;'>{text}</p>", unsafe_allow_html=True)
-
-            # ── Why this matched ──
-            _drawer_section("Why this matched")
-            match_details = c.get('match_details') or []
-            for detail in match_details:
-                label = html.escape(str(detail.get('label', '')))
-                score = detail.get('score', 0)
-                value = str(detail.get('value', '')).strip()
-                value_html = _highlight(html.escape(value), hl_terms) if value else ""
-                if value_html:
-                    st.markdown(
-                        f"<p style='margin:0.05rem 0; color:#94A3B8; font-size:0.77rem;'>"
-                        f"✓ {label}: {value_html} <span style='color:#22C55E; font-weight:600;'>{score}%</span></p>",
-                        unsafe_allow_html=True,
-                    )
-                else:
-                    st.markdown(
-                        f"<p style='margin:0.05rem 0; color:#94A3B8; font-size:0.77rem;'>"
-                        f"✓ {label} <span style='color:#22C55E; font-weight:600;'>{score}%</span></p>",
-                        unsafe_allow_html=True,
-                    )
-
-            # ── Matched metadata ──
-            _drawer_section("Matched Details")
-            matched_fields = [
-                ("Skills", "matched_skills"),
-                ("Role", "matched_role"),
-                ("Industry", "matched_industry"),
-                ("Education", "matched_education"),
-                ("Certifications", "matched_certifications"),
-            ]
-            for field_label, field_key in matched_fields:
-                values = [str(v) for v in (c.get(field_key) or []) if v]
-                if values:
-                    joined = _highlight(html.escape(", ".join(values)), hl_terms)
-                    st.markdown(
-                        f"<p style='margin:0.05rem 0; color:#94A3B8; font-size:0.77rem;'>"
-                        f"<span style='color:#F8FAFC; font-weight:600;'>{html.escape(field_label)}:</span> {joined}</p>",
-                        unsafe_allow_html=True,
-                    )
-
-            sections = c.get('retrieved_sections') or c.get('matched_sections') or []
-            if sections:
-                joined = _highlight(html.escape(", ".join(sections)), hl_terms)
-                st.markdown(
-                    f"<p style='margin:0.05rem 0; color:#94A3B8; font-size:0.77rem;'>"
-                    f"<span style='color:#F8FAFC; font-weight:600;'>Retrieved Resume Sections:</span> {joined}</p>",
-                    unsafe_allow_html=True,
-                )
-
-            if st.button("Close", use_container_width=True):
-                st.session_state.selected_candidate = None
-                st.rerun()
+if drawer_col is not None:
+    with drawer_col:
+        _render_drawer(st.session_state.selected_candidate)

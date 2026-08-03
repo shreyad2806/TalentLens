@@ -146,10 +146,14 @@ class SearchResult(BaseModel):
         d["matched_role"] = d["role"] if s.get("role", 0.0) > 0.0 else ""
         d["matched_industry"] = s.get("matched_industry", [])
         d["matched_education"] = s.get("matched_education", [])
+        d["matched_experience"] = d["experience"] if s.get("experience", 0.0) > 0.0 else ""
         d["retrieved_sections"] = self.matched_sections
         d["location"] = m.location or ""
         d["explanation"] = self.explanation
         d["retrieved_chunks"] = self.retrieved_chunks
+        d["retrieved_chunk_ids"] = [
+            str(chunk.get("chunk_id", "")) for chunk in self.retrieved_chunks
+        ]
         d["overall_match"] = round(self.final_score * 100, 2)
         d["role_match"] = round(s.get("role", 0.0) * 100, 2)
         if self.skill_match_available:

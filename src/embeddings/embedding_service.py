@@ -10,6 +10,8 @@ The outside world should only call EmbeddingService.
 """
 
 
+import logging
+
 from ..config import EMBEDDING_DIM
 from .schema import EmbeddingRecord
 from .validator import EmbeddingValidator
@@ -162,18 +164,28 @@ class EmbeddingService:
             }
         }
     
+    def warmup(self) -> bool:
+        """Preload the embedding model into memory so search inference stays fast."""
+        try:
+            return self.vectorizer.model_loader.get_model() is not None
+        except Exception as e:
+            logger = logging.getLogger(__name__)
+            logger.warning("Embedding warmup failed: %s", e)
+            return False
+    
     def get_cache_stats(self) -> dict:
         """
         Get cache statistics.
-        
+
         Returns:
-            Dictionary with cache statistics
+            Dictionary with cache statistics.
         """
         return self.vectorizer.get_cache_stats()
     
     def clear_cache(self) -> None:
         """
         Clear the embedding cache.
+
         
         This method clears all cached embeddings to free memory.
         """

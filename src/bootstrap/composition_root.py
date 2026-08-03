@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import shutil
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -10,6 +11,7 @@ from src.retrieval.dense.dense_retrieval_service import DenseRetrievalService
 from src.retrieval.hybrid.hybrid_retrieval_service import HybridRetrievalService
 from src.retrieval.sparse.bm25_index import BM25Index, IncompatibleIndexError
 from src.retrieval.sparse.sparse_retrieval_service import SparseRetrievalService
+from src.search.cross_encoder_reranker import CrossEncoderReranker
 from src.vector_store import VectorStoreService
 
 logger = logging.getLogger(__name__)
@@ -26,6 +28,8 @@ class RetrievalBundle:
     dense_service: DenseRetrievalService
     sparse_service: SparseRetrievalService
     hybrid_service: HybridRetrievalService
+    reranker: CrossEncoderReranker
+    startup_metrics: dict[str, float]
 
 
 def _maybe_load_bm25_index(bm25_index: BM25Index, bm25_index_path: Path) -> None:
@@ -60,6 +64,7 @@ def create_retrieval_bundle(
     dense_service: DenseRetrievalService | None = None,
     sparse_service: SparseRetrievalService | None = None,
     hybrid_service: HybridRetrievalService | None = None,
+    reranker: CrossEncoderReranker | None = None,
 ) -> RetrievalBundle:
     """Create (or reuse) retrieval services.
 
@@ -72,7 +77,7 @@ def create_retrieval_bundle(
     if _retrieval_bundle_singleton is not None and all(
         arg is None for arg in [
             vector_store_service, embedding_service, bm25_index,
-            dense_service, sparse_service, hybrid_service
+            dense_service, sparse_service, hybrid_service, reranker
         ]
     ):
         print("[BOOTSTRAP-TRACE][composition_root.py] Returning existing retrieval bundle singleton")
@@ -81,28 +86,64 @@ def create_retrieval_bundle(
     print("[BOOTSTRAP-TRACE][composition_root.py] create_retrieval_bundle() invoked")
     print("[BOOTSTRAP-TRACE][composition_root.py] NOTE: This function does NOT call BootstrapService - it only creates/loads retrieval services")
 
+    bundle_start = time.perf_counter()
+    stage_start = bundle_start
+    startup_metrics: dict[str, float] = {}
+
     # Defaults for persistence locations
     if bm25_index_path is None:
         bm25_index_path = Path("data/indexes/bm25")
 
     vector_store_service = vector_store_service or VectorStoreService()
+    startup_metrics["vector_store_ms"] = (time.perf_counter() - stage_start) * 1000
+    stage_start = time.perf_counter()
+
     embedding_service = embedding_service or EmbeddingService()
+    startup_metrics["embedding_service_ms"] = (time.perf_counter() - stage_start) * 1000
+    stage_start = time.perf_counter()
+
     bm25_index = bm25_index or BM25Index()
+    startup_metrics["bm25_init_ms"] = (time.perf_counter() - stage_start) * 1000
+    stage_start = time.perf_counter()
 
     # Load persisted BM25 index if present
     _maybe_load_bm25_index(bm25_index, bm25_index_path)
+    startup_metrics["bm25_load_ms"] = (time.perf_counter() - stage_start) * 1000
+    stage_start = time.perf_counter()
 
     # Dense service: accept injected vector store
     dense_service = dense_service or DenseRetrievalService(vector_store_service=vector_store_service, embedding_service=embedding_service)
+    startup_metrics["dense_service_ms"] = (time.perf_counter() - stage_start) * 1000
+    stage_start = time.perf_counter()
 
     # Sparse service: accept injected BM25 index
     sparse_service = sparse_service or SparseRetrievalService(index=bm25_index)
+    startup_metrics["sparse_service_ms"] = (time.perf_counter() - stage_start) * 1000
+    stage_start = time.perf_counter()
 
     # Hybrid service: accept injected dense/sparse
     hybrid_service = hybrid_service or HybridRetrievalService(
         dense_retrieval_service=dense_service,
         sparse_retrieval_service=sparse_service,
     )
+    startup_metrics["hybrid_service_ms"] = (time.perf_counter() - stage_start) * 1000
+    stage_start = time.perf_counter()
+
+    # Reranker: singleton, shared across searches
+    reranker = reranker or CrossEncoderReranker()
+    startup_metrics["reranker_init_ms"] = (time.perf_counter() - stage_start) * 1000
+    stage_start = time.perf_counter()
+
+    # Preload both models so searches never pay loading latency.
+    logger.info("Preloading embedding model...")
+    embedding_service.warmup()
+    startup_metrics["embedding_model_load_ms"] = (time.perf_counter() - stage_start) * 1000
+    stage_start = time.perf_counter()
+
+    logger.info("Preloading cross-encoder reranker...")
+    reranker.load()
+    startup_metrics["cross_encoder_load_ms"] = (time.perf_counter() - stage_start) * 1000
+    stage_start = time.perf_counter()
 
     bundle = RetrievalBundle(
         vector_store_service=vector_store_service,
@@ -111,10 +152,17 @@ def create_retrieval_bundle(
         dense_service=dense_service,
         sparse_service=sparse_service,
         hybrid_service=hybrid_service,
+        reranker=reranker,
+        startup_metrics=startup_metrics,
     )
-    
+
+    startup_seconds = time.perf_counter() - bundle_start
+    startup_metrics["total_ms"] = startup_seconds * 1000
+    logger.info("Retrieval bundle ready in %.2fs", startup_seconds)
+    print(f"[BOOTSTRAP-TRACE][composition_root.py] Bundle ready in {startup_seconds:.2f}s")
+
     # Store as singleton for subsequent calls
     _retrieval_bundle_singleton = bundle
-    
+
     return bundle
 
