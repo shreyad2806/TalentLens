@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
@@ -28,6 +30,7 @@ class ResumeMetadata(BaseModel):
     location: str | None = Field(None, description="Geographic location")
     experience_years: float | None = Field(None, ge=0, le=60, description="Total years of experience")
     education: list[str] = Field(default_factory=list, description="Education entries")
+    experience: list[dict[str, Any]] = Field(default_factory=list, description="Work history entries")
     projects: list[str] = Field(default_factory=list, description="Project names")
     certifications: list[str] = Field(default_factory=list, description="Certification names")
     email: str | None = Field(None, description="Email address")

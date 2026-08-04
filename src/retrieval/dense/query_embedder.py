@@ -125,7 +125,7 @@ class QueryEmbedder:
         
         try:
             # Generate embedding using the embedding service
-            embedding_record = self.embedding_service.embed_chunks([query_chunk], save=False)
+            embedding_record = self.embedding_service.embed_chunks([query_chunk], batch_size=1, save=False)
 
             if not embedding_record:
                 raise RuntimeError("Failed to generate embedding")

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
+import torch
 from threading import Lock
 
 logger = logging.getLogger(__name__)
@@ -72,7 +73,8 @@ class CrossEncoderReranker:
 
         pairs = [[query, t] for t in texts]
         try:
-            scores = model.predict(pairs, show_progress_bar=False, batch_size=8)
+            with torch.inference_mode():
+                scores = model.predict(pairs, show_progress_bar=False, batch_size=8)
         except Exception as exc:
             logger.warning("Reranker scoring failed: %s", exc)
             return [0.0] * len(texts)

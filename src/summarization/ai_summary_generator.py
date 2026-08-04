@@ -154,37 +154,59 @@ def _build_summary_prompt(
     education: list[str] | None,
     skills: list[str] | None,
     matched_skills: list[str] | None,
+    summary: str | None,
+    projects: list[str] | None,
+    certifications: list[str] | None,
 ) -> str:
-    """Build a strict recruiter prompt using only structured metadata."""
-    _ = retrieved_chunks  # ignored: we use metadata only to avoid hallucination/verbatim copying
+    """Build a strict recruiter prompt grounded in retrieved resume content."""
+    snippets: list[str] = []
+    for chunk in (retrieved_chunks or []):
+        text = chunk.get("text") or chunk.get("matched_text") or ""
+        if text and len(text.strip()) >= 10:
+            snippets.append(text.strip()[:350])
+        if len(snippets) >= 3:
+            break
 
-    header = f"Primary role: {primary_role or role_family or 'Not specified'}"
+    header_parts: list[str] = []
+    if primary_role or role_family:
+        header_parts.append(f"Role: {primary_role or role_family}")
     if experience_years is not None:
-        header += f" | Years: {experience_years:g}"
+        header_parts.append(f"Years: {experience_years:g}")
     if role_family:
-        header += f" | Key domain: {role_family}"
-    if matched_skills:
-        header += f" | Primary technologies: {', '.join([s for s in matched_skills if s][:6])}"
-    elif skills:
-        header += f" | Primary technologies: {', '.join([s for s in skills if s][:6])}"
-    if education:
-        header += f" | Education: {', '.join([e for e in education if e][:2])}"
+        header_parts.append(f"Domain: {role_family}")
+    techs = [s for s in (matched_skills or skills or []) if s][:6]
+    if techs:
+        header_parts.append(f"Technologies: {', '.join(techs)}")
+    if projects:
+        header_parts.append(f"Projects: {', '.join([p for p in projects if p][:3])}")
+    if certifications:
+        header_parts.append(f"Certifications: {', '.join([c for c in certifications if c][:3])}")
+    if summary:
+        clean_summary = re.sub(r"\s+", " ", summary).strip()[:250]
+        header_parts.append(f"Profile: {clean_summary}")
+
+    context = "\n\n".join(
+        [f"Resume excerpt {i+1}:\n{s}" for i, s in enumerate(snippets)]
+    )
+    header = " | ".join(header_parts) if header_parts else "Candidate profile"
 
     return (
         "You are a technical recruiter. Write exactly 3 concise, natural sentences "
-        "about this candidate using ONLY the metadata below.\n\n"
+        "about this candidate using ONLY the retrieved resume excerpts and metadata below.\n\n"
         "Structure:\n"
-        "- Sentence 1: Primary role + years of experience + key domain.\n"
-        "- Sentence 2: Primary technologies (up to 6), in a natural phrase.\n"
-        "- Sentence 3: Recent work focus, with education mentioned only after work.\n\n"
+        "- Sentence 1: Primary role + years of experience.\n"
+        "- Sentence 2: Primary technologies and technical strengths.\n"
+        "- Sentence 3: Domain expertise, notable achievements or specialization.\n\n"
         "Rules:\n"
-        "- Maximum 3 sentences, each under 28 words.\n"
+        "- Maximum 3 sentences, each under 35 words.\n"
         "- Do NOT start with 'Experienced in...' or 'Experienced with...'.\n"
         "- Do NOT use the phrases 'Top technologies include...' or 'Domain expertise...'.\n"
-        "- Mention work experience before education.\n"
-        "- Do not invent missing information; omit unknown fields.\n"
+        "- Prioritize work experience, projects and skills. Mention education only if it is highly relevant.\n"
+        "- Ground every statement in the provided resume content.\n"
+        "- If information is missing, produce a shorter summary instead of inventing details.\n"
         "- Use natural recruiter language, not bullet-style labels.\n\n"
         f"{header}\n\n"
+        f"{context}\n\n"
         "Summary:"
     )
 
@@ -196,32 +218,32 @@ def _fallback_summary(
     skills: list[str] | None,
     matched_skills: list[str] | None,
     education: list[str] | None = None,
+    summary: str | None = None,
+    projects: list[str] | None = None,
+    certifications: list[str] | None = None,
 ) -> str:
     """Build a deterministic 3-sentence recruiter summary from metadata only.
 
     Structure:
-        Sentence 1: role + years + key domain
-        Sentence 2: primary technologies
-        Sentence 3: work focus, education last
+        Sentence 1: role + years of experience
+        Sentence 2: primary technologies and technical strengths
+        Sentence 3: domain expertise, notable achievements or specialization
     """
     sentences: list[str] = []
     display_role = primary_role or role_family
     key_domain = role_family or display_role
 
-    # Sentence 1: role + years + key domain
-    if display_role and experience_years is not None:
-        if key_domain and key_domain != display_role:
-            sentences.append(f"{display_role} with {experience_years:g} years of hands-on experience, primarily in {key_domain}.")
-        else:
-            sentences.append(f"{display_role} with {experience_years:g} years of hands-on experience.")
+    # Sentence 1: role + years of experience
+    if display_role and experience_years is not None and experience_years > 0:
+        sentences.append(f"{display_role} with {experience_years:g} years of experience.")
     elif display_role:
-        sentences.append(f"{display_role} with relevant hands-on experience.")
-    elif experience_years is not None:
-        sentences.append(f"Professional with {experience_years:g} years of hands-on experience.")
+        sentences.append(f"{display_role} with relevant experience.")
+    elif experience_years is not None and experience_years > 0:
+        sentences.append(f"Professional with {experience_years:g} years of experience.")
     else:
         sentences.append("Candidate profile.")
 
-    # Sentence 2: primary technologies
+    # Sentence 2: primary technologies and technical strengths
     tech_skills = [s for s in (matched_skills or []) if s][:6]
     if not tech_skills and skills:
         tech_skills = [s for s in skills if s][:6]
@@ -230,21 +252,42 @@ def _fallback_summary(
             tech_clause = tech_skills[0]
         else:
             tech_clause = ", ".join(tech_skills[:-1]) + f" and {tech_skills[-1]}"
-        sentences.append(f"They work with {tech_clause}.")
-
-    # Sentence 3: work focus before education
-    if key_domain:
-        work_focus = f"Recent work has been in {key_domain}"
-        if education and education[0]:
-            sentences.append(f"{work_focus}, supported by {str(education[0]).strip()}.")
+        extras: list[str] = []
+        if projects:
+            extras.extend([p for p in projects if p][:2])
+        if certifications:
+            extras.extend([c for c in certifications if c][:1])
+        if extras:
+            sentences.append(f"Strong background in {tech_clause}, with experience in {' and '.join(extras)}.")
         else:
-            sentences.append(f"{work_focus}.")
+            sentences.append(f"Strong background in {tech_clause}.")
+
+    # Sentence 3: domain expertise, notable achievements or specialization
+    if summary:
+        clean = re.sub(r"\s+", " ", summary).strip()
+        if clean:
+            if len(clean) > 120:
+                clean = clean[:117] + "..."
+            sentences.append(f"Specialized in {clean}.")
+    elif projects:
+        projects_list = [p for p in projects if p][:2]
+        if projects_list:
+            sentences.append(f"Notable projects include {' and '.join(projects_list)}.")
+    elif certifications:
+        certs_list = [c for c in certifications if c][:2]
+        if certs_list:
+            sentences.append(f"Certified in {' and '.join(certs_list)}.")
+    elif key_domain:
+        sentences.append(f"Domain focus: {key_domain}.")
     elif education and education[0]:
         sentences.append(f"Background includes {str(education[0]).strip()}.")
     else:
         sentences.append("Relevant background for this search.")
 
-    return " ".join(sentences)
+    final = " ".join(sentences)
+    if len(final) > 280:
+        final = final[:277] + "..."
+    return final
 
 
 def generate_resume_summary(
@@ -257,6 +300,9 @@ def generate_resume_summary(
     education: list[str] | None,
     skills: list[str] | None,
     matched_skills: list[str] | None,
+    summary: str | None = None,
+    projects: list[str] | None = None,
+    certifications: list[str] | None = None,
 ) -> str:
     """Generate a concise, recruiter-friendly summary from retrieved resume chunks.
 
@@ -265,7 +311,8 @@ def generate_resume_summary(
     """
     start_time = time.perf_counter()
     prompt = _build_summary_prompt(
-        retrieved_chunks, primary_role, role_family, experience_years, education, skills, matched_skills
+        retrieved_chunks, primary_role, role_family, experience_years, education, skills, matched_skills,
+        summary, projects, certifications,
     )
     answer = _call_openai(prompt)
     if answer:
@@ -282,6 +329,8 @@ def generate_resume_summary(
         if is_format_ok:
             logger.info("LLM summary generated in %.3fs (%d words)", time.perf_counter() - start_time, word_count)
             return answer
-    summary = _fallback_summary(primary_role, role_family, experience_years, skills, matched_skills, education)
+    summary = _fallback_summary(
+        primary_role, role_family, experience_years, skills, matched_skills, education, summary, projects, certifications,
+    )
     logger.info("Deterministic summary generated in %.3fs", time.perf_counter() - start_time)
     return summary

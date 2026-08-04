@@ -64,6 +64,20 @@ INVALID_CANDIDATE_NAMES = {
     "accenture outstanding performer award",
     "outstanding performer award",
     "performer award",
+    "professional summary",
+    "core qualification",
+    "core qualifications",
+    "objective",
+    "full name",
+    "your name",
+    "candidate name",
+    "applicant name",
+    "candidate",
+    "applicant",
+    "placeholder",
+    "not provided",
+    "not specified",
+    "no name",
 }
 
 # Common resume section headings that should not appear as names.

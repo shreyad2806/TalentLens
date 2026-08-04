@@ -71,9 +71,59 @@ class PrimaryOccupationExtractor:
         (re.compile(r"\bpm\b(?=\s|$)", re.IGNORECASE), "Product Manager"),
     ]
 
+    # Generic placeholder titles that should never be the extracted primary occupation.
+    GENERIC_TITLES = {
+        "professional", "engineer", "engineering", "developer", "manager",
+        "consultant", "analyst", "specialist", "executive", "worker",
+        "engineering professional", "automobile professional", "banking professional",
+        "consultant professional", "finance professional", "accounting professional",
+        "sales professional", "marketing professional", "hr professional",
+        "teacher", "professor", "student", "fresher", "trainee",
+    }
+
     # Titles that do not fit a strong family map but are clearly engineering-adjacent
     ENGINEERING_KEYWORDS = re.compile(r"\b(engineer|developer|programmer|architect|scientist|analyst)\b", re.IGNORECASE)
     RESEARCH_KEYWORDS = re.compile(r"\b(research|researcher|research assistant|research engineer)\b", re.IGNORECASE)
+
+    # Inferred occupations when no explicit job title is available.
+    _INFERENCE_PATTERNS: list[tuple[re.Pattern, str]] = [
+        (re.compile(r"\b(machine learning|ml engineer|deep learning engineer|ai engineer|artificial intelligence engineer)\b", re.IGNORECASE), "Machine Learning Engineer"),
+        (re.compile(r"\b(backend engineer|backend developer)\b", re.IGNORECASE), "Backend Engineer"),
+        (re.compile(r"\b(software engineer|software developer|sde)\b", re.IGNORECASE), "Software Engineer"),
+        (re.compile(r"\b(data scientist)\b", re.IGNORECASE), "Data Scientist"),
+        (re.compile(r"\b(research scientist|research engineer)\b", re.IGNORECASE), "Research Scientist"),
+        (re.compile(r"\b(devops engineer|sre|site reliability engineer)\b", re.IGNORECASE), "DevOps Engineer"),
+        (re.compile(r"\b(data engineer)\b", re.IGNORECASE), "Data Engineer"),
+        (re.compile(r"\b(data analyst|business analyst)\b", re.IGNORECASE), "Data Analyst"),
+        (re.compile(r"\b(frontend engineer|frontend developer)\b", re.IGNORECASE), "Frontend Engineer"),
+        (re.compile(r"\b(full[\s\-]?stack engineer|full[\s\-]?stack developer)\b", re.IGNORECASE), "Full Stack Engineer"),
+        (re.compile(r"\b(product manager)\b", re.IGNORECASE), "Product Manager"),
+        (re.compile(r"\b(mechanical engineer|automobile engineer|automotive engineer)\b", re.IGNORECASE), "Mechanical Engineer"),
+        (re.compile(r"\b(electrical engineer|electronics engineer)\b", re.IGNORECASE), "Electrical Engineer"),
+        (re.compile(r"\b(civil engineer)\b", re.IGNORECASE), "Civil Engineer"),
+        (re.compile(r"\b(doctor|physician|md)\b", re.IGNORECASE), "Doctor"),
+        (re.compile(r"\b(teacher|professor|educator)\b", re.IGNORECASE), "Teacher"),
+        (re.compile(r"\b(lawyer|attorney)\b", re.IGNORECASE), "Lawyer"),
+        (re.compile(r"\b(marketing manager|digital marketer)\b", re.IGNORECASE), "Marketing Manager"),
+        (re.compile(r"\b(sales manager|account executive)\b", re.IGNORECASE), "Sales Manager"),
+        (re.compile(r"\b(human resources|hr manager|recruiter)\b", re.IGNORECASE), "Human Resources Manager"),
+        (re.compile(r"\b(operations manager|operations analyst)\b", re.IGNORECASE), "Operations Manager"),
+        (re.compile(r"\b(chef|sous chef|head chef|executive chef)\b", re.IGNORECASE), "Chef"),
+        (re.compile(r"\b(accountant|accounts|accounting)\b", re.IGNORECASE), "Accountant"),
+        (re.compile(r"\b(banker|bank manager|banking)\b", re.IGNORECASE), "Banker"),
+        (re.compile(r"\b(nurse|registered nurse|rn)\b", re.IGNORECASE), "Nurse"),
+        (re.compile(r"\b(pilot|aviation|aircraft)\b", re.IGNORECASE), "Pilot"),
+        (re.compile(r"\b(fitness|fitness trainer|personal trainer|gym instructor)\b", re.IGNORECASE), "Fitness Trainer"),
+        (re.compile(r"\b(consultant|advisor|adviser)\b", re.IGNORECASE), "Consultant"),
+        (re.compile(r"\b(business development|bdr)\b", re.IGNORECASE), "Business Development Manager"),
+        (re.compile(r"\b(sales executive|sales manager|salesperson|sales associate)\b", re.IGNORECASE), "Sales Executive"),
+        (re.compile(r"\b(public relations|pr manager|communications manager)\b", re.IGNORECASE), "Public Relations Manager"),
+        (re.compile(r"\b(construction manager|construction|builder|contractor)\b", re.IGNORECASE), "Construction Manager"),
+        (re.compile(r"\b(healthcare|medical professional|clinical professional)\b", re.IGNORECASE), "Healthcare Professional"),
+        (re.compile(r"\b(agriculture|agricultural|farmer|agronomist)\b", re.IGNORECASE), "Agriculture Professional"),
+        (re.compile(r"\b(finance professional|financial analyst|finance)\b", re.IGNORECASE), "Finance Professional"),
+        (re.compile(r"\b(automobile|automotive|automobile engineer)\b", re.IGNORECASE), "Automobile Engineer"),
+    ]
 
     @classmethod
     def extract(
@@ -85,35 +135,41 @@ class PrimaryOccupationExtractor:
         """Return the primary occupation components for a parsed resume."""
         experiences = cls._get_experiences(parsed_resume)
         source = "none"
-        raw_title = None
+
+        candidates: list[tuple[str | None, str]] = []
 
         if experiences:
-            most_recent = cls._most_recent_title(experiences)
+            # Prioritize current/most-recent/frequent, but still consider all.
             current = cls._current_title(experiences)
+            most_recent = cls._most_recent_title(experiences)
             frequent = cls._most_frequent_title(experiences)
-
-            # 1. Most recent job title
-            if most_recent:
-                raw_title = most_recent
-                source = "most_recent_job_title"
-            # 2. Current job title (overrides if explicit current marker found)
-            if current:
-                raw_title = current
-                source = "current_job_title"
-            # 3. Most frequent job title (fallback)
-            if not raw_title and frequent:
-                raw_title = frequent
-                source = "most_frequent_job_title"
+            candidates.append((current, "current_job_title"))
+            candidates.append((most_recent, "most_recent_job_title"))
+            candidates.append((frequent, "most_frequent_job_title"))
 
         # 4. LinkedIn-style headline
-        if not raw_title and headline:
-            raw_title = headline
-            source = "headline"
+        candidates.append((headline, "headline"))
 
-        # 5. Resume category
-        if not raw_title and category:
-            raw_title = category
-            source = "resume_category"
+        # 5. Resume category is never used as the display title.
+        #    It is only retained below to help derive a role family if needed.
+        category_for_family = category
+
+        raw_title = None
+        for raw, src in candidates:
+            if not raw or not raw.strip():
+                continue
+            normalized = cls._normalize_title(raw).lower()
+            if normalized and normalized not in cls.GENERIC_TITLES:
+                raw_title = raw
+                source = src
+                break
+
+        # If no real occupation is found, infer one from projects/skills/summary.
+        if not raw_title:
+            raw_title = cls._infer_from_content(parsed_resume)
+            if raw_title:
+                source = "inferred"
+                category_for_family = None
 
         if not raw_title:
             return {
@@ -139,10 +195,15 @@ class PrimaryOccupationExtractor:
     @classmethod
     def _get_experiences(cls, parsed_resume: ResumeDocument | dict[str, Any]) -> list[Any]:
         """Return the list of parsed experience entries."""
-        if isinstance(parsed_resume, ResumeDocument):
-            return parsed_resume.experience or []
+        if not isinstance(parsed_resume, dict):
+            meta = getattr(parsed_resume, "resume_metadata", None)
+            if meta is not None:
+                return getattr(meta, "experience", None) or []
+            return getattr(parsed_resume, "experience", None) or []
         if isinstance(parsed_resume, dict):
-            return parsed_resume.get("experience") or []
+            meta = parsed_resume.get("resume_metadata") or parsed_resume
+            if isinstance(meta, dict):
+                return meta.get("experience") or []
         return []
 
     @classmethod
@@ -199,6 +260,43 @@ class PrimaryOccupationExtractor:
         if not titles:
             return None
         return Counter(titles).most_common(1)[0][0].strip().title()
+
+    @classmethod
+    def _infer_from_content(cls, parsed_resume: ResumeDocument | dict[str, Any]) -> str | None:
+        """Infer a real occupation from projects, skills, and summary text."""
+        parts: list[str] = []
+        if isinstance(parsed_resume, dict):
+            parts.extend(parsed_resume.get("projects") or [])
+            parts.extend(parsed_resume.get("skills") or [])
+            parts.append(parsed_resume.get("summary") or "")
+            meta = parsed_resume.get("resume_metadata")
+            if isinstance(meta, dict):
+                parts.extend(meta.get("projects") or [])
+                parts.extend(meta.get("skills") or [])
+                parts.append(meta.get("summary") or "")
+        else:
+            parts.extend(getattr(parsed_resume, "projects", None) or [])
+            parts.extend(getattr(parsed_resume, "skills", None) or [])
+            parts.append(getattr(parsed_resume, "summary", None) or "")
+            meta = getattr(parsed_resume, "resume_metadata", None)
+            if meta is not None:
+                parts.extend(getattr(meta, "projects", None) or [])
+                parts.extend(getattr(meta, "skills", None) or [])
+                parts.append(getattr(meta, "summary", None) or "")
+
+        # Last resort: scan the raw resume text for recognizable occupation terms.
+        if not isinstance(parsed_resume, dict):
+            parts.append(getattr(parsed_resume, "resume_text", None) or "")
+        else:
+            parts.append(parsed_resume.get("resume_text") or "")
+
+        text = " ".join(parts).lower()
+        if not text.strip():
+            return None
+        for pattern, title in cls._INFERENCE_PATTERNS:
+            if pattern.search(text):
+                return title
+        return None
 
     @classmethod
     def _normalize_title(cls, title: str) -> str:

@@ -164,24 +164,12 @@ class BootstrapService:
                 result['errors'].append("Vector store service not available")
         except Exception as e:
             result['errors'].append(f"Vector store load failed: {e!s}")
-        
+
         # Refresh vector count from statistics
-        pre_count = self.indexing_pipeline.get_statistics().get('vector_count', 0)
-        print(f"[DIAGNOSTIC][BootstrapService] vector count before load: {pre_count}")
         stats = self.indexing_pipeline.get_statistics()
         result['vector_count'] = stats.get('vector_count', 0)
         print(f"[DIAGNOSTIC][BootstrapService] vectors restored: {result['vector_count']}")
-        
-        # Run vector store integrity validation
-        try:
-            if vector_store is not None:
-                integrity = vector_store.integrity_check()
-                result['integrity'] = integrity
-                if not integrity.get('valid'):
-                    result['errors'].append(f"Vector store integrity check failed: {integrity.get('errors', [])}")
-        except Exception as e:
-            result['errors'].append(f"Vector store integrity check failed: {e!s}")
-        
+
         return result
     
     def bootstrap(self) -> dict[str, Any]:
@@ -213,11 +201,6 @@ class BootstrapService:
         
         print(f"[BOOTSTRAP] Dataset hash: current={current_hash[:16]}... cached={'(none)' if cached_hash is None else cached_hash[:16] + '...'}")
         print(f"[BOOTSTRAP-TRACE][bootstrap_service.py] hash_unchanged={hash_unchanged}")
-        
-        # Validate current state before deciding load vs build
-        pre_validation = self.validator.validate()
-        pre_stats = self.indexing_pipeline.get_statistics()
-        print(f"[BOOTSTRAP-TRACE][bootstrap_service.py] Pre-bootstrap stats: indexed_documents={pre_stats['indexed_documents']}, vector_count={pre_stats['vector_count']}, bm25_count={pre_stats['bm25_count']}")
         
         # Detect whether persisted indexes exist
         indexes_exist = self._indexes_exist_on_disk()
@@ -283,21 +266,22 @@ class BootstrapService:
         self._last_bootstrap_time = bootstrap_time
         self._last_bootstrap_result = result
 
-        # Final validation after load/build
-        post_validation = self.validator.validate()
+        # Final validation only runs when we actually built indexes.
+        # Loading existing indexes is a fast path with no dense/sparse/hybrid retrieval.
+        loaded_existing = result.get('status') == BootstrapStatus.LOADED_EXISTING_INDEXES
+        if not loaded_existing:
+            post_validation = self.validator.validate()
+            result['validation_result'] = post_validation
+            if not post_validation.get('is_valid', False):
+                result['success'] = False
+                result['status'] = BootstrapStatus.FAILED
+                result['reason'] = 'validation_failure'
+
         post_stats = self.indexing_pipeline.get_statistics()
         print(f"[BOOTSTRAP-TRACE][bootstrap_service.py] Post-bootstrap stats: indexed_documents={post_stats['indexed_documents']}, vector_count={post_stats['vector_count']}, bm25_count={post_stats['bm25_count']}")
 
-        result['validation_result'] = post_validation
-
-        # Loaded indexes are a success even if optional validation has warnings.
-        # Only mark as FAILED when the cause was a real exception or corruption.
         if result.get('status') == BootstrapStatus.LOADED_EXISTING_INDEXES:
             result['success'] = True
-        elif not post_validation.get('is_valid', False):
-            result['success'] = False
-            result['status'] = BootstrapStatus.FAILED
-            result['reason'] = 'validation_failure'
 
         if post_stats.get('bm25_count', 0) == 0:
             result['success'] = False

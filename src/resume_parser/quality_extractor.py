@@ -15,6 +15,8 @@ import re
 from datetime import datetime
 from typing import Any
 
+from src.normalization.role_normalizer import RoleNormalizer
+
 from .name_validator import INVALID_CANDIDATE_NAMES, is_valid_candidate_name, normalize_candidate_name
 from .normalizer import MetadataNormalizer
 from .occupation_extractor import PrimaryOccupationExtractor
@@ -304,8 +306,9 @@ class QualityMetadataExtractor:
         if filename_name:
             return self._clean_name(filename_name), 0.5, "filename"
 
-        # 7. Unknown
-        return None, 0.0, "unknown"
+        # 7. Resume ID as last resort
+        resume_id = str(record.get("ID") or record.get("id") or record.get("Resume_ID") or record.get("resume_id") or "unknown")
+        return resume_id, 0.1, "resume_id"
 
     def _looks_like_name(self, line: str) -> bool:
         """Use the shared, stricter name validator."""
@@ -390,14 +393,14 @@ class QualityMetadataExtractor:
         if category:
             v = category.strip()
             if v and self._is_valid_role(v):
-                return v, 1.0, "csv_category"
+                return RoleNormalizer.normalize(v) or v, 1.0, "csv_category"
 
         # 2. Header title line before first section heading
         header_lines = text[:1000].splitlines()
         for line in header_lines:
             line = line.strip()
             if self._is_valid_role(line):
-                return line, 0.9, "header_title"
+                return RoleNormalizer.normalize(line) or line, 0.9, "header_title"
 
         # 3. Latest experience title (first line of first job block)
         exp_text = section_texts.get("experience", "")
@@ -406,12 +409,12 @@ class QualityMetadataExtractor:
             for line in lines:
                 line = line.strip()
                 if self._is_valid_role(line):
-                    return line, 0.85, "latest_experience_title"
+                    return RoleNormalizer.normalize(line) or line, 0.85, "latest_experience_title"
 
         # 4. Fallback: very first line of the resume
         first = text.splitlines()[0].strip() if text else ""
         if first and self._is_valid_role(first):
-            return first, 0.7, "leading_line"
+            return RoleNormalizer.normalize(first) or first, 0.7, "leading_line"
 
         return None, 0.0, "none_found"
 
@@ -570,7 +573,7 @@ class QualityMetadataExtractor:
         if not title and not start and not company:
             return None
         return Experience(
-            company=company,
+            company=self.normalizer.normalize_company(company),
             title=title,
             location=location,
             start_date=start,

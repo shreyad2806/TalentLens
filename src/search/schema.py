@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -74,6 +75,19 @@ class SearchResult(BaseModel):
             cleaned = matched_front + others
         return cleaned
 
+    @staticmethod
+    def _match_label(score: float) -> str:
+        """Convert an overall match score into a recruiter-friendly rating."""
+        if score >= 90:
+            return "Excellent"
+        if score >= 80:
+            return "Strong"
+        if score >= 70:
+            return "Good"
+        if score >= 55:
+            return "Fair"
+        return "Weak"
+
     def _ai_summary(self, m: ResumeMetadata, top_skills: list[str]) -> str:
         """Generate a 3-sentence recruiter-friendly summary from metadata."""
         parts: list[str] = []
@@ -81,43 +95,58 @@ class SearchResult(BaseModel):
         role_family = (m.role_family or "").strip()
         key_domain = role_family or role
 
-        # Sentence 1: role + years + key domain
+        # Sentence 1: role + years of experience
         if role and m.experience_years is not None and m.experience_years > 0:
-            if key_domain and key_domain != role:
-                parts.append(f"{role} with {m.experience_years:g} years of hands-on experience, primarily in {key_domain}.")
-            else:
-                parts.append(f"{role} with {m.experience_years:g} years of hands-on experience.")
+            parts.append(f"{role} with {m.experience_years:g} years of experience.")
         elif role:
-            parts.append(f"{role} with relevant hands-on experience.")
+            parts.append(f"{role} with relevant experience.")
         elif m.experience_years is not None and m.experience_years > 0:
-            parts.append(f"Professional with {m.experience_years:g} years of hands-on experience.")
+            parts.append(f"Professional with {m.experience_years:g} years of experience.")
         else:
             parts.append("Candidate profile.")
 
-        # Sentence 2: primary technologies
+        # Sentence 2: primary technologies and technical strengths
         if top_skills:
             tech = [s for s in top_skills if s][:6]
             if len(tech) == 1:
                 tech_clause = tech[0]
             else:
                 tech_clause = ", ".join(tech[:-1]) + f" and {tech[-1]}" if len(tech) > 1 else tech[0]
-            parts.append(f"They work with {tech_clause}.")
-
-        # Sentence 3: work focus before education
-        if key_domain:
-            work_focus = f"Recent work has been in {key_domain}"
-            if m.education and m.education[0]:
-                parts.append(f"{work_focus}, supported by {str(m.education[0]).strip()}.")
+            extras: list[str] = []
+            if m.projects:
+                extras.extend([p for p in m.projects if p][:2])
+            if m.certifications:
+                extras.extend([c for c in m.certifications if c][:1])
+            if extras:
+                parts.append(f"Strong background in {tech_clause}, with experience in {' and '.join(extras)}.")
             else:
-                parts.append(f"{work_focus}.")
+                parts.append(f"Strong background in {tech_clause}.")
+
+        # Sentence 3: domain expertise, notable achievements or specialization
+        if m.summary:
+            clean = re.sub(r"\s+", " ", m.summary).strip()
+            if clean:
+                if len(clean) > 120:
+                    clean = clean[:117] + "..."
+                parts.append(f"Specialized in {clean}.")
+        elif m.projects:
+            projects_list = [p for p in m.projects if p][:2]
+            if projects_list:
+                parts.append(f"Notable projects include {' and '.join(projects_list)}.")
+        elif m.certifications:
+            certs_list = [c for c in m.certifications if c][:2]
+            if certs_list:
+                parts.append(f"Certified in {' and '.join(certs_list)}.")
+        elif key_domain:
+            parts.append(f"Domain focus: {key_domain}.")
         elif m.education and m.education[0]:
             parts.append(f"Background includes {str(m.education[0]).strip()}.")
         else:
             parts.append("Relevant background for this search.")
 
         summary = " ".join(parts)
-        if len(summary) > 220:
-            summary = summary[:217] + "..."
+        if len(summary) > 280:
+            summary = summary[:277] + "..."
         return summary
 
     def to_frontend_dict(self, evidence_offset: int = 0) -> dict[str, Any]:
@@ -163,7 +192,7 @@ class SearchResult(BaseModel):
         d["projects"] = (m.projects or [])[:6]
         d["certifications"] = (m.certifications or [])[:6]
         d["summary"] = (m.summary or "")[:250]
-        d["primary_role"] = RoleNormalizer.normalize(m.primary_role or m.role) or m.primary_role or m.role or ""
+        d["primary_role"] = RoleNormalizer.normalize(m.primary_role) or m.primary_role or "Role not specified"
         d["role"] = d["primary_role"]
         d["role_family"] = m.role_family or ""
         d["seniority"] = m.seniority or ""
@@ -192,29 +221,48 @@ class SearchResult(BaseModel):
         d["keyword_match"] = round(s.get("keyword", 0.0) * 100, 2)
         d["project_match"] = round(s.get("project", 0.0) * 100, 2)
         d["match_pct"] = d["overall_match"]
+        d["match_label"] = self._match_label(d["overall_match"])
         d["score_breakdown"] = {
             "Role": round(s.get("role", 0.0) * 100, 2),
-            "Skill": round(s.get("skill", 0.0) * 100, 2),
+            "Skills": round(s.get("skill", 0.0) * 100, 2),
             "Experience": round(s.get("experience", 0.0) * 100, 2),
-            "Project": round(s.get("project", 0.0) * 100, 2),
-            "Education": round(s.get("education", 0.0) * 100, 2),
             "Semantic": round(s.get("semantic", 0.0) * 100, 2),
+            "Industry": round(s.get("industry", 0.0) * 100, 2),
+            "Education": round(s.get("education", 0.0) * 100, 2),
         }
 
         # Build a deterministic "Why this matched" list with confidence scores.
         match_details: list[dict[str, Any]] = []
-        if s.get("role", 0.0) > 0.0 and m.role:
+        if s.get("role", 0.0) > 0.0 and m.primary_role:
+            role_score = round(s.get("role", 0.0) * 100, 2)
+            query_role = (s.get("query_role") or "").strip()
+            if role_score >= 99:
+                role_label = "Exact Role Match"
+                role_value = m.primary_role
+            elif role_score >= 85:
+                role_label = "Similar Role"
+                role_value = f"{m.primary_role} ↔ {RoleNormalizer.normalize(query_role) or query_role.title()}"
+            elif role_score >= 60:
+                role_label = "Related Role"
+                role_value = f"{m.primary_role} ↔ {RoleNormalizer.normalize(query_role) or query_role.title()}"
+            else:
+                role_label = "Weak Role Match"
+                role_value = m.primary_role
             match_details.append({
-                "label": "Role Match",
-                "score": round(s.get("role", 0.0) * 100, 2),
-                "value": d["matched_role"],
+                "label": role_label,
+                "score": role_score,
+                "value": role_value,
                 "type": "role",
             })
+        skill_evidence = s.get("skill_evidence", {})
         for sk in self.matched_skills:
+            sections = skill_evidence.get(sk, [])
+            value = sections[0] if sections else "Skills"
             match_details.append({
-                "label": f"{sk.title()} Match",
+                "label": sk.title(),
                 "score": 100,
-                "value": sk.title(),
+                "value": value,
+                "evidence": sections,
                 "type": "skill",
             })
         if s.get("experience", 0.0) > 0.0 and m.experience_years is not None and m.experience_years > 0:
@@ -247,9 +295,9 @@ class SearchResult(BaseModel):
             })
         d["match_details"] = match_details
 
-        # Confidence is now the candidate suitability score (0-100) rather than
-        # a retrieval-confidence blend.
+        # Confidence is the recruiter-oriented overall match score (0-100).
         d["suitability_score"] = round(self.final_score * 100, 2)
         d["confidence"] = d["suitability_score"]
+        d["match_label"] = self._match_label(d["overall_match"])
 
         return d

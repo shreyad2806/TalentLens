@@ -127,60 +127,72 @@ class MetadataNormalizer:
     # Degree normalization
     # -----------------------------------------------------------------------
     DEGREE_SYNONYMS: dict[str, str] = {
-        "bachelor of technology": "B.Tech",
-        "bachelor of engineering": "B.E.",
-        "bachelor of science": "B.Sc",
-        "bachelor of arts": "B.A.",
-        "bachelor of commerce": "B.Com",
-        "bachelor of computer applications": "BCA",
-        "bachelor of business administration": "BBA",
-        "bachelor of applied science": "B.A.S.",
-        "bachelor degree": "Bachelor",
-        "btech": "B.Tech",
-        "b.tech": "B.Tech",
-        "b.e.": "B.E.",
-        "be": "B.E.",
-        "b.e": "B.E.",
-        "b.sc": "B.Sc",
-        "bsc": "B.Sc",
-        "b.com": "B.Com",
-        "bcom": "B.Com",
-        "bca": "BCA",
-        "b.a.": "B.A.",
-        "associate of arts": "A.A.",
-        "associate of science": "A.S.",
-        "associate of applied science": "A.A.S.",
-        "associate degree": "Associate",
-        "associate": "Associate",
-        "master of technology": "M.Tech",
-        "master of engineering": "M.E.",
-        "master of science": "M.Sc",
-        "master of arts": "M.A.",
-        "master of commerce": "M.Com",
-        "master of computer applications": "MCA",
-        "master of business administration": "MBA",
-        "master degree": "Master",
-        "mtech": "M.Tech",
-        "m.tech": "M.Tech",
-        "m.e.": "M.E.",
-        "me": "M.E.",
-        "m.e": "M.E.",
-        "m.sc": "M.Sc",
-        "msc": "M.Sc",
-        "m.com": "M.Com",
-        "mcom": "M.Com",
-        "mca": "MCA",
-        "m.a.": "M.A.",
+        "bachelor of technology": "Bachelor of Technology",
+        "bachelor of engineering": "Bachelor of Engineering",
+        "bachelor of science": "Bachelor of Science",
+        "bachelor of arts": "Bachelor of Arts",
+        "bachelor of commerce": "Bachelor of Commerce",
+        "bachelor of computer applications": "Bachelor of Computer Applications",
+        "bachelor of business administration": "Bachelor of Business Administration",
+        "bachelor of applied science": "Bachelor of Applied Science",
+        "bachelor degree": "Bachelor's Degree",
+        "btech": "Bachelor of Technology",
+        "b.tech": "Bachelor of Technology",
+        "b.e.": "Bachelor of Engineering",
+        "be": "Bachelor of Engineering",
+        "b.e": "Bachelor of Engineering",
+        "b.sc": "Bachelor of Science",
+        "bsc": "Bachelor of Science",
+        "b.com": "Bachelor of Commerce",
+        "bcom": "Bachelor of Commerce",
+        "bca": "Bachelor of Computer Applications",
+        "b.a.": "Bachelor of Arts",
+        "associate of arts": "Associate of Arts",
+        "associate of science": "Associate of Science",
+        "associate of applied science": "Associate of Applied Science",
+        "associate degree": "Associate Degree",
+        "associate": "Associate Degree",
+        "master of technology": "Master of Technology",
+        "master of engineering": "Master of Engineering",
+        "master of science": "Master of Science",
+        "master of arts": "Master of Arts",
+        "master of commerce": "Master of Commerce",
+        "master of computer applications": "Master of Computer Applications",
+        "master of business administration": "Master of Business Administration",
+        "master degree": "Master's Degree",
+        "mtech": "Master of Technology",
+        "m.tech": "Master of Technology",
+        "m.e.": "Master of Engineering",
+        "me": "Master of Engineering",
+        "m.e": "Master of Engineering",
+        "m.sc": "Master of Science",
+        "msc": "Master of Science",
+        "m.com": "Master of Commerce",
+        "mcom": "Master of Commerce",
+        "mca": "Master of Computer Applications",
+        "m.a.": "Master of Arts",
         "high school diploma": "High School Diploma",
         "diploma": "Diploma",
         "ged": "GED",
-        "doctor of philosophy": "PhD",
-        "doctorate": "PhD",
-        "ph.d.": "PhD",
-        "ph.d": "PhD",
+        "doctor of philosophy": "Doctor of Philosophy",
+        "doctorate": "Doctor of Philosophy",
+        "ph.d.": "Doctor of Philosophy",
+        "ph.d": "Doctor of Philosophy",
     }
 
     DEGREE_NORMALIZATION_ORDER = sorted(DEGREE_SYNONYMS.keys(), key=len, reverse=True)
+
+    # -----------------------------------------------------------------------
+    # Generic / soft-skill words that should not appear as extracted skills
+    # -----------------------------------------------------------------------
+    SKILL_STOP_WORDS = {
+        "responsible", "responsibilities", "hardworking", "hardworkingness",
+        "good", "great", "excellent", "outstanding", "dynamic", "page", "pages",
+        "fast", "experienced", "experience", "skill", "skills", "ability",
+        "abilities", "proficient", "proficiency", "knowledge", "quick", "learner",
+        "quick learner", "fast learner", "adaptable", "flexible", "detail",
+        "oriented", "detail oriented", "team player", "self motivated", "motivated",
+    }
 
     # -----------------------------------------------------------------------
     # Location normalization
@@ -293,13 +305,30 @@ class MetadataNormalizer:
         return " ".join(normalized) if normalized else skill
 
     @classmethod
+    def _is_stop_skill(cls, skill: str) -> bool:
+        """Return True if the raw skill is a generic/soft placeholder."""
+        if not skill or not isinstance(skill, str):
+            return True
+        lower = skill.strip().lower()
+        if lower in cls.SKILL_STOP_WORDS:
+            return True
+        # Reject if any whole-word stop token is present.
+        pattern = re.compile(
+            r"\b(?:" + "|".join(re.escape(w) for w in sorted(cls.SKILL_STOP_WORDS, key=len, reverse=True)) + r")\b",
+            re.IGNORECASE,
+        )
+        return bool(pattern.search(skill))
+
+    @classmethod
     def normalize_skills(cls, skills: list[str]) -> list[str]:
-        """Normalize and deduplicate a list of skill strings."""
+        """Normalize, filter, and deduplicate a list of skill strings."""
         if not skills:
             return []
         seen: set = set()
         out: list[str] = []
         for skill in skills:
+            if cls._is_stop_skill(skill):
+                continue
             canonical = cls.normalize_skill(skill)
             if canonical and canonical not in seen:
                 seen.add(canonical)
@@ -404,6 +433,34 @@ class MetadataNormalizer:
             if pattern.search(text):
                 return cls.LOCATION_SYNONYMS[synonym]
         return text[0].upper() + text[1:] if text else None
+
+    @classmethod
+    def normalize_company(cls, value: str | None) -> str | None:
+        """Clean a company name by stripping legal suffixes and normalizing case."""
+        if not value:
+            return None
+        text = re.sub(r"\s+", " ", str(value).strip())
+        if not text:
+            return None
+        text = re.sub(r"[_\-]+", " ", text)
+        suffixes = [
+            "inc", "inc.", "ltd", "ltd.", "llc", "pvt", "pvt.", "private",
+            "limited", "co", "co.", "corp", "corporation", "company", "plc", "sa", "ag",
+        ]
+        pattern = re.compile(
+            r"\b(?:" + "|".join(re.escape(s) for s in suffixes) + r")\b[.,\s]*$",
+            re.IGNORECASE,
+        )
+        text = pattern.sub("", text).strip(",. ")
+        text = re.sub(r"\s+", " ", text).strip()
+        if not text:
+            return None
+        # Deduplicate repeated words (e.g., "Infosys Infosys") and title-case.
+        words: list[str] = []
+        for w in text.split():
+            if not words or w.lower() != words[-1].lower():
+                words.append(w.capitalize())
+        return " ".join(words)
 
     @classmethod
     def clean_sentinel(cls, value: Any) -> Any:

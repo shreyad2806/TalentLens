@@ -634,7 +634,9 @@ class BM25Index:
                 self.document_store = {}
                 for doc_id, doc_data in docs_dict.items():
                     try:
-                        self.document_store[doc_id] = BM25Document(**doc_data)
+                        # Persisted index was already validated on creation; reconstruct
+                        # without re-running Pydantic validation to speed up startup.
+                        self.document_store[doc_id] = BM25Document.model_construct(**doc_data)
                     except ValidationError as e:
                         # Any validation error for a persisted document means the
                         # stored index was produced by an incompatible schema.

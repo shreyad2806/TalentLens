@@ -134,7 +134,9 @@ def create_retrieval_bundle(
     startup_metrics["reranker_init_ms"] = (time.perf_counter() - stage_start) * 1000
     stage_start = time.perf_counter()
 
-    # Preload both models so searches never pay loading latency.
+    # Preload the models once during bundle creation so every search stays fast.
+    # Both services are singletons owned by the cached bundle, so the model is
+    # never re-instantiated during a search.
     logger.info("Preloading embedding model...")
     embedding_service.warmup()
     startup_metrics["embedding_model_load_ms"] = (time.perf_counter() - stage_start) * 1000
@@ -143,7 +145,6 @@ def create_retrieval_bundle(
     logger.info("Preloading cross-encoder reranker...")
     reranker.load()
     startup_metrics["cross_encoder_load_ms"] = (time.perf_counter() - stage_start) * 1000
-    stage_start = time.perf_counter()
 
     bundle = RetrievalBundle(
         vector_store_service=vector_store_service,

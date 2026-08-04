@@ -38,15 +38,16 @@ class EmbeddingService:
     def __init__(self, expected_dimension: int | None = None):
         """
         Initialize the embedding service.
-        
+
+        The embedding model is loaded lazily on the first call that requires it,
+        so constructing this service does not add model-loading time to startup.
+
         Args:
             expected_dimension: Expected dimension of embedding vectors. If None, uses config default.
         """
         self.vectorizer = Vectorizer()
         self.validator = EmbeddingValidator(expected_dimension=expected_dimension or EMBEDDING_DIM)
-        self.warmup()
-        self._print_model_info()
-    
+
     def _print_model_info(self) -> None:
         """
         Print embedding model information.

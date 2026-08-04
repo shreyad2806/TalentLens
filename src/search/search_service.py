@@ -12,12 +12,14 @@ from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
+DEBUG = os.environ.get("TALENTLENS_DEBUG", "0") == "1"
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.models import ResumeDocument, get_display_name
+from src.models import ResumeDocument, ResumeMetadata, get_display_name
+from src.resume_parser.occupation_extractor import PrimaryOccupationExtractor
 from src.preview import ResumePreviewGenerator
 from src.summarization import generate_resume_summary
 
@@ -86,16 +88,77 @@ FINAL_SCORE_WEIGHTS = {
     "experience": 0.10,
 }
 
-# Suitability scoring: candidate fit rather than retrieval confidence.
-# Role and skill dominate; project, experience, education, and semantic support.
+# Role-aware final ranking weights.
 SUITABILITY_SCORE_WEIGHTS = {
-    "role": 0.35,
-    "skill": 0.25,
-    "experience": 0.15,
-    "project": 0.10,
+    "role": 0.40,
+    "semantic": 0.20,
+    "skill": 0.20,
+    "experience": 0.10,
+    "industry": 0.05,
     "education": 0.05,
-    "semantic": 0.10,
 }
+
+
+def _recruiter_role_score(query_role: str | None, candidate_role: str | None) -> int:
+    """Return a discrete 0-100 recruiter role similarity score.
+
+    Same Role            -> 100
+    Same Role Family     ->  90
+    Related              ->  70
+    Different Engineering->  20
+    Completely Different ->   0
+    """
+    if not query_role or not candidate_role:
+        return 0
+
+    q = RoleSimilarityScorer.normalize(query_role)
+    c = RoleSimilarityScorer.normalize(candidate_role)
+    if not q or not c:
+        return 0
+
+    if q == c or q in c or c in q:
+        return 100
+
+    raw = RoleSimilarityScorer.score(query_role, candidate_role)
+    if raw >= 0.95:
+        return 90
+    if raw >= 0.70:
+        return 70
+    if raw >= 0.20:
+        return 20
+    return 0
+
+
+def _print_retrieval_quality(results: list[SearchResult], query: str) -> None:
+    """Log one line per returned result for recruiter audit."""
+    if not results:
+        print(f"[DEBUG] Query='{query}' | No candidates returned")
+        return
+    for r in results:
+        m = r.resume_metadata
+        name = m.candidate_name or "Unknown"
+        primary_role = m.primary_role or m.role or "Unknown"
+        role_sim = round(r.score_breakdown.get("role", 0.0) * 100, 2)
+        hybrid = round(getattr(r, "rrf_score", r.score_breakdown.get("rrf", 0.0)) * 100, 2)
+        cross = round(r.score_breakdown.get("cross_encoder", 0.0) * 100, 2)
+        skill = round(r.score_breakdown.get("skill", 0.0) * 100, 2)
+        experience = round(r.score_breakdown.get("experience", 0.0) * 100, 2)
+        metadata = round(r.metadata_score * 100, 2)
+        final = round(r.final_score * 100, 2)
+        reason = "; ".join(r.explanation) if r.explanation else "No explicit reason"
+        print(
+            f"[DEBUG] Candidate={name} "
+            f"| Primary Role={primary_role} "
+            f"| Role Similarity={role_sim} "
+            f"| Hybrid={hybrid} "
+            f"| Cross={cross} "
+            f"| Skill={skill} "
+            f"| Experience={experience} "
+            f"| Metadata={metadata} "
+            f"| Final={final} "
+            f"| Reason Included={reason}"
+        )
+
 
 _RESUME_CACHE: dict[str, ResumeDocument] | None = None
 
@@ -118,6 +181,27 @@ def _load_resume_cache() -> dict[str, ResumeDocument]:
                 cache[doc.candidate_id] = doc
             except Exception:
                 continue
+
+    # Backfill primary occupation for legacy indexes where it was never stored.
+    for doc in cache.values():
+        if not doc.resume_metadata.primary_role:
+            extracted = PrimaryOccupationExtractor.extract(doc, category=doc.resume_metadata.role or "")
+            if extracted.get("primary_role"):
+                doc.resume_metadata.primary_role = extracted.get("primary_role")
+            else:
+                # Fallback to a normalized dataset role so the UI has a display role.
+                fallback = (doc.resume_metadata.role or "Professional").replace("-", " ").title().strip()
+                if fallback:
+                    doc.resume_metadata.primary_role = fallback
+            doc.resume_metadata.role_family = (
+                extracted.get("role_family")
+                or PrimaryOccupationExtractor._derive_role_family(
+                    doc.resume_metadata.primary_role or "",
+                    doc.resume_metadata.role or "",
+                )
+                or "Other"
+            )
+            doc.resume_metadata.seniority = extracted.get("seniority")
 
     _RESUME_CACHE = cache
     return _RESUME_CACHE
@@ -189,14 +273,41 @@ def _tokenize_skills(skills: list[str] | None) -> set[str]:
     return tokens
 
 
+class _StepTimer:
+    """Lightweight step timer that prints per-step latency for _score_resume()."""
+
+    def __init__(self, step: str, resume_id: str, extra: str | None = None, threshold_ms: float = 20.0) -> None:
+        self.step = step
+        self.resume_id = resume_id
+        self.extra = extra
+        self.threshold_ms = threshold_ms
+        self.start = time.perf_counter()
+
+    def stop(self) -> None:
+        elapsed_ms = (time.perf_counter() - self.start) * 1000
+        extra_str = f" | {self.extra}" if self.extra else ""
+        print(f"[PROFILE _score_resume] resume_id={self.resume_id} step={self.step} ms={elapsed_ms:.2f}{extra_str}")
+        if elapsed_ms > self.threshold_ms:
+            print(f"[PROFILE _score_resume] SLOW STEP: {self.step} took {elapsed_ms:.2f} ms{extra_str}")
+
+
 # Evidence-tier weights for where a term appears in a resume.
 # Work/professional experience is strongest, education/coursework is weakest.
 SECTION_TIER_WEIGHTS = {
-    "work_experience": 1.00,
-    "projects": 0.80,
-    "skills": 0.50,
-    "certifications": 0.30,
-    "education": 0.10,
+    "work_experience": 1.00,  # 50%
+    "projects": 0.40,         # 20%
+    "skills": 0.30,           # 15%
+    "certifications": 0.20,   # 10%
+    "education": 0.10,        # 5%
+}
+
+# Display labels for resume sections (used in explainability).
+SECTION_DISPLAY = {
+    "work_experience": "Experience",
+    "projects": "Projects",
+    "skills": "Skills",
+    "certifications": "Certifications",
+    "education": "Education",
 }
 
 # Section heading patterns mapped to the tier keys above.
@@ -209,28 +320,24 @@ SECTION_HEADING_PATTERNS: list[tuple[str, str]] = [
 ]
 
 
-def _get_section_intervals(text: str) -> list[tuple[int, int, float]]:
-    """Return (start, end, weight) intervals for each section body in a resume.
-
-    Heading patterns are matched case-insensitively. Text before the first
-    recognised heading is treated as work experience by default.
-    """
+def _get_section_intervals(text: str) -> list[tuple[int, int, float, str]]:
+    """Return (start, end, weight, section_key) intervals for each section body."""
     lower = text.lower()
     matches: list[tuple[int, int, float, str]] = []
     for pattern, key in SECTION_HEADING_PATTERNS:
         for match in re.finditer(pattern, lower, re.IGNORECASE):
             matches.append((match.start(), match.end(), SECTION_TIER_WEIGHTS[key], key))
     if not matches:
-        return [(0, len(lower), SECTION_TIER_WEIGHTS["work_experience"])]
+        return [(0, len(lower), SECTION_TIER_WEIGHTS["work_experience"], "work_experience")]
     matches.sort(key=lambda x: x[0])
-    intervals: list[tuple[int, int, float]] = []
+    intervals: list[tuple[int, int, float, str]] = []
     if matches[0][0] > 0:
-        intervals.append((0, matches[0][0], SECTION_TIER_WEIGHTS["work_experience"]))
+        intervals.append((0, matches[0][0], SECTION_TIER_WEIGHTS["work_experience"], "work_experience"))
     for i, (start, end, weight, key) in enumerate(matches):
         body_start = end
         body_end = matches[i + 1][0] if i + 1 < len(matches) else len(lower)
         if body_start < body_end:
-            intervals.append((body_start, body_end, weight))
+            intervals.append((body_start, body_end, weight, key))
     return intervals
 
 
@@ -249,7 +356,7 @@ def _section_weighted_term_score(text: str, terms: set[str]) -> float:
         pattern = re.compile(rf"\b{re.escape(term)}\b")
         for match in pattern.finditer(lower):
             pos = match.start()
-            for start, end, weight in intervals:
+            for start, end, weight, _ in intervals:
                 if start <= pos < end:
                     if weight > term_weights.get(term, 0.0):
                         term_weights[term] = weight
@@ -423,6 +530,13 @@ class SearchService:
         if filters.strict:
             scored = [r for r in scored if r.metadata_score == 1.0]
 
+        # Reject candidates from unrelated professions unless no better matches exist.
+        # Role Similarity is a 0-1 score derived from the 0-100 recruiter scale.
+        if scored:
+            strong_role = [r for r in scored if r.score_breakdown.get("role", 0.0) >= 0.30]
+            if strong_role:
+                scored = strong_role
+
         if not scored:
             self.last_search_metrics = {
                 "total_time_ms": (time.perf_counter() - search_start) * 1000,
@@ -455,7 +569,9 @@ class SearchService:
                 "rerank_time_ms": 0.0,
                 "generation_time_ms": scoring_time * 1000,
             }
-            return self._rank_enhanced(scored, top_k)
+            final_results = self._rank_enhanced(scored, top_k)
+            _print_retrieval_quality(final_results, query)
+            return final_results
 
         # 5. Select top candidates by normalized weighted match for reranking
         scored.sort(key=lambda x: x.score_breakdown.get("overall", 0.0), reverse=True)
@@ -489,22 +605,19 @@ class SearchService:
                 r.rerank_score = round(rs / max_rerank, 4) if max_rerank > 0 else 0.0
         rerank_time = time.perf_counter() - rerank_start
 
-        # 7. Final ranking: hybrid rerank score.
+        # 7. Final ranking: use the recruiter-oriented overall match.
+        # The cross-encoder reranker, if enabled, may provide a small bonus.
         for r in rerank_pool:
-            final = (
-                FINAL_SCORE_WEIGHTS["cross_encoder"] * r.rerank_score
-                + FINAL_SCORE_WEIGHTS["semantic"] * r.score_breakdown.get("semantic", 0.0)
-                + FINAL_SCORE_WEIGHTS["skill"] * r.score_breakdown.get("skill", 0.0)
-                + FINAL_SCORE_WEIGHTS["role"] * r.score_breakdown.get("role", 0.0)
-                + FINAL_SCORE_WEIGHTS["industry"] * r.score_breakdown.get("industry", 0.0)
-                + FINAL_SCORE_WEIGHTS["experience"] * r.score_breakdown.get("experience", 0.0)
-            )
-            r.final_score = round(final, 4)
+            final = r.score_breakdown.get("overall", 0.0)
+            if r.rerank_score > 0:
+                final = round(min(1.0, final + r.rerank_score * 0.05), 4)
+            r.final_score = final
             r.score_breakdown["cross_encoder"] = round(r.rerank_score, 4)
             r.score_breakdown["final"] = r.final_score
 
         rerank_pool.sort(key=lambda x: x.final_score, reverse=True)
         final = rerank_pool[:top_k]
+        _print_retrieval_quality(final, query)
 
         # 8. Retrieval quality log (per query)
         hybrid_metrics = (
@@ -542,23 +655,44 @@ class SearchService:
             "ON" if self.reranker is not None else "OFF", len(final),
         )
         for rank_i, r in enumerate(final, start=1):
-            logger.info(
-                "Top candidate %d | id=%s name=%s | semantic=%.4f bm25=%.4f "
-                "skill=%.4f role=%.4f industry=%.4f experience=%.4f cross_encoder=%.4f final=%.4f | "
-                "matched_skills=%s matched_role=%r",
-                rank_i,
-                r.resume_metadata.resume_id,
-                get_display_name(r.resume_metadata, r.source_filename),
-                r.score_breakdown.get("semantic", 0.0),
-                r.score_breakdown.get("sparse", 0.0),
-                r.score_breakdown.get("skill", 0.0),
-                r.score_breakdown.get("role", 0.0),
-                r.score_breakdown.get("industry", 0.0),
-                r.score_breakdown.get("experience", 0.0),
-                r.score_breakdown.get("cross_encoder", r.rerank_score),
-                r.final_score,
-                r.matched_skills,
-                r.resume_metadata.role or "",
+            meta = r.resume_metadata
+            audit = {
+                "rank": rank_i,
+                "candidate_id": meta.resume_id,
+                "candidate_name": get_display_name(meta, r.source_filename),
+                "display_title": meta.role or "",
+                "primary_occupation": meta.primary_role or meta.role or "",
+                "role_family": meta.role_family or "",
+                "industry": meta.role_family or "",
+                "experience_years": meta.experience_years,
+                "matched_skills": r.matched_skills,
+                "matched_experience": r.score_breakdown.get("matched_experience", []),
+                "matched_projects": r.matched_projects,
+                "matched_education": r.score_breakdown.get("matched_education", []),
+                "semantic_score": r.score_breakdown.get("semantic", 0.0),
+                "dense_score": r.score_breakdown.get("dense", 0.0),
+                "sparse_score": r.score_breakdown.get("sparse", 0.0),
+                "cross_encoder_score": r.score_breakdown.get("cross_encoder", 0.0),
+                "metadata_score": r.metadata_score,
+                "final_score": r.final_score,
+                "role_score": r.score_breakdown.get("role", 0.0),
+                "skill_score": r.score_breakdown.get("skill", 0.0),
+                "industry_score": r.score_breakdown.get("industry", 0.0),
+                "experience_score": r.score_breakdown.get("experience", 0.0),
+                "education_score": r.score_breakdown.get("education", 0.0),
+                "overall_match": r.score_breakdown.get("overall", 0.0),
+            }
+            logger.info("Ranking audit | %s", json.dumps(audit, ensure_ascii=False, default=str))
+            reason = " | ".join(r.explanation) if r.explanation else "No strong match signals"
+            print(
+                f"[{audit['rank']}] Candidate: {audit['candidate_name']} | "
+                f"Primary Role: {audit['primary_occupation']} | "
+                f"Role: {audit['role_score']:.2f} | "
+                f"Skill: {audit['skill_score']:.2f} | "
+                f"Experience: {audit['experience_score']:.2f} | "
+                f"Semantic: {audit['semantic_score']:.2f} | "
+                f"Final: {audit['final_score']:.2f} | "
+                f"Reason: {reason}"
             )
 
         return final
@@ -572,22 +706,7 @@ class SearchService:
         if not scored:
             return []
 
-        weights = self._normalize_weights()
-        components = ["role", "industry", "skill", "experience", "dense", "sparse", "location", "education"]
-
-        # Normalize each component globally across the result pool
-        maxes = {c: max((r.score_breakdown.get(c, 0.0) for r in scored), default=1.0) for c in components}
-        for r in scored:
-            for c in components:
-                raw = r.score_breakdown.get(c, 0.0)
-                max_v = maxes[c]
-                r.score_breakdown[c] = round(raw / max_v, 4) if max_v > 0 else 0.0
-
-        # Compute final combined score
-        for r in scored:
-            final = sum(r.score_breakdown.get(c, 0.0) * weights.get(c, 0.0) for c in components)
-            r.final_score = round(final, 4)
-
+        # Use the _score_resume final (already includes role gate + metadata boost).
         scored.sort(key=lambda x: x.final_score, reverse=True)
         top = scored[:top_k]
 
@@ -639,10 +758,83 @@ class SearchService:
             education=m.education or [],
             skills=m.skills or [],
             matched_skills=matched_skills,
+            summary=resume.summary or m.summary,
+            projects=m.projects or [],
+            certifications=m.certifications or [],
         )
         self._ai_summary_time += time.perf_counter() - summary_start
         self._summary_cache[key] = summary
         return summary
+
+    def _score_metadata(
+        self,
+        m: ResumeMetadata,
+        filters: SearchFilters,
+    ) -> tuple[float, list[str], list[str], list[str]]:
+        """Compute the metadata filter score using only precomputed metadata.
+
+        This method never reads resume.resume_text.
+        """
+        score_sum = 0.0
+        total_weight = 0.0
+        matched_fields: list[str] = []
+        edu_strings: list[str] = []
+        cert_strings: list[str] = []
+
+        if filters.role:
+            total_weight += FIELD_WEIGHTS["role"]
+            role_text = (m.primary_role or m.role or "").lower()
+            filter_text = (filters.role or "").lower()
+            if role_text in filter_text or filter_text in role_text:
+                score_sum += FIELD_WEIGHTS["role"]
+                matched_fields.append("role")
+
+        if filters.location:
+            total_weight += FIELD_WEIGHTS["location"]
+            if filters.location.lower() in (m.location or "").lower():
+                score_sum += FIELD_WEIGHTS["location"]
+                matched_fields.append("location")
+
+        if filters.experience_min is not None or filters.experience_max is not None:
+            total_weight += FIELD_WEIGHTS["experience"]
+            years = m.experience_years or 0.0
+            min_y = filters.experience_min or 0.0
+            max_y = filters.experience_max or float("inf")
+            if min_y <= years <= max_y:
+                score_sum += FIELD_WEIGHTS["experience"]
+                matched_fields.append("experience")
+
+        if filters.skills:
+            total_weight += FIELD_WEIGHTS["skills"]
+            resume_skills = _tokenize_skills(m.skills)
+            wanted = _tokenize_skills(filters.skills)
+            matched = resume_skills & wanted
+            if matched:
+                score_sum += FIELD_WEIGHTS["skills"] * (len(matched) / len(wanted))
+                matched_fields.append("skills")
+
+        edu_strings = [_fmt_education(e) for e in (m.education or []) if _fmt_education(e)]
+        if filters.education:
+            total_weight += FIELD_WEIGHTS["education"]
+            if any(filters.education.lower() in s.lower() for s in edu_strings):
+                score_sum += FIELD_WEIGHTS["education"]
+                matched_fields.append("education")
+
+        cert_strings = [_fmt_certification(c) for c in (m.certifications or []) if _fmt_certification(c)]
+        if filters.certifications:
+            total_weight += FIELD_WEIGHTS["certifications"]
+            if any(filters.certifications.lower() in s.lower() for s in cert_strings):
+                score_sum += FIELD_WEIGHTS["certifications"]
+                matched_fields.append("certifications")
+
+        if filters.source_dataset:
+            total_weight += FIELD_WEIGHTS["source_dataset"]
+            if m.source_dataset == filters.source_dataset:
+                score_sum += FIELD_WEIGHTS["source_dataset"]
+                matched_fields.append("source_dataset")
+
+        metadata_score = score_sum / total_weight if total_weight > 0 else 1.0
+        return metadata_score, matched_fields, edu_strings, cert_strings
 
     def _score_resume(
         self,
@@ -652,74 +844,21 @@ class SearchService:
         query: str,
     ) -> SearchResult | None:
         """Compute all scores for a single resume using a weighted Overall Match."""
+        _score_resume_start = time.perf_counter()
+        resume_id = resume.resume_metadata.resume_id
         raw_terms = query.lower().split()
         query_terms = {t for t in raw_terms if t.isalnum() and len(t) > 2}
         domain_terms = {t for t in query_terms if t in QUERY_DOMAINS}
         skill_terms = query_terms - domain_terms
 
-        matched_fields: list[str] = []
-        score_sum = 0.0
-        total_weight = 0.0
+        # --- metadata filter score (precomputed metadata only) ---
+        _step = _StepTimer("metadata_scoring", resume_id, extra="pure metadata")
+        metadata_score, matched_fields, edu_strings, cert_strings = self._score_metadata(resume.resume_metadata, filters)
 
-        # --- metadata filter score (unchanged behavior) ---
-        if filters.role:
-            total_weight += FIELD_WEIGHTS["role"]
-            if (resume.role or "").lower() in filters.role.lower() or filters.role.lower() in (resume.role or "").lower():
-                score_sum += FIELD_WEIGHTS["role"]
-                matched_fields.append("role")
-
-        if filters.location:
-            total_weight += FIELD_WEIGHTS["location"]
-            if filters.location.lower() in (resume.location or "").lower():
-                score_sum += FIELD_WEIGHTS["location"]
-                matched_fields.append("location")
-
-        if filters.experience_min is not None or filters.experience_max is not None:
-            total_weight += FIELD_WEIGHTS["experience"]
-            years = resume.experience_years or 0.0
-            min_y = filters.experience_min or 0.0
-            max_y = filters.experience_max or float("inf")
-            if min_y <= years <= max_y:
-                score_sum += FIELD_WEIGHTS["experience"]
-                matched_fields.append("experience")
-
-        matched_skills: list[str] = []
-        if filters.skills:
-            total_weight += FIELD_WEIGHTS["skills"]
-            resume_skills = _tokenize_skills(resume.skills)
-            wanted = _tokenize_skills(filters.skills)
-            matched = resume_skills & wanted
-            if matched:
-                score_sum += FIELD_WEIGHTS["skills"] * (len(matched) / len(wanted))
-                matched_fields.append("skills")
-                matched_skills = sorted(matched)
-
-        if filters.education:
-            total_weight += FIELD_WEIGHTS["education"]
-            edu_strings = [_fmt_education(e) for e in resume.education if _fmt_education(e)]
-            if any(filters.education.lower() in s.lower() for s in edu_strings):
-                score_sum += FIELD_WEIGHTS["education"]
-                matched_fields.append("education")
-
-        if filters.certifications:
-            total_weight += FIELD_WEIGHTS["certifications"]
-            cert_strings = [_fmt_certification(c) for c in resume.certifications if _fmt_certification(c)]
-            if any(filters.certifications.lower() in s.lower() for s in cert_strings):
-                score_sum += FIELD_WEIGHTS["certifications"]
-                matched_fields.append("certifications")
-
-        if filters.source_dataset:
-            total_weight += FIELD_WEIGHTS["source_dataset"]
-            if resume.source_dataset == filters.source_dataset:
-                score_sum += FIELD_WEIGHTS["source_dataset"]
-                matched_fields.append("source_dataset")
-
-        metadata_score = score_sum / total_weight if total_weight > 0 else 0.0
-
-        # Make sure education strings are available for the breakdown
-        edu_strings = [_fmt_education(e) for e in resume.education if _fmt_education(e)]
+        _step.stop()
 
         # --- vector scores (retrieval) ---
+        _step = _StepTimer("vector_scores", resume_id, extra=f"chunks={len(hybrid.matched_chunks) if hybrid else 0}")
         semantic_score = 0.0
         bm25_score = 0.0
         rrf_score = 0.0
@@ -742,7 +881,10 @@ class SearchService:
                 elif "sparse" in src:
                     bm25_score = max(bm25_score, float(chunk.score or 0.0))
 
+        _step.stop()
+
         # --- skill matching weighted by section (work > projects > skills > certs > education) ---
+        _step = _StepTimer("skill_scoring", resume_id, extra=f"resume_text={len(resume.resume_text or '')} chars")
         matched_skills: list[str] = []
         wanted_skills = _tokenize_skills(filters.skills) or skill_terms
         skill_match_available = bool(wanted_skills)
@@ -757,20 +899,29 @@ class SearchService:
 
         skill_display = "N/A" if not skill_match_available else f"{round(skill_score * 100, 2)}%"
 
+        _step.stop()
+
         # --- role match (occupation-aware similarity; contributes 40% of final) ---
-        primary_role = resume.primary_role or resume.role
+        _step = _StepTimer("role_scoring", resume_id)
+        # Primary occupation is extracted from work history; the raw dataset
+        # category is intentionally not used as a substitute.
+        primary_role = resume.primary_role or ""
         filter_role = (filters.role or "").lower()
         role_text = (primary_role or "").lower()
         occupation_query = (filters.role or query).lower()
 
         if filter_role and filter_role in role_text:
             # Explicit filter role is present in the candidate's primary role.
-            role_score = 1.0
+            role_similarity = 100
         else:
             # Deterministic, embedding-free occupation similarity scoring.
-            role_score = RoleSimilarityScorer.score(occupation_query, primary_role)
+            role_similarity = _recruiter_role_score(occupation_query, primary_role)
+        role_score = role_similarity / 100.0
+
+        _step.stop()
 
         # --- industry match (domain terms in resume text, weighted by section) ---
+        _step = _StepTimer("industry_scoring", resume_id, extra=f"text={len(resume.resume_text or '')} chars")
         resume_text = (resume.resume_text or "").lower()
         summary_text = (resume.summary or "").lower()
         searchable_text = f"{resume_text} {summary_text}"
@@ -780,7 +931,10 @@ class SearchService:
             {d for d in domain_terms if d in searchable_text or _stem_term(d) in searchable_text}
         )
 
+        _step.stop()
+
         # --- experience match (query terms in resume text, weighted by section) ---
+        _step = _StepTimer("experience_scoring", resume_id, extra=f"text={len(resume.resume_text or '')} chars")
         min_y = filters.experience_min or 0.0
         max_y = filters.experience_max or float("inf")
         if filters.experience_min is not None or filters.experience_max is not None:
@@ -794,12 +948,18 @@ class SearchService:
         else:
             experience_score = _section_weighted_term_score(resume_text or "", query_terms)
 
+        _step.stop()
+
         # --- project match (query terms in project descriptions) ---
+        _step = _StepTimer("project_scoring", resume_id, extra=f"projects={len(resume.projects or [])}")
         project_terms = query_terms | wanted_skills | domain_terms
         project_text = " ".join(resume.projects or []).lower()
         project_score = _section_weighted_term_score(project_text, project_terms)
 
+        _step.stop()
+
         # --- education match (query terms in education entries) ---
+        _step = _StepTimer("education_scoring", resume_id, extra=f"edu_entries={len(edu_strings)}")
         edu_hits = {
             t for t in query_terms
             if any(t in s.lower() for s in edu_strings)
@@ -814,28 +974,40 @@ class SearchService:
             len(edu_hits) / len(query_terms) if query_terms and edu_strings else 0.0
         )
 
+        _step.stop()
+
         # --- location match ---
+        _step = _StepTimer("location_scoring", resume_id)
         location_text = (resume.location or "").lower()
         location_score = 1.0 if (
             (resume.location and any(t in location_text for t in query_terms))
             or (filters.location and filters.location.lower() in location_text)
         ) else 0.0
 
+        _step.stop()
+
         # --- keyword match (query term presence in resume text / matched text) ---
+        _step = _StepTimer("keyword_scoring", resume_id)
         keyword_hits = {t for t in query_terms if t in searchable_text or t in (matched_text or "").lower()}
         keyword_score = len(keyword_hits) / len(query_terms) if query_terms else 0.0
 
+        _step.stop()
+
         # --- semantic similarity from dense retrieval ---
+        _step = _StepTimer("semantic_similarity", resume_id)
         semantic_similarity = min(1.0, max(0.0, semantic_score))
 
-        # --- Suitability Score (candidate fit, 0-1) ---
+        _step.stop()
+
+        # --- Suitability Score (role-aware candidate fit, 0-1) ---
+        _step = _StepTimer("suitability_score", resume_id)
         component_scores = {
             "role": role_score,
+            "semantic": semantic_similarity,
             "skill": skill_score,
             "experience": experience_score,
-            "project": project_score,
+            "industry": industry_score,
             "education": education_score,
-            "semantic": semantic_similarity,
         }
 
         # All six components always apply; missing evidence contributes 0.0.
@@ -844,7 +1016,22 @@ class SearchService:
             4,
         )
 
+        _step.stop()
+
+        # --- occupation gate ---
+        _step = _StepTimer("occupation_gate", resume_id)
+        # Strongly penalize unrelated/different occupations; "Related" (>=0.6) is accepted.
+        if role_score < 0.6:
+            overall_match = round(overall_match * (role_score / 0.6), 4)
+
+        # --- metadata boost (adjusts retrieval, never replaces it) ---
+        metadata_boost = 0.3 + 0.7 * metadata_score
+        overall_match = round(min(1.0, overall_match * metadata_boost), 4)
+
+        _step.stop()
+
         # --- explainability reasons (uses only real evidence) ---
+        _step = _StepTimer("explainability", resume_id)
         explanation: list[str] = []
         if semantic_similarity > 0.05:
             explanation.append("Semantic similarity with query")
@@ -879,7 +1066,10 @@ class SearchService:
         _seen_reasons: set[str] = set()
         explanation = [r for r in explanation if not (r.lower() in _seen_reasons or _seen_reasons.add(r.lower()))]
 
+        _step.stop()
+
         # --- top retrieved chunks for the drawer ---
+        _step = _StepTimer("retrieved_chunks", resume_id, extra=f"chunks={len(hybrid.matched_chunks) if hybrid else 0}")
         retrieved_chunks: list[dict[str, Any]] = []
         if hybrid is not None:
             for chunk in hybrid.matched_chunks[:5]:
@@ -891,10 +1081,29 @@ class SearchService:
                     "text": text[:320] + ("..." if len(text) > 320 else ""),
                 })
 
+        _step.stop()
+
         # --- derived match sections for the UI ---
+        _step = _StepTimer("ui_evidence", resume_id, extra=f"experience={len(resume.resume_metadata.experience or [])}")
         query_terms_lower = {t for t in query_terms}
         matched_projects = [p for p in (resume.projects or []) if any(t in p.lower() for t in query_terms_lower)][:3]
         matched_certifications = [c for c in (resume.certifications or []) if any(t in c.lower() for t in query_terms_lower)][:3]
+
+        # Work history is stored inside the canonical ResumeMetadata.
+        work_history = getattr(resume.resume_metadata, "experience", None) or []
+        matched_experience: list[str] = []
+        for exp in work_history:
+            raw_title = (
+                exp.get("title") if isinstance(exp, dict) else getattr(exp, "title", None)
+            )
+            exp_title = (raw_title or "").lower()
+            if not exp_title:
+                continue
+            for t in query_terms_lower:
+                if t in exp_title or (filters.role and filters.role.lower() in exp_title) or occupation_query in exp_title:
+                    matched_experience.append(str(raw_title))
+                    break
+        matched_experience = matched_experience[:5]
 
         matched_sections: list[str] = []
         if section:
@@ -913,10 +1122,16 @@ class SearchService:
             matched_sections.append("Experience")
         matched_sections = list(dict.fromkeys(matched_sections))
 
+        _step.stop()
+
         # Resume preview
+        _step = _StepTimer("preview_generation", resume_id, extra=f"resume_text={len(resume.resume_text or '')} chars")
         preview = ResumePreviewGenerator().generate(resume)
 
+        _step.stop()
+
         # AI summary from retrieved resume content (cached per resume)
+        _step = _StepTimer("summary_generation", resume_id, extra="generate_resume_summary")
         ai_summary = self._get_ai_summary(
             resume=resume,
             matched_text=matched_text,
@@ -924,25 +1139,58 @@ class SearchService:
             matched_skills=matched_skills,
         )
 
+        _step.stop()
+
+        # --- skill section evidence for explainability ---
+        _step = _StepTimer("skill_evidence", resume_id, extra=f"skills={len(matched_skills)} text={len(resume.resume_text or '')} chars")
+        skill_evidence: dict[str, list[str]] = {}
+        resume_full_text = resume.resume_text or ""
+        if resume_full_text and matched_skills:
+            intervals = _get_section_intervals(resume_full_text)
+            text_lower = resume_full_text.lower()
+            resume_skills_lower = {s.lower().strip() for s in (resume.skills or [])}
+            for sk in matched_skills:
+                pattern = re.compile(rf"\b{re.escape(sk.lower())}\b")
+                found_keys: set[str] = set()
+                for match in pattern.finditer(text_lower):
+                    pos = match.start()
+                    for start, end, _, key in intervals:
+                        if start <= pos < end:
+                            found_keys.add(key)
+                            break
+                if not found_keys and sk in resume_skills_lower:
+                    found_keys.add("skills")
+                sorted_keys = sorted(found_keys, key=lambda k: SECTION_TIER_WEIGHTS.get(k, 0.0), reverse=True)
+                skill_evidence[sk] = [SECTION_DISPLAY.get(k, k.title()) for k in sorted_keys]
+
+        _step.stop()
+
         score_breakdown = {
             "overall": overall_match,
             "suitability_score_0_100": round(overall_match * 100, 2),
             "role": round(role_score, 4),
+            "semantic": round(semantic_similarity, 4),
             "skill": round(skill_score, 4),
             "experience": round(experience_score, 4),
-            "project": round(project_score, 4),
-            "education": round(education_score, 4),
-            "semantic": round(semantic_similarity, 4),
             "industry": round(industry_score, 4),
+            "education": round(education_score, 4),
+            "project": round(project_score, 4),
+            "skill_evidence": skill_evidence,
             "location": round(location_score, 4),
             "keyword": round(keyword_score, 4),
             "dense": round(semantic_score, 4),
             "sparse": round(bm25_score, 4),
+            "query_role": occupation_query,
             "raw_scores": {k: round(v, 4) for k, v in component_scores.items()},
             "denominator": 1.0,
             "matched_industry": matched_industry_terms,
             "matched_education": matched_education_entries,
+            "matched_experience": matched_experience,
+            "overall": overall_match,
         }
+
+        _total_ms = (time.perf_counter() - _score_resume_start) * 1000
+        print(f"[PROFILE _score_resume] resume_id={resume_id} step=_score_resume_total ms={_total_ms:.2f}")
 
         return SearchResult(
             resume_metadata=resume.resume_metadata,

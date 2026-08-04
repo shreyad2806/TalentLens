@@ -54,6 +54,7 @@ class RoleSimilarityScorer:
         "software": [
             "software", "swe", "web", "mobile", "backend", "frontend",
             "full stack", "fullstack", "devops", "cloud", "site reliability",
+            "api", "platform", "react", "angular", "vue", "ui",
         ],
         "mechanical": [
             "mechanical", "mechanics",
@@ -104,7 +105,7 @@ class RoleSimilarityScorer:
     # Symmetric; if not present, 0.0 unless handled by defaults.
     CROSS_DOMAIN_SIM: dict[frozenset[str, str], float] = {
         frozenset({"machine_learning", "artificial_intelligence"}): 0.95,
-        frozenset({"machine_learning", "nlp"}): 0.88,
+        frozenset({"machine_learning", "nlp"}): 0.92,
         frozenset({"machine_learning", "computer_vision"}): 0.92,
         frozenset({"machine_learning", "data_science"}): 0.90,
         frozenset({"machine_learning", "mechanical"}): 0.20,
@@ -170,31 +171,47 @@ class RoleSimilarityScorer:
         frozenset({"professional", "engineer"}): 0.60,
     }
 
+    # Pre-compiled regexes to avoid recompiling on every similarity call.
+    _PUNCT_RE = re.compile(r"[^a-z0-9\s]")
+    _WHITESPACE_RE = re.compile(r"\s+")
+    _SUFFIX_RE = re.compile(
+        r"(?:^|\s)(?:"
+        + "|".join(re.escape(s) for s in [
+            "senior", "sr", "junior", "jr", "lead", "principal", "staff",
+            "manager", "director", "head", "chief", "vice president", "vp",
+            "executive", "associate", "assistant", "intern", "professional",
+        ])
+        + r")(?:\s|$)"
+    )
+    _DOMAIN_PATTERNS: dict[str, list[tuple[re.Pattern, int]]] = {
+        group: [(re.compile(rf"\b{re.escape(kw)}\b"), len(kw)) for kw in keywords]
+        for group, keywords in DOMAIN_GROUPS.items()
+    }
+    _LEVEL_PATTERNS: dict[str, list[tuple[re.Pattern, int]]] = {
+        level: [(re.compile(rf"\b{re.escape(kw)}\b"), len(kw)) for kw in keywords]
+        for level, keywords in LEVEL_KEYWORDS.items()
+    }
+
     @classmethod
     def normalize(cls, role: str | None) -> str:
         """Lowercase and strip noisy punctuation from a title."""
         if not role:
             return ""
         r = role.lower()
-        r = re.sub(r"[^a-z0-9\s]", " ", r)
-        r = re.sub(r"\s+", " ", r).strip()
+        r = cls._PUNCT_RE.sub(" ", r)
+        r = cls._WHITESPACE_RE.sub(" ", r).strip()
         # Remove trailing seniority/modifiers that are not part of the occupation core.
-        for suffix in [
-            "senior", "sr", "junior", "jr", "lead", "principal", "staff",
-            "manager", "director", "head", "chief", "vice president", "vp",
-            "executive", "associate", "assistant", "intern",
-        ]:
-            r = re.sub(rf"(?:^|\s){suffix}(?:\s|$)", " ", r)
-        r = re.sub(r"\s+", " ", r).strip()
+        r = cls._SUFFIX_RE.sub(" ", r)
+        r = cls._WHITESPACE_RE.sub(" ", r).strip()
         return r
 
     @classmethod
     def _detect_domains(cls, title: str) -> set[str]:
         """Return the domain groups present in a normalized title."""
         found: set[str] = set()
-        for group, keywords in cls.DOMAIN_GROUPS.items():
-            for kw in keywords:
-                if kw in title:
+        for group, patterns in cls._DOMAIN_PATTERNS.items():
+            for pat, _ in patterns:
+                if pat.search(title):
                     found.add(group)
                     break
         return found
@@ -204,20 +221,20 @@ class RoleSimilarityScorer:
         """Return the most specific domain group for the title (prefer longest keyword)."""
         best_group: str | None = None
         best_len = 0
-        for group, keywords in cls.DOMAIN_GROUPS.items():
-            for kw in keywords:
-                if kw in title and len(kw) > best_len:
+        for group, patterns in cls._DOMAIN_PATTERNS.items():
+            for pat, kw_len in patterns:
+                if pat.search(title) and kw_len > best_len:
                     best_group = group
-                    best_len = len(kw)
+                    best_len = kw_len
         return best_group
 
     @classmethod
     def _detect_levels(cls, title: str) -> set[str]:
         """Return the professional level groups present in a title."""
         found: set[str] = set()
-        for level, keywords in cls.LEVEL_KEYWORDS.items():
-            for kw in keywords:
-                if re.search(rf"\b{re.escape(kw)}\b", title):
+        for level, patterns in cls._LEVEL_PATTERNS.items():
+            for pat, _ in patterns:
+                if pat.search(title):
                     found.add(level)
                     break
         return found
@@ -235,12 +252,13 @@ class RoleSimilarityScorer:
             return 0.98
 
         if q_domains and c_domains:
-            # If both share any domain group, compute the highest similarity.
+            # If both share any domain group, they are very similar but not exact
+            # unless the titles are the same (handled before this method).
             best = 0.0
             for qd in q_domains:
                 for cd in c_domains:
                     if qd == cd:
-                        best = max(best, 1.0)
+                        best = max(best, 0.95)
                     else:
                         best = max(best, cls.CROSS_DOMAIN_SIM.get(frozenset({qd, cd}), 0.0))
             return best

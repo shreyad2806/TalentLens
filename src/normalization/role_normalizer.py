@@ -21,6 +21,7 @@ class RoleNormalizer:
     # Ordered patterns: first match wins.
     _PATTERNS = [
         (re.compile(r"\b(finance\s+(manager|lead|executive))\b", re.IGNORECASE), "Finance Manager"),
+        (re.compile(r"\b(sde|software\s+development\s+engineer)\b", re.IGNORECASE), "Software Engineer"),
         (re.compile(r"\b(software\s+(engineer|developer)|software|backend\s+(engineer|developer)|backend|frontend\s+(engineer|developer)|frontend|full\s*stack\s+(engineer|developer)|fullstack\s+(engineer|developer)|fullstack)\b", re.IGNORECASE), "Software Engineer"),
         (re.compile(r"\b(ml|machine learning)\b", re.IGNORECASE), "Machine Learning Engineer"),
         (re.compile(r"\b(ai)\b", re.IGNORECASE), "AI Engineer"),

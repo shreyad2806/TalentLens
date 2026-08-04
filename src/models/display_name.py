@@ -60,10 +60,8 @@ def get_display_name(
     if metadata.role:
         normalized = RoleNormalizer.normalize(metadata.role) or metadata.role
         role = normalized.strip().title()
-        fallback = f"{role} Professional"
-        logger.info("Name resolved from role: %r", fallback)
-        return fallback
+        logger.info("Name would have been resolved from role; returning Unknown Candidate instead: %r", role)
 
-    fallback = fallback_display_name(metadata.resume_id)
+    fallback = "Unknown Candidate"
     logger.info("Name resolved from fallback: %r", fallback)
     return fallback

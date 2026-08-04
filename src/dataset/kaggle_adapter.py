@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from src.models import ResumeDocument, ResumeMetadata
+from src.resume_parser.normalizer import MetadataNormalizer
 from src.resume_parser.parser_service import ParserService
 
 from .base_adapter import BaseDatasetAdapter
@@ -63,14 +64,9 @@ class KaggleAdapter(BaseDatasetAdapter):
 
         resume_id = str(record["ID"])
 
-        # role: CSV Category is the most reliable for this dataset.
-        role = record.get("Category") or None
-        if not role and parsed.experience:
-            role = parsed.experience[0].title
-
         # Extract canonical primary occupation from parsed work history.
         primary_occupation = (parsed.metadata or {}).get("primary_occupation") or {}
-        primary_role = primary_occupation.get("primary_role") or role
+        primary_role = primary_occupation.get("primary_role")
         role_family = primary_occupation.get("role_family")
         seniority = primary_occupation.get("seniority")
 
@@ -86,10 +82,35 @@ class KaggleAdapter(BaseDatasetAdapter):
                 except (ValueError, TypeError):
                     experience_years = None
 
-        education = []
+        # Normalize and deduplicate education entries.
+        education_seen: set[str] = set()
+        education: list[str] = []
         for edu in parsed.education or []:
             parts = [p for p in [edu.degree, edu.field_of_study, edu.institution] if p]
-            education.append(" ".join(parts))
+            raw = " ".join(parts)
+            norm = MetadataNormalizer.normalize_education(raw) or raw
+            norm = norm.strip().title()
+            if norm and norm not in education_seen:
+                education_seen.add(norm)
+                education.append(norm)
+
+        # Normalize and deduplicate projects and certifications.
+        projects = list(dict.fromkeys(
+            MetadataNormalizer.normalize_skill(p.name) or p.name
+            for p in (parsed.projects or []) if p.name
+        ))
+        certifications = list(dict.fromkeys(
+            MetadataNormalizer.normalize_skill(c.name) or c.name
+            for c in (parsed.certifications or []) if c.name
+        ))
+        skills = list(dict.fromkeys(parsed.skills or []))
+
+        # Persist a lightweight work-history snapshot for ranking.
+        experience = [
+            e.model_dump(include={"title", "company", "start_date", "end_date", "current"})
+            for e in (parsed.experience or [])
+            if e.title
+        ]
 
         metadata = ResumeMetadata(
             resume_id=resume_id,
@@ -98,12 +119,15 @@ class KaggleAdapter(BaseDatasetAdapter):
             primary_role=primary_role,
             role_family=role_family,
             seniority=seniority,
-            skills=parsed.skills or [],
-            location=(parsed.metadata or {}).get("location"),
+            skills=skills,
+            location=MetadataNormalizer.normalize_location(
+                (parsed.metadata or {}).get("location")
+            ),
             experience_years=experience_years,
             education=education,
-            projects=[p.name for p in (parsed.projects or []) if p.name],
-            certifications=[c.name for c in (parsed.certifications or []) if c.name],
+            experience=experience,
+            projects=projects,
+            certifications=certifications,
             email=parsed.email,
             phone=parsed.phone,
             summary=parsed.summary,
@@ -111,9 +135,6 @@ class KaggleAdapter(BaseDatasetAdapter):
 
         field_confidence = (parsed.metadata or {}).get("field_confidence", {})
         field_source = (parsed.metadata or {}).get("field_source", {})
-        if record.get("Category"):
-            field_confidence["role"] = 1.0
-            field_source["role"] = "csv_category"
 
         return ResumeDocument(
             candidate_id=resume_id,

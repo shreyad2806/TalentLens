@@ -9,6 +9,8 @@ The vectorizer does NOT concatenate chunks - one Chunk becomes one Vector.
 """
 
 
+import torch
+
 from .cache import get_embedding_cache
 from .model_loader import get_model_loader
 from .schema import EmbeddingRecord
@@ -75,8 +77,9 @@ class Vectorizer:
         else:
             # Generate new embedding
             model = self.model_loader.get_model()
-            vector = model.encode(chunk.text, show_progress_bar=False).tolist()
-            
+            with torch.inference_mode():
+                vector = model.encode(chunk.text, show_progress_bar=False).tolist()
+
             # Cache the result
             self.cache.set(chunk.text, vector)
         
@@ -104,13 +107,14 @@ class Vectorizer:
             # Fast path for transient queries: never touches the persistent cache
             model = self.model_loader.get_model()
             texts = [c.text for c in chunks]
-            encoded = model.encode(
-                texts,
-                batch_size=batch_size,
-                show_progress_bar=False,
-                convert_to_numpy=True,
-                normalize_embeddings=False,
-            )
+            with torch.inference_mode():
+                encoded = model.encode(
+                    texts,
+                    batch_size=batch_size,
+                    show_progress_bar=False,
+                    convert_to_numpy=True,
+                    normalize_embeddings=False,
+                )
             return [self._build_record(chunk, vector.tolist()) for chunk, vector in zip(chunks, encoded)]
 
         # Separate cached and missing chunks
@@ -128,13 +132,14 @@ class Vectorizer:
         if missing_chunks:
             model = self.model_loader.get_model()
             texts = [c.text for c in missing_chunks]
-            encoded = model.encode(
-                texts,
-                batch_size=batch_size,
-                show_progress_bar=False,
-                convert_to_numpy=True,
-                normalize_embeddings=False,
-            )
+            with torch.inference_mode():
+                encoded = model.encode(
+                    texts,
+                    batch_size=batch_size,
+                    show_progress_bar=False,
+                    convert_to_numpy=True,
+                    normalize_embeddings=False,
+                )
             for chunk, vector in zip(missing_chunks, encoded.tolist()):
                 self.cache.set(chunk.text, vector)
 

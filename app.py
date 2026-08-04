@@ -12,6 +12,8 @@ import streamlit as st
 
 st.set_page_config(page_title="TalentLens", page_icon="🎯", layout="wide")
 
+APP_START = time.perf_counter()
+
 
 def _talentlens_css() -> str:
     return """
@@ -263,7 +265,22 @@ def _compute_cache_key() -> str:
 def _get_retrieval_bundle(cache_key: str):
     logging.info("[CACHE-MISS] Creating retrieval bundle for cache_key=%s", cache_key)
     from src.bootstrap.composition_root import create_retrieval_bundle
-    return create_retrieval_bundle()
+    bundle = create_retrieval_bundle()
+    print("[STARTUP] Retrieval bundle ready")
+    for key, val in bundle.startup_metrics.items():
+        print(f"[STARTUP] {key}: {val:.2f}ms")
+    return bundle
+
+
+@st.cache_resource(show_spinner=False)
+def _get_search_service(cache_key: str):
+    logging.info("[CACHE-MISS] Creating search service for cache_key=%s", cache_key)
+    from src.search.search_service import SearchService
+    bundle = _get_retrieval_bundle(cache_key)
+    return SearchService(
+        hybrid_service=bundle.hybrid_service,
+        reranker=bundle.reranker,
+    )
 
 
 @st.cache_resource(show_spinner=False)
@@ -624,12 +641,9 @@ if not st.session_state.bootstrap_complete:
     st.rerun()
 
 bundle = _get_retrieval_bundle(cache_key)
-if st.session_state.search_service is None:
-    from src.search.search_service import SearchService
-    st.session_state.search_service = SearchService(
-        hybrid_service=bundle.hybrid_service,
-        reranker=bundle.reranker,
-    )
+st.session_state.search_service = _get_search_service(cache_key)
+app_ready_ms = (time.perf_counter() - APP_START) * 1000
+print(f"[STARTUP] App Ready: {app_ready_ms:.2f}ms")
 
 
 with st.sidebar:
