@@ -10,6 +10,8 @@ import time
 from pathlib import Path
 import streamlit as st
 
+from src.recruiter_report import build_recruiter_report, format_markdown, format_text
+
 st.set_page_config(page_title="TalentLens", page_icon="🎯", layout="wide")
 
 APP_START = time.perf_counter()
@@ -346,6 +348,95 @@ def _clean_confidence(candidate: dict) -> str:
     if conf >= 0.5 and overall >= 50:
         return "Medium"
     return "Low"
+
+
+def _render_recruiter_report(candidate: dict) -> None:
+    """Render the AI-generated recruiter report in the drawer."""
+    query = st.session_state.get("last_query", "")
+    parsed = st.session_state.get("parsed_query") or {}
+    report = build_recruiter_report(candidate, query, parsed)
+
+    st.markdown(
+        f"<h3 style='margin:0; font-size:1rem; color:#F8FAFC;'>Recruiter Report</h3>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f"<p class='muted' style='margin:0 0 0.6rem 0; font-size:0.75rem;'>{html.escape(report['name'])} • {html.escape(report['role'])}</p>",
+        unsafe_allow_html=True,
+    )
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Overall Match", f"{report['match']['overall']:.0f}%")
+    c2.metric("Role Match", f"{report['match']['role']:.0f}%")
+    c3.metric("Skill Match", f"{report['match']['skill']:.0f}%")
+    c4.metric("Experience Match", f"{report['match']['experience']:.0f}%")
+
+    st.markdown(
+        f"<h4 style='margin:0.6rem 0 0.2rem; color:#F8FAFC; font-size:0.85rem;'>Hiring Recommendation</h4>"
+        f"<p style='margin:0; color:#22C55E; font-size:0.9rem; font-weight:600;'>{html.escape(report['hiring_recommendation'])}</p>"
+        f"<p style='margin:0 0 0.6rem; color:#94A3B8; font-size:0.75rem;'>{html.escape(report['hiring_explanation'])}</p>",
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        "<h4 style='margin:0.6rem 0 0.2rem; color:#F8FAFC; font-size:0.85rem;'>Candidate Overview</h4>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(f"<p style='margin:0; color:#CBD5E1; font-size:0.77rem; line-height:1.45;'>{html.escape(report['overview'])}</p>", unsafe_allow_html=True)
+
+    def _bullets(items: list[str]) -> str:
+        return "".join(f"<p style='margin:0.05rem 0; color:#CBD5E1; font-size:0.75rem;'>• {html.escape(str(i))}</p>" for i in items) or "<p style='font-size:0.75rem; color:#94A3B8;'>None identified.</p>"
+
+    st.markdown("<h4 style='margin:0.6rem 0 0.2rem; color:#F8FAFC; font-size:0.85rem;'>Strengths</h4>", unsafe_allow_html=True)
+    st.markdown(_bullets(report["strengths"]), unsafe_allow_html=True)
+
+    st.markdown("<h4 style='margin:0.6rem 0 0.2rem; color:#F8FAFC; font-size:0.85rem;'>Potential Gaps</h4>", unsafe_allow_html=True)
+    st.markdown(_bullets(report["gaps"]), unsafe_allow_html=True)
+
+    st.markdown("<h4 style='margin:0.6rem 0 0.2rem; color:#F8FAFC; font-size:0.85rem;'>Relevant Skills</h4>", unsafe_allow_html=True)
+    st.markdown(_bullets(report["relevant_skills"]), unsafe_allow_html=True)
+
+    st.markdown("<h4 style='margin:0.6rem 0 0.2rem; color:#F8FAFC; font-size:0.85rem;'>Missing Skills</h4>", unsafe_allow_html=True)
+    st.markdown(_bullets(report["missing_skills"]), unsafe_allow_html=True)
+
+    st.markdown("<h4 style='margin:0.6rem 0 0.2rem; color:#F8FAFC; font-size:0.85rem;'>Relevant Projects</h4>", unsafe_allow_html=True)
+    st.markdown(_bullets(report["relevant_projects"]), unsafe_allow_html=True)
+
+    st.markdown("<h4 style='margin:0.6rem 0 0.2rem; color:#F8FAFC; font-size:0.85rem;'>Suggested Interview Questions</h4>", unsafe_allow_html=True)
+    st.markdown(
+        "".join(
+            f"<p style='margin:0.1rem 0; color:#CBD5E1; font-size:0.75rem;'><b>{n}.</b> {html.escape(str(q))}</p>"
+            for n, q in enumerate(report["interview_questions"], start=1)
+        ),
+        unsafe_allow_html=True,
+    )
+
+    st.markdown("---")
+    md = format_markdown(report)
+    text = format_text(report)
+    e1, e2 = st.columns(2)
+    with e1:
+        st.download_button(
+            label="Download Markdown",
+            data=md,
+            file_name=f"{report['name'].replace(' ', '_')}_report.md",
+            mime="text/markdown",
+            use_container_width=True,
+        )
+    with e2:
+        st.download_button(
+            label="Download Text",
+            data=text,
+            file_name=f"{report['name'].replace(' ', '_')}_report.txt",
+            mime="text/plain",
+            use_container_width=True,
+        )
+    with st.expander("Copy plain text"):
+        st.text_area("Report text", text, height=200, label_visibility="collapsed")
+
+    if st.button("Back to details", use_container_width=True, type="secondary"):
+        st.session_state.drawer_tab = "details"
+        st.rerun()
 
 
 def _render_drawer(candidate: dict | None) -> None:
@@ -860,6 +951,7 @@ with main_col:
                     # Parse query intent for display.
                     parsed = st.session_state.search_service.parse_query(user_query)
                     st.session_state.parsed_query = parsed.display_dict()
+                    st.session_state.last_query = user_query
 
                     results = st.session_state.search_service.search(
                         query=user_query,
@@ -988,11 +1080,16 @@ with main_col:
                         with b1:
                             if st.button("View", key=f"v_{c['id']}_{i}", use_container_width=True, help="Open candidate details"):
                                 st.session_state.selected_candidate = c
+                                st.session_state.drawer_tab = "details"
                                 st.rerun()
                         with b2:
                             if st.button("Shortlist", key=f"s_{c['id']}_{i}", use_container_width=True, type="primary", help="Save this candidate to your shortlist"):
                                 _add_to_shortlist(c)
                                 st.toast("Added to shortlist")
+                        if st.button("Report", key=f"r_{c['id']}_{i}", use_container_width=True, type="secondary", help="Generate recruiter report"):
+                            st.session_state.selected_candidate = c
+                            st.session_state.drawer_tab = "report"
+                            st.rerun()
 
                     with st.expander("Explainability"):
                         _render_explainability_panel(c, i)
@@ -1067,4 +1164,7 @@ with main_col:
 
 if drawer_col is not None:
     with drawer_col:
-        _render_drawer(st.session_state.selected_candidate)
+        if st.session_state.get("selected_candidate") and st.session_state.get("drawer_tab") == "report":
+            _render_recruiter_report(st.session_state.selected_candidate)
+        else:
+            _render_drawer(st.session_state.selected_candidate)
