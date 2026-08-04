@@ -125,6 +125,18 @@ class PrimaryOccupationExtractor:
         (re.compile(r"\b(automobile|automotive|automobile engineer)\b", re.IGNORECASE), "Automobile Engineer"),
     ]
 
+    # Combined single regex for all inference patterns.  Scans the text once and
+    # maps the matched named group back to the canonical title.
+    _INFERENCE_RE = re.compile(
+        "|".join(
+            f"(?P<g{i}>{p.pattern})" for i, (p, _) in enumerate(_INFERENCE_PATTERNS)
+        ),
+        re.IGNORECASE,
+    )
+    _INFERENCE_TITLE_BY_GROUP = {
+        f"g{i}": title for i, (_, title) in enumerate(_INFERENCE_PATTERNS)
+    }
+
     @classmethod
     def extract(
         cls,
@@ -293,9 +305,9 @@ class PrimaryOccupationExtractor:
         text = " ".join(parts).lower()
         if not text.strip():
             return None
-        for pattern, title in cls._INFERENCE_PATTERNS:
-            if pattern.search(text):
-                return title
+        match = cls._INFERENCE_RE.search(text)
+        if match:
+            return cls._INFERENCE_TITLE_BY_GROUP[match.lastgroup]
         return None
 
     @classmethod

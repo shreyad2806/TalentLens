@@ -81,6 +81,9 @@ INVALID_CANDIDATE_NAMES = {
     "technical skills",
     "selected publications",
     "publications",
+    "key competencies",
+    "selected",
+    "competencies",
 }
 
 # Common resume section headings that should not appear as names.
@@ -184,6 +187,8 @@ NON_NAME_TOKENS = {
     "associate", "associates",
     "senior", "junior", "lead", "principal", "staff", "chief", "head", "vice",
     "president",
+    "employee", "employees", "handbook", "manual", "guide", "essentials",
+    "fundamentals", "workbook", "textbook", "course", "curriculum", "shrm",
     # Common resume / marketing / education words that were misclassified as names
     "brand", "branding", "brands", "awareness", "campaign", "campaigns",
     "marketing", "sales", "provided", "provide", "provides", "providing",

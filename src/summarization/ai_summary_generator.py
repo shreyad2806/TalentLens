@@ -236,36 +236,21 @@ def _fallback_summary(
     projects: list[str] | None = None,
     certifications: list[str] | None = None,
 ) -> str:
-    """Build a concise, recruiter-written 45-60 word summary from metadata only.
+    """Build a concise, recruiter-written summary from metadata only.
 
-    Avoids extracted resume text, license numbers, document IDs, headers, dates
-    and partial sentences.
+    Uses the template: role + experience, key expertise, notable projects and
+    highest education.  Avoids extracted resume text, license numbers, document
+    IDs, headers, dates and partial sentences.  Capped at 50 words.
     """
-    display_role = (RoleNormalizer.normalize(primary_role) or primary_role or role_family or "Professional").strip()
-    key_domain = (role_family or display_role or "").strip()
-
-    # Sentence 1: role + years
-    if display_role and experience_years is not None and experience_years > 0:
-        s1 = f"{display_role} with {experience_years:g} years of experience, including work in {key_domain}."
-    elif display_role:
-        s1 = f"{display_role} with relevant {key_domain} experience."
-    elif experience_years is not None and experience_years > 0:
-        s1 = f"Professional with {experience_years:g} years of experience."
-    else:
-        s1 = "Candidate profile."
-
-    # Clean noisy metadata before any sentence uses it
+    # Clean metadata fragments before using them in the summary.
     _bad_tokens = {
         "university", "college", "diploma", "bachelor", "bachelors", "masters",
         "master", "phd", "b.a", "m.a", "b.s", "m.s", "high", "school", "state",
-        "city", "graduated", "gpa", "degree", "n/a", "na",
+        "city", "graduated", "gpa", "degree", "n/a", "na", "id", "license",
+        "number", "date", "page", "resume",
     }
-    _cert_keywords = re.compile(
-        r"\b(certified|certificate|certification|aws|google|azure|scrum|pmp|cpa|cfa|phr|shrm)\b",
-        re.IGNORECASE,
-    )
 
-    def _is_clean(text: str, max_words: int = 6, max_len: int = 45) -> bool:
+    def _is_clean(text: str, max_words: int = 8, max_len: int = 60) -> bool:
         if not text:
             return False
         text = text.strip()
@@ -273,57 +258,69 @@ def _fallback_summary(
             return False
         if re.search(r"\b(19|20)\d{2}\b", text):
             return False
+        if re.search(r"\b\d{6,}\b", text):
+            return False
         if any(tok in _bad_tokens for tok in text.lower().split() if tok):
             return False
         return True
 
-    projs = [p.strip() for p in (projects or []) if _is_clean(p.strip())][:2]
-    certs = [
-        c.strip()
-        for c in (certifications or [])
-        if c
-        and c.strip()
-        and _is_clean(c.strip(), max_words=4, max_len=40)
-        and _cert_keywords.search(c)
-    ][:2]
-    edu = ""
-    if education and education[0]:
-        raw = str(education[0]).strip()
-        if _is_clean(raw, max_words=5, max_len=35):
-            edu = raw
+    def _degree_rank(raw: str) -> int:
+        low = str(raw).lower()
+        if any(k in low for k in ("phd", "doctorate", "doctoral", "doctor of")):
+            return 5
+        if any(k in low for k in ("master", "masters", "mba", "m.s", "m.a", "m.sc", "m.tech")):
+            return 4
+        if any(k in low for k in ("bachelor", "bachelors", "b.s", "b.a", "b.sc", "b.e", "b.tech")):
+            return 3
+        if "diploma" in low:
+            return 2
+        return 1
 
-    # Sentence 2: top 5 canonical skills and hands-on projects
-    tech = SkillNormalizer.normalize_list(matched_skills or skills or [])[:5]
-    if tech and projs:
-        s2 = f"Skilled in {_join_terms(tech)}, with hands-on experience building {_join_terms(projs)}, designing and deploying {key_domain} solutions end to end for business impact."
-    elif tech:
-        s2 = f"Skilled in {_join_terms(tech)}, with hands-on experience designing, building and deploying {key_domain} solutions end to end for business impact."
-    elif projs:
-        s2 = f"Experienced building {_join_terms(projs)}, designing and deploying {key_domain} solutions end to end for business impact."
+    # Build the four template pieces from metadata only.
+    display_role = (RoleNormalizer.normalize(primary_role) or primary_role or role_family or "Professional").strip()
+
+    if display_role and experience_years is not None and experience_years > 0:
+        role_sentence = f"{display_role} with {experience_years:g} years of experience."
+    elif display_role:
+        role_sentence = f"{display_role} with relevant experience."
+    elif experience_years is not None and experience_years > 0:
+        role_sentence = f"Candidate with {experience_years:g} years of experience."
     else:
-        s2 = ""
+        role_sentence = "Candidate profile."
 
-    # Sentence 3: certifications, education and domain focus
-    s3 = ""
-    if certs and edu:
-        s3 = f"Holds {_join_terms(certs)} with an educational background in {edu}, focused on delivering quality {key_domain} outcomes and driving long-term business value."
-    elif certs:
-        s3 = f"Holds {_join_terms(certs)}, focused on delivering quality {key_domain} outcomes and driving long-term business value."
-    elif edu:
-        s3 = f"Educational background includes {edu}, focused on delivering quality {key_domain} outcomes and driving long-term business value."
-    elif key_domain and key_domain != "Professional":
-        s3 = f"Focused on delivering quality {key_domain} outcomes and driving long-term business value."
+    tech = SkillNormalizer.normalize_list(matched_skills or skills or [])[:3]
+    skills_sentence = f"Key expertise: {_join_terms(tech)}." if tech else ""
 
-    parts = [s for s in (s1, s2, s3) if s]
-    final = " ".join(parts)
-    if not final:
-        final = "Relevant background for this search."
+    projs = [p.strip() for p in (projects or []) if _is_clean(p.strip())][:2]
+    projects_sentence = f"Worked on: {_join_terms(projs)}." if projs else ""
 
-    words = final.split()
-    if len(words) > 60:
-        final = " ".join(words[:60]).rstrip(".,;:") + "."
-    if not final.endswith((".", "?", "!")):
-        final += "."
+    edu_candidates = [str(e).strip() for e in (education or []) if _is_clean(str(e).strip(), max_words=6, max_len=40)]
+    highest_degree = ""
+    if edu_candidates:
+        best = max(edu_candidates, key=lambda e: (_degree_rank(e), -len(e)))
+        highest_degree = best
+    edu_sentence = f"Education: {highest_degree}." if highest_degree else ""
+
+    def _assemble(parts: list[str]) -> str:
+        final = " ".join(p for p in parts if p)
+        if not final:
+            final = "Relevant background for this search."
+        words = final.split()
+        if len(words) > 50:
+            final = " ".join(words[:50]).rstrip(".,;:") + "."
+        if not final.endswith((".", "?", "!")):
+            final += "."
+        return final
+
+    # Prioritise the four-sentence template; drop trailing pieces if > 50 words.
+    full_parts = [role_sentence, skills_sentence, projects_sentence, edu_sentence]
+    final = _assemble(full_parts)
+    if len(final.split()) > 50:
+        final = _assemble(full_parts[:3])
+    if len(final.split()) > 50:
+        final = _assemble(full_parts[:2])
+    if len(final.split()) > 50:
+        final = _assemble([role_sentence, f"Key expertise: {_join_terms(tech[:2])}."] if len(tech) >= 2 else [role_sentence])
     return final
 
 

@@ -8,6 +8,7 @@ Responsibilities:
 
 from __future__ import annotations
 
+import functools
 import logging
 import re
 
@@ -187,6 +188,7 @@ class SkillNormalizer:
         return re.sub(r"[-_\s]+", " ", skill.strip()).lower()
 
     @classmethod
+    @functools.lru_cache(maxsize=262_144)
     def normalize(cls, skill: str | None) -> str | None:
         """Return the canonical skill name, or None if the input is noise."""
         if not skill or not skill.strip():

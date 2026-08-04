@@ -30,13 +30,19 @@ _LINKEDIN_RE = re.compile(r"linkedin\.com/in/([a-zA-Z0-9._-]+)", re.IGNORECASE)
 
 
 def _extract_name_from_header(text: str) -> str | None:
-    """Look for a valid full name in the first 20 lines of the resume text."""
+    """Look for a valid full name near the top of the resume text."""
     if not text:
         return None
-    for line in text.splitlines()[:10]:
+    for line in text.splitlines()[:15]:
         line = line.strip()
-        if line and is_valid_candidate_name(line):
-            return normalize_candidate_name(line)
+        if not line or len(line) > 80:
+            continue
+        # Prefer a proper-name sub-match (2-4 title-case words) so a line like
+        # "John Doe | Software Engineer" still extracts the name.
+        for match in _NAME_RE.finditer(line):
+            candidate = match.group(1).strip()
+            if is_valid_candidate_name(candidate):
+                return normalize_candidate_name(candidate)
     return None
 
 
@@ -89,22 +95,29 @@ def _extract_name_from_linkedin(linkedin: str | None) -> str | None:
 
 
 def _extract_name_from_largest_heading(text: str) -> str | None:
-    """Use the largest, valid proper-name near the top of the resume."""
+    """Use the largest valid proper-name near the top of the resume."""
     if not text:
         return None
     candidate: str | None = None
     candidate_len = 0
+    seen: set[str] = set()
     for line in text.splitlines()[:50]:
         line = line.strip()
-        if not line or len(line) > 60 or len(line) < 4:
+        if not line or len(line) > 80:
             continue
-        if line.lower() in INVALID_CANDIDATE_NAMES:
-            continue
-        if not is_valid_candidate_name(line):
-            continue
-        if len(line) > candidate_len:
-            candidate = line
-            candidate_len = len(line)
+        # Extract proper-name sub-matches rather than the whole line.
+        for match in _NAME_RE.finditer(line):
+            name = match.group(1).strip()
+            if name.lower() in seen:
+                continue
+            seen.add(name.lower())
+            if not is_valid_candidate_name(name):
+                continue
+            # Prefer longer names, then names that start the line.
+            key = (len(name), match.start() == 0)
+            if candidate is None or key > (candidate_len, False):
+                candidate = name
+                candidate_len = len(name)
     return normalize_candidate_name(candidate) if candidate else None
 
 

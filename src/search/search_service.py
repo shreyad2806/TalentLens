@@ -191,13 +191,18 @@ def _build_resume_index(cache: dict[str, ResumeDocument]) -> dict[str, dict[str,
             f"Summary\n{m.summary or ''}"
         )
         search_text_lower = search_text.lower()
+        skills_tokens = _tokenize_skills(m.skills)
         index[m.resume_id] = {
             "search_text": search_text_lower,
             "search_text_tokens": _tokenize_skills(search_text_lower.split()),
-            "skills_tokens": _tokenize_skills(m.skills),
+            "skills_tokens": skills_tokens,
             "summary_text": (m.summary or "").lower(),
             "project_text": proj_text.lower(),
             "experience_years": m.experience_years or 0.0,
+            "edu_strings": [s for s in (_fmt_education(e) for e in (m.education or [])) if s],
+            "cert_strings": [s for s in (_fmt_certification(c) for c in (m.certifications or [])) if s],
+            "section_intervals": _get_section_intervals(search_text_lower),
+            "project_intervals": _get_section_intervals(proj_text.lower()),
         }
     return index
 
@@ -402,7 +407,11 @@ def _get_section_intervals(text: str) -> list[tuple[int, int, float, str]]:
     return intervals
 
 
-def _section_weighted_term_score(text: str, terms: set[str]) -> float:
+def _section_weighted_term_score(
+    text: str,
+    terms: set[str],
+    intervals: list[tuple[int, int, float, str]] | None = None,
+) -> float:
     """Score query term presence weighted by the resume section in which it appears.
 
     For each query term the highest-weighted section containing the term is
@@ -410,7 +419,8 @@ def _section_weighted_term_score(text: str, terms: set[str]) -> float:
     """
     if not text or not terms:
         return 0.0
-    intervals = _get_section_intervals(text)
+    if intervals is None:
+        intervals = _get_section_intervals(text)
     lower = text.lower()
     term_weights: dict[str, float] = {}
     for term in terms:
@@ -902,24 +912,24 @@ class SearchService:
                 score_sum += FIELD_WEIGHTS["experience"]
                 matched_fields.append("experience")
 
+        idx = self._resume_index.get(m.resume_id, {})
         if filters.skills:
             total_weight += FIELD_WEIGHTS["skills"]
-            idx = self._resume_index.get(m.resume_id, {})
-            resume_skills = idx.get("skills_tokens", _tokenize_skills(m.skills))
+            resume_skills = idx.get("skills_tokens") or _tokenize_skills(m.skills)
             wanted = (self._search_context or {}).get("wanted_skills") or _tokenize_skills(filters.skills)
             matched = resume_skills & wanted
             if matched:
                 score_sum += FIELD_WEIGHTS["skills"] * (len(matched) / len(wanted))
                 matched_fields.append("skills")
 
-        edu_strings = [_fmt_education(e) for e in (m.education or []) if _fmt_education(e)]
+        edu_strings = idx.get("edu_strings", [])
         if filters.education:
             total_weight += FIELD_WEIGHTS["education"]
             if any(filters.education.lower() in s.lower() for s in edu_strings):
                 score_sum += FIELD_WEIGHTS["education"]
                 matched_fields.append("education")
 
-        cert_strings = [_fmt_certification(c) for c in (m.certifications or []) if _fmt_certification(c)]
+        cert_strings = idx.get("cert_strings", [])
         if filters.certifications:
             total_weight += FIELD_WEIGHTS["certifications"]
             if any(filters.certifications.lower() in s.lower() for s in cert_strings):
@@ -952,6 +962,8 @@ class SearchService:
         meta_text = idx.get("search_text", "")
         meta_text_tokens = idx.get("search_text_tokens", set())
         skills_tokens = idx.get("skills_tokens", set())
+        section_intervals = idx.get("section_intervals")
+        project_intervals = idx.get("project_intervals")
         raw_terms = ctx.get("raw_terms") or query.lower().split()
         query_terms = ctx.get("query_terms") or {t for t in raw_terms if t.isalnum() and len(t) > 2}
         domain_terms = ctx.get("domain_terms") or {t for t in query_terms if t in QUERY_DOMAINS}
