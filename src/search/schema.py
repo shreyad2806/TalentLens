@@ -177,6 +177,7 @@ class SearchResult(BaseModel):
         d["education_match"] = round(s.get("education", 0.0) * 100, 2)
         d["semantic_match"] = round(s.get("semantic", 0.0) * 100, 2)
         d["keyword_match"] = round(s.get("keyword", 0.0) * 100, 2)
+        d["rerank_match"] = round(self.rerank_score * 100, 2)
         d["project_match"] = round(s.get("project", 0.0) * 100, 2)
         d["match_pct"] = d["overall_match"]
         d["match_label"] = self._match_label(d["overall_match"])

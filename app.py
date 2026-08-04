@@ -628,6 +628,119 @@ def _why_matched(candidate: dict) -> list[str]:
     return reasons
 
 
+def _render_explainability_panel(candidate: dict, idx: int) -> None:
+    """Render an expandable, recruiter-friendly explanation of why a candidate matched."""
+
+    # --- Why this candidate? ---
+    st.markdown(
+        "<p style='font-weight:600; color:#F8FAFC; margin:0.6rem 0 0.35rem; font-size:0.82rem;'>Why This Candidate?</p>",
+        unsafe_allow_html=True,
+    )
+    match_details = candidate.get("match_details") or []
+    if not match_details:
+        st.caption("No specific match details available.")
+    else:
+        n_cols = 2
+        for i in range(0, len(match_details), n_cols):
+            cols = st.columns(n_cols)
+            for j, detail in enumerate(match_details[i : i + n_cols]):
+                label = html.escape(str(detail.get("label", "")))
+                value = html.escape(str(detail.get("value", "")))
+                with cols[j]:
+                    if value and value.lower() != label.lower():
+                        st.markdown(
+                            f"<p style='margin:0.05rem 0; font-size:0.74rem; color:#F8FAFC;'>"
+                            f"<span style='color:#22C55E; margin-right:0.3rem;'>✓</span>"
+                            f"<b>{label}</b>: {value}"
+                            f"</p>",
+                            unsafe_allow_html=True,
+                        )
+                    else:
+                        st.markdown(
+                            f"<p style='margin:0.05rem 0; font-size:0.74rem; color:#F8FAFC;'>"
+                            f"<span style='color:#22C55E; margin-right:0.3rem;'>✓</span>"
+                            f"<b>{label}</b>"
+                            f"</p>",
+                            unsafe_allow_html=True,
+                        )
+
+    # --- Matched resume sections ---
+    sections = [s for s in candidate.get("retrieved_sections", []) if s]
+    if sections:
+        st.markdown(
+            "<p style='font-weight:600; color:#F8FAFC; margin:0.6rem 0 0.35rem; font-size:0.82rem;'>Matched Resume Sections</p>",
+            unsafe_allow_html=True,
+        )
+        display = " • ".join(html.escape(str(s).title()) for s in sections[:6])
+        st.markdown(
+            f"<p style='margin:0; font-size:0.74rem; color:#94A3B8;'>{display}</p>",
+            unsafe_allow_html=True,
+        )
+
+    # --- Matched resume chunks ---
+    chunks = candidate.get("retrieved_chunks", [])[:3]
+    if chunks:
+        st.markdown(
+            "<p style='font-weight:600; color:#F8FAFC; margin:0.6rem 0 0.35rem; font-size:0.82rem;'>Matched Resume Chunks</p>",
+            unsafe_allow_html=True,
+        )
+        for n, chunk in enumerate(chunks, start=1):
+            section = html.escape(str(chunk.get("section") or chunk.get("source") or "Unknown"))
+            text = chunk.get("matched_text") or chunk.get("text") or chunk.get("preview") or chunk.get("content") or ""
+            text = " ".join(text.split())
+            snippet = text[:180] + "…" if len(text) > 180 else text
+            snippet = html.escape(snippet)
+            score = chunk.get("score")
+            if isinstance(score, (int, float)):
+                score_text = f"{score:.2f}"
+            else:
+                score_text = "N/A"
+            st.markdown(
+                f"<p style='margin:0.15rem 0 0.05rem; font-size:0.75rem; color:#F8FAFC;'>"
+                f"<b>Chunk {n}</b> <span style='color:#94A3B8;'>| {section}</span>"
+                f"</p>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                f"<p style='margin:0; font-size:0.72rem; color:#CBD5E1; line-height:1.35;'>"
+                f"{snippet}"
+                f"</p>",
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                f"<p style='margin:0 0 0.3rem; font-size:0.7rem; color:#94A3B8;'>Score: {score_text}</p>",
+                unsafe_allow_html=True,
+            )
+
+    # --- Ranking breakdown ---
+    st.markdown(
+        "<p style='font-weight:600; color:#F8FAFC; margin:0.6rem 0 0.35rem; font-size:0.82rem;'>Ranking Breakdown</p>",
+        unsafe_allow_html=True,
+    )
+    breakdown = [
+        ("Dense Similarity", candidate.get("semantic_match")),
+        ("Sparse Match", candidate.get("keyword_match")),
+        ("Role Match", candidate.get("role_match")),
+        ("Skill Match", candidate.get("skill_match")),
+        ("Experience Match", candidate.get("experience_match")),
+        ("Cross Encoder", candidate.get("rerank_match")),
+        ("Final Score", candidate.get("overall_match")),
+    ]
+    for label, value in breakdown:
+        if value is None or value == "N/A":
+            continue
+        if not isinstance(value, (int, float)):
+            continue
+        pct = min(1.0, max(0.0, value / 100.0))
+        st.markdown(
+            f"<p style='margin:0.05rem 0; font-size:0.72rem; color:#F8FAFC;'>"
+            f"{html.escape(label)}: <b>{value:.0f}%</b>"
+            f"</p>",
+            unsafe_allow_html=True,
+        )
+        st.progress(pct, text=None)
+
+
 cache_key = _compute_cache_key()
 
 if st.session_state.get("_bundle_cache_key") == cache_key:
@@ -880,6 +993,9 @@ with main_col:
                             if st.button("Shortlist", key=f"s_{c['id']}_{i}", use_container_width=True, type="primary", help="Save this candidate to your shortlist"):
                                 _add_to_shortlist(c)
                                 st.toast("Added to shortlist")
+
+                    with st.expander("Explainability"):
+                        _render_explainability_panel(c, i)
 
             if st.session_state.displayed_count < len(st.session_state.search_results):
                 if st.button("Load more", key="load_more", use_container_width=True, type="secondary"):
