@@ -118,6 +118,72 @@ _ROLE_FRAMEWORK_TOKENS = {
     "firebase", "heroku", "netlify", "vercel", "digitalocean", "linode",
 }
 
+# Explicit technology dictionary: raw lower phrase -> canonical display.
+# Used to keep technologies from being absorbed into generic domains.
+_TECHNOLOGIES = {
+    # Frameworks
+    "langchain": "LangChain",
+    "llamaindex": "LlamaIndex",
+    "haystack": "Haystack",
+    "fastapi": "FastAPI",
+    "fast api": "FastAPI",
+    "spring boot": "Spring Boot",
+    "springboot": "Spring Boot",
+    "react": "React",
+    "reactjs": "React",
+    "tensorflow": "TensorFlow",
+    "pytorch": "PyTorch",
+    # AI technologies
+    "rag": "RAG",
+    "embeddings": "Embeddings",
+    "vector db": "Vector DB",
+    "vector dbs": "Vector DB",
+    "vector database": "Vector DB",
+    "vector databases": "Vector DB",
+    "agents": "Agents",
+    "transformers": "Transformers",
+    "llms": "LLMs",
+    "fine-tuning": "Fine-tuning",
+    "finetuning": "Fine-tuning",
+    "fine tuning": "Fine-tuning",
+    "rlhf": "RLHF",
+    # Cloud
+    "aws": "AWS",
+    "amazon web services": "AWS",
+    "azure": "Azure",
+    "gcp": "GCP",
+    "google cloud platform": "GCP",
+    # Databases
+    "postgresql": "PostgreSQL",
+    "postgres": "PostgreSQL",
+    "mongodb": "MongoDB",
+    "mongo": "MongoDB",
+    "redis": "Redis",
+    "qdrant": "Qdrant",
+    "pinecone": "Pinecone",
+    # Programming languages
+    "python": "Python",
+    "java": "Java",
+    "go": "Go",
+    "golang": "Go",
+    "c++": "C++",
+    "cpp": "C++",
+    "rust": "Rust",
+    "typescript": "TypeScript",
+}
+
+# Configurable synonym/technology expansion map: canonical lower -> related terms.
+# Used internally to broaden dense, sparse and metadata scoring without changing
+# the user-visible query.
+_EXPANSION_MAP = {
+    "langchain": ["LLM", "OpenAI", "Prompt Engineering", "RAG", "Embeddings", "Vector Database", "Generative AI", "AI Agent"],
+    "tensorflow": ["Deep Learning"],
+    "pytorch": ["Deep Learning"],
+    "fastapi": ["REST API"],
+    "spring boot": ["Java Backend"],
+    "react": ["Frontend"],
+}
+
 
 @dataclass
 class ParsedQuery:
@@ -127,6 +193,8 @@ class ParsedQuery:
     role: str | None = None
     industry: str | None = None
     skills: list[str] = field(default_factory=list)
+    keywords: list[str] = field(default_factory=list)
+    expanded_terms: list[str] = field(default_factory=list)
     experience_min: float | None = None
     experience_max: float | None = None
     education: str | None = None
@@ -138,6 +206,7 @@ class ParsedQuery:
             "Role": self.role or "Not specified",
             "Industry": self.industry or "Not specified",
             "Skills": ", ".join(self.skills) if self.skills else "Not specified",
+            "Keywords": ", ".join(self.keywords) if self.keywords else "Not specified",
             "Experience": (
                 f"{self.experience_min:g}+ years" if self.experience_min is not None and self.experience_max is None
                 else f"{self.experience_min:g}-{self.experience_max:g} years" if self.experience_min is not None
@@ -161,7 +230,9 @@ class QueryParser:
 
         parsed.role = self._extract_role(lower)
         parsed.industry = self._extract_industry(lower, parsed.role)
-        parsed.skills = self._extract_skills(lower)
+        parsed.skills = self._extract_skills(lower, parsed.role)
+        parsed.keywords = self._extract_keywords(lower, parsed.role)
+        parsed.expanded_terms = self._expand_terms(parsed.skills, parsed.keywords)
         parsed.experience_min, parsed.experience_max = self._extract_experience(lower)
         parsed.education = self._extract_education(lower)
         parsed.location = self._extract_location(lower)
@@ -200,30 +271,106 @@ class QueryParser:
                 return _INDUSTRY_MAP[token]
         return None
 
-    def _extract_skills(self, lower: str) -> list[str]:
+    def _extract_skills(self, lower: str, role: str | None) -> list[str]:
         found: list[str] = []
         seen: set[str] = set()
+        role_lower = role.lower() if role else ""
 
-        # Multi-word taxonomy aliases and business skills first (longest match).
-        multi = [k for k in list(SkillNormalizer._MAPPING) + list(_BUSINESS_SKILLS) if " " in k]
+        # Build a combined skill alias list. Technologies first so they don't get
+        # swallowed by generic domains like "AI".
+        all_aliases = set(_TECHNOLOGIES) | set(SkillNormalizer._MAPPING) | set(_BUSINESS_SKILLS)
+
+        # Multi-word aliases first (longest match). Track character positions that
+        # are already consumed so we don't re-extract single tokens like "spring"
+        # from a matched "spring boot".
+        covered: set[int] = set()
+        multi = [k for k in all_aliases if " " in k]
         for alias in sorted(multi, key=len, reverse=True):
-            if re.search(rf"(?<![\w]){re.escape(alias)}(?![\w])", lower):
-                norm = SkillNormalizer.normalize(alias) or alias.title()
-                if norm.lower() not in seen:
-                    seen.add(norm.lower())
-                    found.append(norm)
+            pattern = re.compile(rf"(?<![\w]){re.escape(alias)}(?![\w])")
+            for match in pattern.finditer(lower):
+                if any(pos in covered for pos in range(match.start(), match.end())):
+                    continue
+                covered.update(range(match.start(), match.end()))
+                # Only add if the alias is not just the leading (role) descriptor.
+                if not role_lower.startswith(alias + " "):
+                    norm = _TECHNOLOGIES.get(alias) or SkillNormalizer.normalize(alias) or alias.title()
+                    if norm.lower() not in seen:
+                        seen.add(norm.lower())
+                        found.append(norm)
+
+        # Mask the consumed multi-word positions before scanning single tokens.
+        token_text = "".join(" " if i in covered else ch for i, ch in enumerate(lower))
 
         # Single tokens.
-        for token in re.findall(r"[a-zA-Z0-9+#./]+", lower):
+        for token in re.findall(r"[a-zA-Z0-9+#./]+", token_text):
             token = token.strip(".,")
             if token in _STOPWORDS or len(token) < 2:
                 continue
-            if token in SkillNormalizer._MAPPING or token in _BUSINESS_SKILLS:
-                norm = SkillNormalizer.normalize(token) or token.title()
-                if norm.lower() not in seen:
-                    seen.add(norm.lower())
-                    found.append(norm)
+            if token not in all_aliases:
+                continue
+            # Do not re-extract words that are part of the role phrase.
+            if role and (role_lower == token or role_lower.startswith(token + " ") or f" {token} " in f" {role_lower} " or role_lower.endswith(f" {token}")):
+                continue
+            norm = _TECHNOLOGIES.get(token) or SkillNormalizer.normalize(token) or token.title()
+            if norm.lower() not in seen:
+                seen.add(norm.lower())
+                found.append(norm)
         return found
+
+    def _extract_keywords(self, lower: str, role: str | None) -> list[str]:
+        """Return the explicit technology terms found in the query."""
+        found: list[str] = []
+        seen: set[str] = set()
+        role_lower = role.lower() if role else ""
+
+        # Multi-word technologies (longest match).
+        covered: set[int] = set()
+        for alias in sorted([k for k in _TECHNOLOGIES if " " in k], key=len, reverse=True):
+            pattern = re.compile(rf"(?<![\w]){re.escape(alias)}(?![\w])")
+            for match in pattern.finditer(lower):
+                if any(pos in covered for pos in range(match.start(), match.end())):
+                    continue
+                covered.update(range(match.start(), match.end()))
+                if not role_lower.startswith(alias + " "):
+                    norm = _TECHNOLOGIES[alias]
+                    if norm.lower() not in seen:
+                        seen.add(norm.lower())
+                        found.append(norm)
+
+        # Mask the consumed multi-word positions before scanning single tokens.
+        token_text = "".join(" " if i in covered else ch for i, ch in enumerate(lower))
+
+        # Single tokens.
+        for token in re.findall(r"[a-zA-Z0-9+#./]+", token_text):
+            token = token.strip(".,")
+            if token in _STOPWORDS or len(token) < 2:
+                continue
+            if token not in _TECHNOLOGIES:
+                continue
+            if role and (role_lower == token or role_lower.startswith(token + " ")):
+                continue
+            norm = _TECHNOLOGIES[token]
+            if norm.lower() not in seen:
+                seen.add(norm.lower())
+                found.append(norm)
+        return found
+
+    def _expand_terms(self, skills: list[str], keywords: list[str]) -> list[str]:
+        """Return related technology terms for recognized skills/keywords.
+
+        These terms are used internally to broaden dense, sparse and metadata
+        scoring; they are not surfaced in the user-visible query.
+        """
+        source_terms = list(dict.fromkeys(skills + keywords))
+        expanded: list[str] = []
+        seen: set[str] = set()
+        for term in source_terms:
+            for related in _EXPANSION_MAP.get(term.lower(), []):
+                key = related.lower()
+                if key not in seen:
+                    seen.add(key)
+                    expanded.append(related)
+        return expanded
 
     def _extract_experience(self, lower: str) -> tuple[float | None, float | None]:
         m = re.search(r"(\d+)\s*(?:\+|plus)\s*years?", lower)

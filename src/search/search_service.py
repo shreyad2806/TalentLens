@@ -526,6 +526,8 @@ class SearchService:
         if parsed.skills:
             existing = set(fd.get("skills") or [])
             existing.update(s.lower() for s in parsed.skills)
+            if parsed.expanded_terms:
+                existing.update(t.lower() for t in parsed.expanded_terms)
             fd["skills"] = sorted(existing)
         if parsed.education and not fd.get("education"):
             fd["education"] = parsed.education
@@ -537,14 +539,22 @@ class SearchService:
             fd["experience_max"] = parsed.experience_max
         filters = SearchFilters(**fd)
 
+        # Build an expanded retrieval query for dense/sparse search and metadata
+        # scoring. The original user query is preserved for display/explanation.
+        expanded_terms = parsed.expanded_terms or []
+        expanded_query = query
+        if expanded_terms:
+            expanded_query = f"{query} {' '.join(expanded_terms)}"
+
         # Precompute per-search query context once instead of inside every _score_resume loop.
-        raw_terms = query.lower().split()
+        raw_terms = expanded_query.lower().split()
         query_terms = {t for t in raw_terms if t.isalnum() and len(t) > 2}
         domain_terms = {t for t in query_terms if t in QUERY_DOMAINS}
         skill_terms = query_terms - domain_terms
         wanted_skills = _tokenize_skills(filters.skills) or skill_terms
         self._search_context = {
             "query": query,
+            "expanded_query": expanded_query,
             "raw_terms": raw_terms,
             "query_terms": query_terms,
             "domain_terms": domain_terms,
@@ -574,7 +584,7 @@ class SearchService:
             for attempt in range(3):
                 try:
                     hybrid_results = self.hybrid_service.search(
-                        query, top_k=FUSED_POOL, filters=retrieval_filters
+                        expanded_query, top_k=FUSED_POOL, filters=retrieval_filters
                     )
                     break
                 except Exception as exc:
