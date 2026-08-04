@@ -615,41 +615,48 @@ def _render_drawer(candidate: dict | None) -> None:
 
 
 def _render_performance_panel(bundle, search_service) -> None:
-    def _table(title: str, rows: dict[str, float]) -> str:
-        html_rows = ""
-        for label, ms in rows.items():
-            style = "color:#F87171; font-weight:600;" if ms > 200 else "color:#F8FAFC;"
-            html_rows += (
-                f"<tr>"
-                f"<td style='padding:0.2rem 0.5rem; color:#94A3B8; white-space:nowrap;'>{html.escape(label)}</td>"
-                f"<td style='padding:0.2rem 0.5rem; text-align:right; {style}'>{ms:.1f} ms</td>"
-                f"</tr>"
-            )
-        return (
-            f"<h5 style='margin:0.5rem 0 0.25rem 0; color:#F8FAFC; font-size:0.85rem;'>{html.escape(title)}</h5>"
-            f"<table style='width:100%; font-size:0.78rem; border-collapse:collapse;'>"
-            f"{html_rows}"
-            f"</table>"
+    """Render a professional performance analytics dashboard."""
+
+    # ── Helper: pretty card row ──
+    def _section(title: str) -> None:
+        st.markdown(
+            f"<p style='font-weight:600; color:#F8FAFC; margin:0.8rem 0 0.35rem; font-size:0.85rem;'>{html.escape(title)}</p>",
+            unsafe_allow_html=True,
         )
 
-    startup = getattr(bundle, "startup_metrics", {}) or {}
-    startup_rows = {
-        "Vector Store": startup.get("vector_store_ms", 0.0),
-        "Embedding Service Init": startup.get("embedding_service_ms", 0.0),
-        "BM25 Init": startup.get("bm25_init_ms", 0.0),
-        "BM25 Load": startup.get("bm25_load_ms", 0.0),
-        "Dense Service Init": startup.get("dense_service_ms", 0.0),
-        "Sparse Service Init": startup.get("sparse_service_ms", 0.0),
-        "Hybrid Service Init": startup.get("hybrid_service_ms", 0.0),
-        "Reranker Init": startup.get("reranker_init_ms", 0.0),
-        "Embedding Model Load": startup.get("embedding_model_load_ms", 0.0),
-        "Cross-Encoder Load": startup.get("cross_encoder_load_ms", 0.0),
-        "Total Startup": startup.get("total_ms", 0.0),
-    }
-    st.markdown(_table("Startup", startup_rows), unsafe_allow_html=True)
+    indexed = 0
+    if bundle and getattr(bundle, "bm25_index", None) and hasattr(bundle.bm25_index, "total_documents"):
+        indexed = bundle.bm25_index.total_documents
+    if not indexed and bundle and getattr(bundle, "vector_store_service", None):
+        try:
+            indexed = bundle.vector_store_service.count()
+        except Exception:
+            indexed = 0
+
+    # ── Search Summary (always visible) ──
+    query = st.session_state.get("last_query", "")
+    parsed = st.session_state.get("parsed_query", {}) or {}
+    _section("Search Summary")
+    s1, s2, s3, s4, s5, s6 = st.columns(6)
+    with s1:
+        st.metric("Query", html.escape(query[:25] + "…" if len(query) > 25 else query) or "—")
+    with s2:
+        st.metric("Parsed Role", html.escape(str(parsed.get("Role") or parsed.get("role") or "—")))
+    with s3:
+        skills = parsed.get("Skills") or parsed.get("skills") or []
+        if isinstance(skills, list):
+            skills = ", ".join(skills)
+        st.metric("Parsed Skills", html.escape(str(skills)[:25] + "…" if len(str(skills)) > 25 else str(skills)) or "—")
+    with s4:
+        st.metric("Parsed Experience", html.escape(str(parsed.get("Experience") or parsed.get("experience") or "—")))
+    with s5:
+        results = st.session_state.get("search_results", [])
+        st.metric("Matching Candidates", len(results))
+    with s6:
+        st.metric("Indexed Resumes", indexed)
 
     if not (search_service and getattr(search_service, "last_search_metrics", None)):
-        st.caption("No search has been run this session.")
+        st.caption("Run a search to see pipeline timing and retrieval analytics.")
         return
 
     m = search_service.last_search_metrics
@@ -658,20 +665,86 @@ def _render_performance_panel(bundle, search_service) -> None:
         ui_ms = (time.perf_counter() - st.session_state.last_search_end) * 1000
         m["ui_ms"] = ui_ms
 
-    search_rows = {
-        "Query Parse": m.get("query_parse_ms", 0.0),
-        "Embedding": m.get("embedding_time_ms", 0.0),
-        "Dense Retrieval": m.get("dense_retrieval_ms", 0.0),
-        "Sparse Retrieval": m.get("sparse_retrieval_ms", 0.0),
-        "Fusion": m.get("fusion_ms", 0.0),
-        "Metadata Scoring": m.get("metadata_scoring_ms", 0.0),
-        "Summary Generation": m.get("summary_ms", 0.0),
-        "Reranking": m.get("rerank_time_ms", 0.0),
-        "UI Rendering": ui_ms,
-        "Total Search": m.get("latency_ms", 0.0),
-        "Total (with UI)": m.get("latency_ms", 0.0) + ui_ms,
-    }
-    st.markdown(_table("Last Search", search_rows), unsafe_allow_html=True)
+    total_ms = max(1.0, m.get("latency_ms", 0.0) + ui_ms)
+
+    # ── Pipeline Timing ──
+    _section("Pipeline Timing")
+    timing = [
+        ("Embedding", m.get("embedding_time_ms", 0.0)),
+        ("Dense Retrieval", m.get("dense_retrieval_ms", 0.0)),
+        ("Sparse Retrieval", m.get("sparse_retrieval_ms", 0.0)),
+        ("Fusion", m.get("fusion_ms", 0.0)),
+        ("Metadata Scoring", m.get("metadata_scoring_ms", 0.0)),
+        ("Cross Encoder", m.get("rerank_time_ms", 0.0)),
+        ("Summary Generation", m.get("summary_ms", 0.0)),
+        ("UI Rendering", ui_ms),
+    ]
+    for label, ms in timing:
+        pct = min(1.0, ms / total_ms)
+        c1, c2 = st.columns([0.22, 0.78])
+        with c1:
+            st.markdown(
+                f"<p style='margin:0.05rem 0; font-size:0.73rem; color:#CBD5E1;'>{html.escape(label)}</p>"
+                f"<p style='margin:0; font-size:0.7rem; color:#94A3B8;'>{ms:.1f} ms</p>",
+                unsafe_allow_html=True,
+            )
+        with c2:
+            st.progress(pct, text=f"{pct * 100:.1f}%")
+
+    # ── Candidate Counts ──
+    _section("Candidate Counts")
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Dense Retrieved", m.get("dense_candidates", 0))
+    c2.metric("Sparse Retrieved", m.get("sparse_candidates", 0))
+    c3.metric("Fusion Candidates", m.get("rrf_candidates", 0))
+    c4.metric("Cross Encoder", m.get("cross_encoder_candidates", 0))
+    c5.metric("Returned Results", m.get("returned_candidates", 0))
+
+    # ── Cache Statistics ──
+    _section("Cache Statistics")
+    cache_rates = [
+        ("Embedding Cache", "0%"),
+        ("BM25 Cache", "0%"),
+        ("Metadata Cache", "0%"),
+        ("Cross Encoder Cache", "0%"),
+        ("Overall Hit Rate", "0%"),
+    ]
+    cols = st.columns(len(cache_rates))
+    for (label, val), col in zip(cache_rates, cols):
+        with col:
+            st.metric(label, val)
+    st.caption("Cache hit rates are not instrumented in this build.")
+
+    # ── Retrieval Statistics ──
+    _section("Retrieval Statistics")
+    if results:
+        avg_dense = sum(float(c.get("semantic_match", 0) or 0) for c in results) / len(results)
+        avg_sparse = sum(float(c.get("keyword_match", 0) or 0) for c in results) / len(results)
+        avg_fusion = sum(float(c.get("overall_match", 0) or 0) for c in results) / len(results)
+        avg_cross = sum(float(c.get("rerank_match", 0) or 0) for c in results) / len(results)
+    else:
+        avg_dense = avg_sparse = avg_fusion = avg_cross = 0.0
+    r1, r2, r3, r4 = st.columns(4)
+    r1.metric("Avg Dense Score", f"{avg_dense:.1f}")
+    r2.metric("Avg Sparse Score", f"{avg_sparse:.1f}")
+    r3.metric("Avg Fusion Score", f"{avg_fusion:.1f}")
+    r4.metric("Avg Cross Encoder Score", f"{avg_cross:.1f}")
+
+    # ── Performance Status ──
+    _section("Performance Status")
+    if total_ms < 2000:
+        status, color, emoji = "Excellent", "#22C55E", "✓"
+    elif total_ms < 5000:
+        status, color, emoji = "Good", "#F59E0B", "●"
+    else:
+        status, color, emoji = "Needs Optimization", "#F87171", "▲"
+    st.markdown(
+        f"<div style='padding:0.6rem 0.8rem; border:1px solid {color}; border-radius:8px; background:rgba({', '.join([str(int(color[i:i+2], 16)) for i in (1,3,5)])}, 0.08);'>"
+        f"<p style='margin:0; color:{color}; font-weight:600; font-size:0.9rem;'>{emoji} {status}</p>"
+        f"<p style='margin:0; color:#94A3B8; font-size:0.75rem;'>Total search + UI time: {total_ms:.1f} ms</p>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
 
 
 def _add_to_shortlist(candidate: dict) -> None:
