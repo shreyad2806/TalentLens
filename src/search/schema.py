@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from src.models import ResumeMetadata, get_display_name
 from src.normalization.role_normalizer import RoleNormalizer
 from src.normalization.skill_importance import SkillImportanceRanker
+from src.summarization.ai_summary_generator import _fallback_summary
 
 
 class SearchFilters(BaseModel):
@@ -89,65 +90,18 @@ class SearchResult(BaseModel):
         return "Weak"
 
     def _ai_summary(self, m: ResumeMetadata, top_skills: list[str]) -> str:
-        """Generate a 3-sentence recruiter-friendly summary from metadata."""
-        parts: list[str] = []
-        role = (m.primary_role or m.role or "").strip()
-        role_family = (m.role_family or "").strip()
-        key_domain = role_family or role
-
-        # Sentence 1: role + years of experience
-        if role and m.experience_years is not None and m.experience_years > 0:
-            parts.append(f"{role} with {m.experience_years:g} years of experience.")
-        elif role:
-            parts.append(f"{role} with relevant experience.")
-        elif m.experience_years is not None and m.experience_years > 0:
-            parts.append(f"Professional with {m.experience_years:g} years of experience.")
-        else:
-            parts.append("Candidate profile.")
-
-        # Sentence 2: primary technologies and technical strengths
-        if top_skills:
-            tech = [s for s in top_skills if s][:6]
-            if len(tech) == 1:
-                tech_clause = tech[0]
-            else:
-                tech_clause = ", ".join(tech[:-1]) + f" and {tech[-1]}" if len(tech) > 1 else tech[0]
-            extras: list[str] = []
-            if m.projects:
-                extras.extend([p for p in m.projects if p][:2])
-            if m.certifications:
-                extras.extend([c for c in m.certifications if c][:1])
-            if extras:
-                parts.append(f"Strong background in {tech_clause}, with experience in {' and '.join(extras)}.")
-            else:
-                parts.append(f"Strong background in {tech_clause}.")
-
-        # Sentence 3: domain expertise, notable achievements or specialization
-        if m.summary:
-            clean = re.sub(r"\s+", " ", m.summary).strip()
-            if clean:
-                if len(clean) > 120:
-                    clean = clean[:117] + "..."
-                parts.append(f"Specialized in {clean}.")
-        elif m.projects:
-            projects_list = [p for p in m.projects if p][:2]
-            if projects_list:
-                parts.append(f"Notable projects include {' and '.join(projects_list)}.")
-        elif m.certifications:
-            certs_list = [c for c in m.certifications if c][:2]
-            if certs_list:
-                parts.append(f"Certified in {' and '.join(certs_list)}.")
-        elif key_domain:
-            parts.append(f"Domain focus: {key_domain}.")
-        elif m.education and m.education[0]:
-            parts.append(f"Background includes {str(m.education[0]).strip()}.")
-        else:
-            parts.append("Relevant background for this search.")
-
-        summary = " ".join(parts)
-        if len(summary) > 280:
-            summary = summary[:277] + "..."
-        return summary
+        """Generate a concise, recruiter-written summary from metadata only."""
+        return _fallback_summary(
+            primary_role=m.primary_role,
+            role_family=m.role_family,
+            experience_years=m.experience_years,
+            skills=top_skills,
+            matched_skills=None,
+            education=m.education,
+            summary=None,
+            projects=m.projects,
+            certifications=m.certifications,
+        )
 
     def to_frontend_dict(self, evidence_offset: int = 0) -> dict[str, Any]:
         """Return a dict that is compatible with the Streamlit UI."""
@@ -162,13 +116,13 @@ class SearchResult(BaseModel):
             role_family=m.role_family,
             primary_role=m.primary_role or m.role,
         )
-        primary_skills = ranked["primary"]
-        secondary_skills = ranked["secondary"]
-        top_skills = primary_skills[:5]
-        extra_skills = max(0, len(primary_skills) - 5)
+        primary_skills = self._clean_skills(ranked["primary"], matched=matched_set)
+        secondary_skills = self._clean_skills(ranked["secondary"], matched=matched_set)
+        top_skills = (primary_skills + secondary_skills)[:5]
+        extra_skills = max(0, len(top_skills) - 4)
 
         d["id"] = m.resume_id
-        d["name"] = get_display_name(m, self.source_filename)
+        d["name"] = get_display_name(m, self.source_filename, self.resume_text)
         if m.experience_years is not None and m.experience_years > 0:
             d["experience"] = f"{m.experience_years:g} years"
         else:
@@ -187,13 +141,17 @@ class SearchResult(BaseModel):
         d["evidence_offset"] = evidence_offset
         d["resume_preview"] = self.preview
         d["resume_text"] = self.resume_text or self.preview
-        d["ai_summary"] = (self.ai_summary or self._ai_summary(m, top_skills)).strip()
+        d["ai_summary"] = self._ai_summary(m, top_skills).strip()
         d["education"] = [(e or "").strip() for e in (m.education or [])[:3] if e and e.strip()]
         d["projects"] = (m.projects or [])[:6]
         d["certifications"] = (m.certifications or [])[:6]
-        d["summary"] = (m.summary or "")[:250]
+        d["summary"] = d["ai_summary"]
         d["primary_role"] = RoleNormalizer.normalize(m.primary_role) or m.primary_role or "Role not specified"
-        d["role"] = d["primary_role"]
+        d["role"] = (
+            (RoleNormalizer.normalize(m.primary_role) or m.primary_role)
+            or (RoleNormalizer.normalize(m.role_family) or m.role_family)
+            or "Role not specified"
+        )
         d["role_family"] = m.role_family or ""
         d["seniority"] = m.seniority or ""
         d["matched_role"] = d["role"] if s.get("role", 0.0) > 0.0 else ""

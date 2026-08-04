@@ -37,6 +37,8 @@ class ResumeMetadata(BaseModel):
     phone: str | None = Field(None, description="Phone number")
     linkedin: str | None = Field(None, description="LinkedIn profile URL")
     summary: str | None = Field(None, description="Professional summary")
+    name_confidence: float = Field(0.0, ge=0.0, le=1.0, description="Confidence for the displayed candidate name")
+    name_source: str = Field("", description="Source from which the displayed name was resolved")
 
     model_config = {"extra": "ignore"}
 

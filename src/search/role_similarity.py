@@ -7,6 +7,7 @@ embeddings and can be used to rerank resumes by occupation fit.
 
 from __future__ import annotations
 
+import functools
 import re
 from typing import Any
 
@@ -193,6 +194,7 @@ class RoleSimilarityScorer:
     }
 
     @classmethod
+    @functools.lru_cache(maxsize=2048)
     def normalize(cls, role: str | None) -> str:
         """Lowercase and strip noisy punctuation from a title."""
         if not role:
@@ -292,6 +294,7 @@ class RoleSimilarityScorer:
         return best
 
     @classmethod
+    @functools.lru_cache(maxsize=4096)
     def score(cls, query_role: str | None, candidate_role: str | None) -> float:
         """Return 0-1 similarity between the query and candidate occupations."""
         if not query_role or not candidate_role:

@@ -7,9 +7,9 @@ import logging
 import os
 import re
 import sys
+import functools
 import time
 from pathlib import Path
-from typing import Any
 
 logger = logging.getLogger(__name__)
 DEBUG = os.environ.get("TALENTLENS_DEBUG", "0") == "1"
@@ -99,6 +99,7 @@ SUITABILITY_SCORE_WEIGHTS = {
 }
 
 
+@functools.lru_cache(maxsize=2048)
 def _recruiter_role_score(query_role: str | None, candidate_role: str | None) -> int:
     """Return a discrete 0-100 recruiter role similarity score.
 
@@ -136,8 +137,8 @@ def _print_retrieval_quality(results: list[SearchResult], query: str) -> None:
         return
     for r in results:
         m = r.resume_metadata
-        name = m.candidate_name or "Unknown"
-        primary_role = m.primary_role or m.role or "Unknown"
+        name = get_display_name(m, r.source_filename, r.resume_text)
+        primary_role = m.primary_role or m.role_family or "Role not specified"
         role_sim = round(r.score_breakdown.get("role", 0.0) * 100, 2)
         hybrid = round(getattr(r, "rrf_score", r.score_breakdown.get("rrf", 0.0)) * 100, 2)
         cross = round(r.score_breakdown.get("cross_encoder", 0.0) * 100, 2)
@@ -161,6 +162,44 @@ def _print_retrieval_quality(results: list[SearchResult], query: str) -> None:
 
 
 _RESUME_CACHE: dict[str, ResumeDocument] | None = None
+_PRECOMPUTED_SUMMARIES: dict[str, str] = {}
+_RESUME_INDEX: dict[str, dict[str, Any]] = {}
+
+
+def _build_resume_index(cache: dict[str, ResumeDocument]) -> dict[str, dict[str, Any]]:
+    """Precompute searchable metadata text and token sets once per resume at load."""
+    index: dict[str, dict[str, Any]] = {}
+    for doc in cache.values():
+        m = doc.resume_metadata
+        exp_parts: list[str] = []
+        for e in (m.experience or []):
+            if isinstance(e, dict):
+                exp_parts.append(" ".join(str(e.get(k, "")) for k in ("title", "company", "description")))
+            else:
+                exp_parts.append(" ".join(str(getattr(e, k, "")) for k in ("title", "company", "description")))
+        exp_text = " ".join(exp_parts)
+        proj_text = " ".join(m.projects or [])
+        edu_text = " ".join(m.education or [])
+        cert_text = " ".join(m.certifications or [])
+        skills_text = ", ".join(m.skills or [])
+        search_text = (
+            f"Work Experience\n{exp_text}\n\n"
+            f"Projects\n{proj_text}\n\n"
+            f"Skills\n{skills_text}\n\n"
+            f"Education\n{edu_text}\n\n"
+            f"Certifications\n{cert_text}\n\n"
+            f"Summary\n{m.summary or ''}"
+        )
+        search_text_lower = search_text.lower()
+        index[m.resume_id] = {
+            "search_text": search_text_lower,
+            "search_text_tokens": _tokenize_skills(search_text_lower.split()),
+            "skills_tokens": _tokenize_skills(m.skills),
+            "summary_text": (m.summary or "").lower(),
+            "project_text": proj_text.lower(),
+            "experience_years": m.experience_years or 0.0,
+        }
+    return index
 
 
 def _load_resume_cache() -> dict[str, ResumeDocument]:
@@ -202,6 +241,28 @@ def _load_resume_cache() -> dict[str, ResumeDocument]:
                 or "Other"
             )
             doc.resume_metadata.seniority = extracted.get("seniority")
+
+    # Precompute a deterministic, metadata-only summary once per resume at index load.
+    global _PRECOMPUTED_SUMMARIES
+    for doc in cache.values():
+        m = doc.resume_metadata
+        _PRECOMPUTED_SUMMARIES[m.resume_id] = generate_resume_summary(
+            resume_text="",
+            matched_text="",
+            retrieved_chunks=[],
+            primary_role=m.primary_role or m.role,
+            role_family=m.role_family,
+            experience_years=m.experience_years,
+            education=m.education or [],
+            skills=m.skills or [],
+            matched_skills=None,
+            summary=m.summary or doc.summary,
+            projects=m.projects or [],
+            certifications=m.certifications or [],
+        )
+
+    global _RESUME_INDEX
+    _RESUME_INDEX = _build_resume_index(cache)
 
     _RESUME_CACHE = cache
     return _RESUME_CACHE
@@ -398,6 +459,9 @@ class SearchService:
         self.metadata_load_time = time.perf_counter() - cache_start
         self._summary_cache: dict[str, str] = {}
         self._ai_summary_time: float = 0.0
+        self._metadata_scoring_time: float = 0.0
+        self._resume_index = _RESUME_INDEX
+        self._search_context: dict[str, Any] = {}
         self.query_parser = get_query_parser()
         self.last_parsed_query: ParsedQuery | None = None
         self.last_search_metrics: dict[str, Any] | None = None
@@ -447,6 +511,7 @@ class SearchService:
         filters = filters or SearchFilters()
         search_start = time.perf_counter()
         self._ai_summary_time = 0.0
+        self._metadata_scoring_time = 0.0
 
         # Parse the query and enrich filters with extracted intent.
         parse_start = time.perf_counter()
@@ -471,6 +536,25 @@ class SearchService:
         if parsed.experience_max is not None and fd.get("experience_max") is None:
             fd["experience_max"] = parsed.experience_max
         filters = SearchFilters(**fd)
+
+        # Precompute per-search query context once instead of inside every _score_resume loop.
+        raw_terms = query.lower().split()
+        query_terms = {t for t in raw_terms if t.isalnum() and len(t) > 2}
+        domain_terms = {t for t in query_terms if t in QUERY_DOMAINS}
+        skill_terms = query_terms - domain_terms
+        wanted_skills = _tokenize_skills(filters.skills) or skill_terms
+        self._search_context = {
+            "query": query,
+            "raw_terms": raw_terms,
+            "query_terms": query_terms,
+            "domain_terms": domain_terms,
+            "skill_terms": skill_terms,
+            "wanted_skills": wanted_skills,
+            "filter_role_lower": (filters.role or "").lower(),
+            "occupation_query": (filters.role or query).lower(),
+            "min_y": filters.experience_min or 0.0,
+            "max_y": filters.experience_max or float("inf"),
+        }
 
         # Retrieval pipeline configuration:
         #   dense top 50 + sparse top 50 → RRF fuse → rerank top 20 → return top 10
@@ -519,7 +603,7 @@ class SearchService:
         # 3. Score each resume
         scoring_start = time.perf_counter()
         scored = []
-        for resume, hybrid in pairs:
+        for resume, hybrid in pairs[:RERANK_POOL]:
             result = self._score_resume(resume, hybrid, filters, query)
             if result is None:
                 continue
@@ -558,7 +642,7 @@ class SearchService:
                 "returned_candidates": min(len(scored), top_k),
                 "query_parse_ms": parse_time * 1000,
                 "scoring_ms": scoring_time * 1000,
-                "metadata_scoring_ms": (scoring_time - self._ai_summary_time) * 1000,
+                "metadata_scoring_ms": self._metadata_scoring_time * 1000,
                 "summary_ms": self._ai_summary_time * 1000,
                 "latency_ms": (time.perf_counter() - search_start) * 1000,
                 "embedding_time_ms": hybrid_metrics.get("dense_latency", 0.0) * 1000,
@@ -659,7 +743,7 @@ class SearchService:
             audit = {
                 "rank": rank_i,
                 "candidate_id": meta.resume_id,
-                "candidate_name": get_display_name(meta, r.source_filename),
+                "candidate_name": get_display_name(meta, r.source_filename, r.resume_text),
                 "display_title": meta.role or "",
                 "primary_occupation": meta.primary_role or meta.role or "",
                 "role_family": meta.role_family or "",
@@ -716,7 +800,7 @@ class SearchService:
         print("=" * 70)
         for i, r in enumerate(top, start=1):
             meta = r.resume_metadata
-            name = get_display_name(meta, r.source_filename)
+            name = get_display_name(meta, r.source_filename, r.resume_text)
             skill_val = f"{r.score_breakdown.get('skill', 0.0):.4f}" if r.skill_match_available else "N/A"
             print(f"\n#{i} {name} (id={meta.resume_id})")
             print(f"   Overall:      {r.score_breakdown.get('overall', 0.0):.4f}")
@@ -742,11 +826,14 @@ class SearchService:
         matched_skills: list[str],
     ) -> str:
         """Generate and cache a concise recruiter-friendly summary from retrieved text."""
-        key = resume.resume_metadata.resume_id
+        m = resume.resume_metadata
+        key = m.resume_id
+        if key in _PRECOMPUTED_SUMMARIES:
+            return _PRECOMPUTED_SUMMARIES[key]
+
         if key in self._summary_cache:
             return self._summary_cache[key]
 
-        m = resume.resume_metadata
         summary_start = time.perf_counter()
         summary = generate_resume_summary(
             resume_text=resume.resume_text or "",
@@ -775,6 +862,7 @@ class SearchService:
 
         This method never reads resume.resume_text.
         """
+        _metadata_start = time.perf_counter()
         score_sum = 0.0
         total_weight = 0.0
         matched_fields: list[str] = []
@@ -806,8 +894,9 @@ class SearchService:
 
         if filters.skills:
             total_weight += FIELD_WEIGHTS["skills"]
-            resume_skills = _tokenize_skills(m.skills)
-            wanted = _tokenize_skills(filters.skills)
+            idx = self._resume_index.get(m.resume_id, {})
+            resume_skills = idx.get("skills_tokens", _tokenize_skills(m.skills))
+            wanted = (self._search_context or {}).get("wanted_skills") or _tokenize_skills(filters.skills)
             matched = resume_skills & wanted
             if matched:
                 score_sum += FIELD_WEIGHTS["skills"] * (len(matched) / len(wanted))
@@ -834,6 +923,7 @@ class SearchService:
                 matched_fields.append("source_dataset")
 
         metadata_score = score_sum / total_weight if total_weight > 0 else 1.0
+        self._metadata_scoring_time += time.perf_counter() - _metadata_start
         return metadata_score, matched_fields, edu_strings, cert_strings
 
     def _score_resume(
@@ -846,10 +936,16 @@ class SearchService:
         """Compute all scores for a single resume using a weighted Overall Match."""
         _score_resume_start = time.perf_counter()
         resume_id = resume.resume_metadata.resume_id
-        raw_terms = query.lower().split()
-        query_terms = {t for t in raw_terms if t.isalnum() and len(t) > 2}
-        domain_terms = {t for t in query_terms if t in QUERY_DOMAINS}
-        skill_terms = query_terms - domain_terms
+        m = resume.resume_metadata
+        ctx = self._search_context or {}
+        idx = self._resume_index.get(resume_id, {})
+        meta_text = idx.get("search_text", "")
+        meta_text_tokens = idx.get("search_text_tokens", set())
+        skills_tokens = idx.get("skills_tokens", set())
+        raw_terms = ctx.get("raw_terms") or query.lower().split()
+        query_terms = ctx.get("query_terms") or {t for t in raw_terms if t.isalnum() and len(t) > 2}
+        domain_terms = ctx.get("domain_terms") or {t for t in query_terms if t in QUERY_DOMAINS}
+        skill_terms = ctx.get("skill_terms") or (query_terms - domain_terms)
 
         # --- metadata filter score (precomputed metadata only) ---
         _step = _StepTimer("metadata_scoring", resume_id, extra="pure metadata")
@@ -884,16 +980,15 @@ class SearchService:
         _step.stop()
 
         # --- skill matching weighted by section (work > projects > skills > certs > education) ---
-        _step = _StepTimer("skill_scoring", resume_id, extra=f"resume_text={len(resume.resume_text or '')} chars")
+        _step = _StepTimer("skill_scoring", resume_id, extra=f"meta_text={len(meta_text)} chars")
         matched_skills: list[str] = []
-        wanted_skills = _tokenize_skills(filters.skills) or skill_terms
+        wanted_skills = ctx.get("wanted_skills") or _tokenize_skills(filters.skills) or skill_terms
         skill_match_available = bool(wanted_skills)
         if skill_match_available:
-            resume_skills = _tokenize_skills(resume.skills) if resume.skills else set()
-            text_tokens = set(re.split(r"[,;\s]+", (resume.resume_text or "").lower()))
-            matched_skills = sorted((resume_skills | text_tokens) & wanted_skills)
-            # Education mentions of a skill count far less than work-experience mentions.
-            skill_score = _section_weighted_term_score((resume.resume_text or "").lower(), wanted_skills)
+            resume_skills = skills_tokens if skills_tokens else (_tokenize_skills(resume.skills) if resume.skills else set())
+            matched_skills = sorted((resume_skills | meta_text_tokens) & wanted_skills)
+            # Score skill mentions against precomputed metadata text, never raw resume text.
+            skill_score = _section_weighted_term_score(meta_text, wanted_skills)
         else:
             skill_score = 0.0
 
@@ -906,9 +1001,9 @@ class SearchService:
         # Primary occupation is extracted from work history; the raw dataset
         # category is intentionally not used as a substitute.
         primary_role = resume.primary_role or ""
-        filter_role = (filters.role or "").lower()
+        filter_role = ctx.get("filter_role_lower") or (filters.role or "").lower()
         role_text = (primary_role or "").lower()
-        occupation_query = (filters.role or query).lower()
+        occupation_query = ctx.get("occupation_query") or (filters.role or query).lower()
 
         if filter_role and filter_role in role_text:
             # Explicit filter role is present in the candidate's primary role.
@@ -921,9 +1016,9 @@ class SearchService:
         _step.stop()
 
         # --- industry match (domain terms in resume text, weighted by section) ---
-        _step = _StepTimer("industry_scoring", resume_id, extra=f"text={len(resume.resume_text or '')} chars")
-        resume_text = (resume.resume_text or "").lower()
-        summary_text = (resume.summary or "").lower()
+        _step = _StepTimer("industry_scoring", resume_id, extra=f"text={len(meta_text)} chars")
+        resume_text = meta_text
+        summary_text = idx.get("summary_text", "")
         searchable_text = f"{resume_text} {summary_text}"
         # Weight domain mentions by section: work > projects > skills > certs > education.
         industry_score = _section_weighted_term_score(searchable_text, domain_terms)
@@ -934,11 +1029,11 @@ class SearchService:
         _step.stop()
 
         # --- experience match (query terms in resume text, weighted by section) ---
-        _step = _StepTimer("experience_scoring", resume_id, extra=f"text={len(resume.resume_text or '')} chars")
-        min_y = filters.experience_min or 0.0
-        max_y = filters.experience_max or float("inf")
+        _step = _StepTimer("experience_scoring", resume_id, extra=f"text={len(meta_text)} chars")
+        min_y = ctx.get("min_y") if "min_y" in ctx else (filters.experience_min or 0.0)
+        max_y = ctx.get("max_y") if "max_y" in ctx else (filters.experience_max or float("inf"))
         if filters.experience_min is not None or filters.experience_max is not None:
-            years = resume.experience_years or 0.0
+            years = idx.get("experience_years", resume.experience_years or 0.0)
             exp_filter_match = min_y <= years <= max_y
         else:
             exp_filter_match = False
@@ -946,14 +1041,14 @@ class SearchService:
         if exp_filter_match:
             experience_score = 1.0
         else:
-            experience_score = _section_weighted_term_score(resume_text or "", query_terms)
+            experience_score = _section_weighted_term_score(meta_text, query_terms)
 
         _step.stop()
 
         # --- project match (query terms in project descriptions) ---
         _step = _StepTimer("project_scoring", resume_id, extra=f"projects={len(resume.projects or [])}")
         project_terms = query_terms | wanted_skills | domain_terms
-        project_text = " ".join(resume.projects or []).lower()
+        project_text = idx.get("project_text", " ".join(resume.projects or []).lower())
         project_score = _section_weighted_term_score(project_text, project_terms)
 
         _step.stop()
@@ -1124,9 +1219,9 @@ class SearchService:
 
         _step.stop()
 
-        # Resume preview
-        _step = _StepTimer("preview_generation", resume_id, extra=f"resume_text={len(resume.resume_text or '')} chars")
-        preview = ResumePreviewGenerator().generate(resume)
+        # Resume preview (metadata only)
+        _step = _StepTimer("preview_generation", resume_id, extra=f"summary_len={len(m.summary or '')}")
+        preview = _PRECOMPUTED_SUMMARIES.get(resume_id) or (m.summary or "")[:300]
 
         _step.stop()
 
@@ -1142,9 +1237,9 @@ class SearchService:
         _step.stop()
 
         # --- skill section evidence for explainability ---
-        _step = _StepTimer("skill_evidence", resume_id, extra=f"skills={len(matched_skills)} text={len(resume.resume_text or '')} chars")
+        _step = _StepTimer("skill_evidence", resume_id, extra=f"skills={len(matched_skills)} text={len(meta_text)} chars")
         skill_evidence: dict[str, list[str]] = {}
-        resume_full_text = resume.resume_text or ""
+        resume_full_text = meta_text
         if resume_full_text and matched_skills:
             intervals = _get_section_intervals(resume_full_text)
             text_lower = resume_full_text.lower()

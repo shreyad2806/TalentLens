@@ -78,6 +78,9 @@ INVALID_CANDIDATE_NAMES = {
     "not provided",
     "not specified",
     "no name",
+    "technical skills",
+    "selected publications",
+    "publications",
 }
 
 # Common resume section headings that should not appear as names.
@@ -90,6 +93,110 @@ HEADING_KEYWORDS = {
     "company", "core", "qualifications", "other", "information", "name",
     "outstanding", "performer", "award", "accomplishments", "activities",
     "affiliations", "associations", "declaration", "details", "overview",
+}
+
+# Closed-class words, action verbs and job-title tokens that should not appear
+# inside a personal name.
+NON_NAME_TOKENS = {
+    # Articles / determiners / prepositions / conjunctions
+    "a", "an", "the", "and", "or", "but", "of", "in", "on", "at", "to",
+    "for", "with", "by", "from", "as", "into", "onto", "about", "above",
+    "across", "after", "against", "along", "among", "around", "before",
+    "behind", "below", "beneath", "beside", "between", "beyond", "during",
+    "except", "inside", "near", "off", "over", "since", "through", "toward",
+    "under", "until", "upon", "within", "without",
+    # Common pronouns
+    "i", "me", "my", "myself", "we", "our", "ours", "ourselves", "you",
+    "your", "yours", "yourself", "yourselves", "he", "him", "his", "himself",
+    "she", "her", "hers", "herself", "it", "its", "itself", "they", "them",
+    "their", "theirs", "themselves", "this", "that", "these", "those",
+    # Auxiliaries / common verbs
+    "am", "is", "are", "was", "were", "being", "been", "be", "have", "has",
+    "had", "do", "does", "did", "done", "will", "would", "shall", "should",
+    "may", "might", "can", "could", "must", "ought", "need", "dare", "used",
+    # Resume action / job-title words that should not appear inside a name
+    "implemented", "implement", "implements", "implementing", "implementation",
+    "developed", "develop", "develops", "developing", "development",
+    "designed", "design", "designs", "designing", "managed", "manage", "manages",
+    "managing", "management", "manager", "led", "lead", "leads", "leading",
+    "leadership", "created", "create", "creates", "creating", "creation",
+    "improved", "improve", "improves", "improving", "improvement",
+    "increased", "increase", "increases", "increasing",
+    "reduced", "reduce", "reduces", "reducing", "reduction",
+    "streamlined", "streamline", "streamlines", "streamlining",
+    "coordinated", "coordinate", "coordinates", "coordinating",
+    "supervised", "supervise", "supervises", "supervising",
+    "executed", "execute", "executes", "executing", "execution",
+    "delivered", "deliver", "delivers", "delivering",
+    "planned", "plan", "plans", "planning",
+    "organized", "organize", "organizes", "organizing",
+    "conducted", "conduct", "conducts", "conducting",
+    "performed", "perform", "performs", "performing",
+    "maintained", "maintain", "maintains", "maintaining",
+    "built", "build", "builds", "building",
+    "tested", "test", "tests", "testing",
+    "deployed", "deploy", "deploys", "deploying",
+    "launched", "launch", "launches", "launching",
+    "supported", "support", "supports", "supporting",
+    "resolved", "resolve", "resolves", "resolving",
+    "trained", "train", "trains", "training",
+    "mentored", "mentor", "mentors", "mentoring",
+    "evaluated", "evaluate", "evaluates", "evaluating",
+    "researched", "research", "researches", "researching",
+    "analyzed", "analyse", "analyzes", "analyzing", "analysis",
+    "reviewed", "review", "reviews", "reviewing",
+    "prepared", "prepare", "prepares", "preparing",
+    "generated", "generate", "generates", "generating",
+    "produced", "produce", "produces", "producing",
+    "wrote", "write", "writes", "writing", "written",
+    "edited", "edit", "edits", "editing",
+    "published", "publish", "publishes", "publishing",
+    "presented", "present", "presents", "presenting",
+    "spoke", "speak", "speaks", "speaking",
+    "program", "programs", "programming", "programmed",
+    "achieve", "achieves", "achieved", "achieving", "achievement",
+    "initiative", "initiatives", "recruitment", "recruiting", "recruited",
+    "team", "teams", "teaming", "teamwork", "stakeholder", "stakeholders",
+    "process", "processes", "processing", "procedure", "procedures",
+    "project", "projects", "projecting",
+    "engineer", "engineers", "engineering",
+    "analyst", "analysts", "analytics",
+    "developer", "developers", "development",
+    "designer", "designers",
+    "consultant", "consultants", "consulting",
+    "specialist", "specialists",
+    "coordinator", "coordinators",
+    "supervisor", "supervisors",
+    "director", "directors",
+    "executive", "executives",
+    "officer", "officers",
+    "administrator", "administrators",
+    "assistant", "assistants",
+    "intern", "interns", "internship",
+    "trainee", "trainees",
+    "professional", "professionals",
+    "expert", "experts",
+    "strategist", "strategists",
+    "architect", "architects",
+    "technician", "technicians",
+    "operator", "operators",
+    "representative", "representatives",
+    "associate", "associates",
+    "senior", "junior", "lead", "principal", "staff", "chief", "head", "vice",
+    "president",
+    # Common resume / marketing / education words that were misclassified as names
+    "brand", "branding", "brands", "awareness", "campaign", "campaigns",
+    "marketing", "sales", "provided", "provide", "provides", "providing",
+    "provision", "coaching", "coach", "coaches", "coached", "mentoring",
+    "community", "college", "university", "school", "institute", "institution",
+    "institutes", "center", "centre", "department", "hospital", "clinic",
+    "medical", "health", "care", "healthcare", "dental", "pharmacy",
+    "high", "secondary", "primary", "public", "private", "board", "committee",
+    "council", "association", "associations", "society", "societies",
+    # Generic linking / reference / closing words
+    "related", "regarding", "regards", "sincerely", "best", "kind", "thanks",
+    "thank", "cordially", "yours", "truly", "faithfully", "respectfully",
+    "dear", "issue", "issues", "attachment", "attached", "enclosed",
 }
 
 
@@ -161,6 +268,10 @@ def is_valid_candidate_name(name: Any, reason: bool = False) -> bool | tuple[boo
     heading_hits = token_set & HEADING_KEYWORDS
     if heading_hits:
         return (False, f"heading_keyword:{next(iter(heading_hits))}") if reason else False
+
+    non_name_hits = token_set & NON_NAME_TOKENS
+    if non_name_hits:
+        return (False, f"non_name_token:{next(iter(non_name_hits))}") if reason else False
 
     # At least one alphabetic token.
     if not any(re.match(r"[A-Za-z]+", t) for t in tokens):

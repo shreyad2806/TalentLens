@@ -13,6 +13,9 @@ import re
 import time
 from typing import Any
 
+from src.normalization.role_normalizer import RoleNormalizer
+from src.normalization.skill_normalizer import SkillNormalizer
+
 
 def _sentences(text: str) -> list[str]:
     """Split text into clean sentences."""
@@ -211,6 +214,17 @@ def _build_summary_prompt(
     )
 
 
+def _join_terms(terms: list[str]) -> str:
+    """Join a short list of terms with Oxford-style commas."""
+    if not terms:
+        return ""
+    if len(terms) == 1:
+        return terms[0]
+    if len(terms) == 2:
+        return f"{terms[0]} and {terms[1]}"
+    return ", ".join(terms[:-1]) + f" and {terms[-1]}"
+
+
 def _fallback_summary(
     primary_role: str | None,
     role_family: str | None,
@@ -222,71 +236,94 @@ def _fallback_summary(
     projects: list[str] | None = None,
     certifications: list[str] | None = None,
 ) -> str:
-    """Build a deterministic 3-sentence recruiter summary from metadata only.
+    """Build a concise, recruiter-written 45-60 word summary from metadata only.
 
-    Structure:
-        Sentence 1: role + years of experience
-        Sentence 2: primary technologies and technical strengths
-        Sentence 3: domain expertise, notable achievements or specialization
+    Avoids extracted resume text, license numbers, document IDs, headers, dates
+    and partial sentences.
     """
-    sentences: list[str] = []
-    display_role = primary_role or role_family
-    key_domain = role_family or display_role
+    display_role = (RoleNormalizer.normalize(primary_role) or primary_role or role_family or "Professional").strip()
+    key_domain = (role_family or display_role or "").strip()
 
-    # Sentence 1: role + years of experience
+    # Sentence 1: role + years
     if display_role and experience_years is not None and experience_years > 0:
-        sentences.append(f"{display_role} with {experience_years:g} years of experience.")
+        s1 = f"{display_role} with {experience_years:g} years of experience, including work in {key_domain}."
     elif display_role:
-        sentences.append(f"{display_role} with relevant experience.")
+        s1 = f"{display_role} with relevant {key_domain} experience."
     elif experience_years is not None and experience_years > 0:
-        sentences.append(f"Professional with {experience_years:g} years of experience.")
+        s1 = f"Professional with {experience_years:g} years of experience."
     else:
-        sentences.append("Candidate profile.")
+        s1 = "Candidate profile."
 
-    # Sentence 2: primary technologies and technical strengths
-    tech_skills = [s for s in (matched_skills or []) if s][:6]
-    if not tech_skills and skills:
-        tech_skills = [s for s in skills if s][:6]
-    if tech_skills:
-        if len(tech_skills) == 1:
-            tech_clause = tech_skills[0]
-        else:
-            tech_clause = ", ".join(tech_skills[:-1]) + f" and {tech_skills[-1]}"
-        extras: list[str] = []
-        if projects:
-            extras.extend([p for p in projects if p][:2])
-        if certifications:
-            extras.extend([c for c in certifications if c][:1])
-        if extras:
-            sentences.append(f"Strong background in {tech_clause}, with experience in {' and '.join(extras)}.")
-        else:
-            sentences.append(f"Strong background in {tech_clause}.")
+    # Clean noisy metadata before any sentence uses it
+    _bad_tokens = {
+        "university", "college", "diploma", "bachelor", "bachelors", "masters",
+        "master", "phd", "b.a", "m.a", "b.s", "m.s", "high", "school", "state",
+        "city", "graduated", "gpa", "degree", "n/a", "na",
+    }
+    _cert_keywords = re.compile(
+        r"\b(certified|certificate|certification|aws|google|azure|scrum|pmp|cpa|cfa|phr|shrm)\b",
+        re.IGNORECASE,
+    )
 
-    # Sentence 3: domain expertise, notable achievements or specialization
-    if summary:
-        clean = re.sub(r"\s+", " ", summary).strip()
-        if clean:
-            if len(clean) > 120:
-                clean = clean[:117] + "..."
-            sentences.append(f"Specialized in {clean}.")
-    elif projects:
-        projects_list = [p for p in projects if p][:2]
-        if projects_list:
-            sentences.append(f"Notable projects include {' and '.join(projects_list)}.")
-    elif certifications:
-        certs_list = [c for c in certifications if c][:2]
-        if certs_list:
-            sentences.append(f"Certified in {' and '.join(certs_list)}.")
-    elif key_domain:
-        sentences.append(f"Domain focus: {key_domain}.")
-    elif education and education[0]:
-        sentences.append(f"Background includes {str(education[0]).strip()}.")
+    def _is_clean(text: str, max_words: int = 6, max_len: int = 45) -> bool:
+        if not text:
+            return False
+        text = text.strip()
+        if len(text) > max_len or len(text.split()) > max_words:
+            return False
+        if re.search(r"\b(19|20)\d{2}\b", text):
+            return False
+        if any(tok in _bad_tokens for tok in text.lower().split() if tok):
+            return False
+        return True
+
+    projs = [p.strip() for p in (projects or []) if _is_clean(p.strip())][:2]
+    certs = [
+        c.strip()
+        for c in (certifications or [])
+        if c
+        and c.strip()
+        and _is_clean(c.strip(), max_words=4, max_len=40)
+        and _cert_keywords.search(c)
+    ][:2]
+    edu = ""
+    if education and education[0]:
+        raw = str(education[0]).strip()
+        if _is_clean(raw, max_words=5, max_len=35):
+            edu = raw
+
+    # Sentence 2: top 5 canonical skills and hands-on projects
+    tech = SkillNormalizer.normalize_list(matched_skills or skills or [])[:5]
+    if tech and projs:
+        s2 = f"Skilled in {_join_terms(tech)}, with hands-on experience building {_join_terms(projs)}, designing and deploying {key_domain} solutions end to end for business impact."
+    elif tech:
+        s2 = f"Skilled in {_join_terms(tech)}, with hands-on experience designing, building and deploying {key_domain} solutions end to end for business impact."
+    elif projs:
+        s2 = f"Experienced building {_join_terms(projs)}, designing and deploying {key_domain} solutions end to end for business impact."
     else:
-        sentences.append("Relevant background for this search.")
+        s2 = ""
 
-    final = " ".join(sentences)
-    if len(final) > 280:
-        final = final[:277] + "..."
+    # Sentence 3: certifications, education and domain focus
+    s3 = ""
+    if certs and edu:
+        s3 = f"Holds {_join_terms(certs)} with an educational background in {edu}, focused on delivering quality {key_domain} outcomes and driving long-term business value."
+    elif certs:
+        s3 = f"Holds {_join_terms(certs)}, focused on delivering quality {key_domain} outcomes and driving long-term business value."
+    elif edu:
+        s3 = f"Educational background includes {edu}, focused on delivering quality {key_domain} outcomes and driving long-term business value."
+    elif key_domain and key_domain != "Professional":
+        s3 = f"Focused on delivering quality {key_domain} outcomes and driving long-term business value."
+
+    parts = [s for s in (s1, s2, s3) if s]
+    final = " ".join(parts)
+    if not final:
+        final = "Relevant background for this search."
+
+    words = final.split()
+    if len(words) > 60:
+        final = " ".join(words[:60]).rstrip(".,;:") + "."
+    if not final.endswith((".", "?", "!")):
+        final += "."
     return final
 
 
@@ -310,25 +347,26 @@ def generate_resume_summary(
     built only from the supplied metadata and retrieved chunks.
     """
     start_time = time.perf_counter()
-    prompt = _build_summary_prompt(
-        retrieved_chunks, primary_role, role_family, experience_years, education, skills, matched_skills,
-        summary, projects, certifications,
-    )
-    answer = _call_openai(prompt)
-    if answer:
-        word_count = len(answer.split())
-        sentence_count = answer.count(".") + answer.count("?") + answer.count("!")
-        is_format_ok = (
-            1 <= sentence_count <= 3
-            and word_count <= 120
-            and "experienced in" not in answer.lower()
-            and "experienced with" not in answer.lower()
-            and "top technologies include" not in answer.lower()
-            and "domain expertise" not in answer.lower()
+    if os.environ.get("TALENTLENS_ENABLE_LLM_SUMMARY", "0") == "1":
+        prompt = _build_summary_prompt(
+            retrieved_chunks, primary_role, role_family, experience_years, education, skills, matched_skills,
+            summary, projects, certifications,
         )
-        if is_format_ok:
-            logger.info("LLM summary generated in %.3fs (%d words)", time.perf_counter() - start_time, word_count)
-            return answer
+        answer = _call_openai(prompt)
+        if answer:
+            word_count = len(answer.split())
+            sentence_count = answer.count(".") + answer.count("?") + answer.count("!")
+            is_format_ok = (
+                1 <= sentence_count <= 3
+                and word_count <= 120
+                and "experienced in" not in answer.lower()
+                and "experienced with" not in answer.lower()
+                and "top technologies include" not in answer.lower()
+                and "domain expertise" not in answer.lower()
+            )
+            if is_format_ok:
+                logger.info("LLM summary generated in %.3fs (%d words)", time.perf_counter() - start_time, word_count)
+                return answer
     summary = _fallback_summary(
         primary_role, role_family, experience_years, skills, matched_skills, education, summary, projects, certifications,
     )

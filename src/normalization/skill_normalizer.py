@@ -221,9 +221,9 @@ class SkillNormalizer:
             logger.info("Skill rejected (punctuation): %r", raw)
             return None
 
-        # 5. Keep as-is but title-case for display (preserve acronyms).
+        # 5. Keep as-is but title-case for display (preserve short acronyms).
         display = " ".join(
-            w if (w.isupper() and len(w) > 1) else w.capitalize()
+            w if (w.isupper() and 1 < len(w) <= 4) else w.capitalize()
             for w in raw.split()
         )
         logger.info("Skill kept: %r -> %r", raw, display)
